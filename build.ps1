@@ -1,0 +1,93 @@
+﻿<#
+    Copipe ビルドスクリプト
+
+    Windows 標準の csc.exe (.NET Framework 4.8) のみを使う。SDK のインストールも
+    管理者権限も不要。UI は WinForms なので XAML の埋め込みは無い。
+
+    使い方:  .\build.ps1          通常ビルド
+             .\build.ps1 -Run     ビルドして起動
+#>
+[CmdletBinding()]
+param(
+    [switch]$Run,
+    # -Debug は PowerShell の共通パラメーターと衝突するため別名にしている
+    [switch]$DebugBuild
+)
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$csc  = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+
+if (-not (Test-Path -LiteralPath $csc)) {
+    throw "csc.exe が見つかりません: $csc"
+}
+
+$outDir = Join-Path $root 'bin'
+if (-not (Test-Path -LiteralPath $outDir)) {
+    New-Item -ItemType Directory -Path $outDir | Out-Null
+}
+$outExe = Join-Path $outDir 'Copipe.exe'
+
+# --- 起動中の Copipe を終了 -----------------------------------------------
+# 常駐アプリなので起動したままだと exe がロックされ、上書きできない。
+# 強制終了するとトレイにアイコンの抜け殻が残るので、正常終了を依頼する。
+& (Join-Path $root 'tools\Stop-Copipe.ps1') -ExePath $outExe
+
+# --- ソース収集 -----------------------------------------------------------
+$sources = Get-ChildItem -Path (Join-Path $root 'src') -Recurse -Filter *.cs |
+           Select-Object -ExpandProperty FullName
+if (-not $sources) { throw 'src 配下に .cs が見つかりません' }
+
+# --- 参照アセンブリ -------------------------------------------------------
+# いずれも csc.exe と同じフォルダーにあり、既定の検索パスで解決できる。
+$refs = @(
+    'System.dll'
+    'System.Drawing.dll'
+    'System.Windows.Forms.dll'
+    'System.Runtime.Serialization.dll'   # 履歴・定型文の JSON 保存 (DataContractJsonSerializer)
+    'System.Xml.dll'                     # 定型文を字下げして書く JSON ライター (XmlDictionaryWriter) の基底クラス
+)
+
+# $args は PowerShell の自動変数なので別名を使う
+$cscArgs = @(
+    '/nologo'
+    '/target:winexe'
+    '/platform:anycpu'
+    '/langversion:5'                     # csc 4.8 は C# 5 までしか受け付けない
+    '/codepage:65001'                    # ソースは BOM なし UTF-8。既定だと ANSI (Shift-JIS) として読まれる
+    '/warnaserror-'
+    '/warn:4'
+    "/out:$outExe"
+)
+if ($DebugBuild) { $cscArgs += '/debug:full'; $cscArgs += '/define:DEBUG' } else { $cscArgs += '/optimize+' }
+$cscArgs += ($refs | ForEach-Object { "/reference:$_" })
+$cscArgs += $sources
+
+Write-Host "ビルド中: $outExe" -ForegroundColor Cyan
+Write-Host ("  ソース {0} ファイル" -f $sources.Count) -ForegroundColor DarkGray
+
+$output = & $csc @cscArgs 2>&1
+$exit = $LASTEXITCODE
+
+foreach ($line in $output) {
+    $text = [string]$line
+    if ($text -match ': error ') {
+        Write-Host $text -ForegroundColor Red
+    } elseif ($text -match ': warning ') {
+        Write-Host $text -ForegroundColor Yellow
+    } elseif ($text.Trim()) {
+        Write-Host $text
+    }
+}
+
+if ($exit -ne 0) {
+    $errCount = @($output | Where-Object { [string]$_ -match ': error ' }).Count
+    throw "ビルドに失敗しました (エラー $errCount 件 / exit $exit)"
+}
+
+Write-Host "ビルド成功: $outExe" -ForegroundColor Green
+
+if ($Run) {
+    Write-Host '起動します...' -ForegroundColor Cyan
+    Start-Process -FilePath $outExe
+}
