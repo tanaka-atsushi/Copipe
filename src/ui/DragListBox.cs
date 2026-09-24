@@ -16,6 +16,7 @@ namespace Copipe.UI
         private const int WM_LBUTTONDOWN = 0x0201;
         private const int WM_LBUTTONUP = 0x0202;
         private const int WM_CAPTURECHANGED = 0x0215;
+        private const int WM_MOUSEWHEEL = 0x020A;
         private const int MK_LBUTTON = 0x0001;
 
         private bool _pressed;
@@ -40,6 +41,12 @@ namespace Copipe.UI
 
         /// <summary>行 (位置) を返す。ドラッグを始めてよい行でなければ -1 を返させる。</summary>
         public Func<Point, int> DraggableRowAt { get; set; }
+
+        /// <summary>
+        /// ホイールが回されたとき。引数は回した量 (上へ +、下へ -。1 ノッチが 120)。
+        /// 一覧はスクロールしない (ホイールは小窓のモードの切り替えに使う)。
+        /// </summary>
+        public event Action<int> WheelTurned;
 
         /// <summary>ドラッグを始めたとき。引数は行の位置。</summary>
         public event Action<int> DragBegan;
@@ -71,6 +78,16 @@ namespace Copipe.UI
         {
             switch (m.Msg)
             {
+                case WM_MOUSEWHEEL:
+                {
+                    Action<int> wheel = WheelTurned;
+                    if (wheel != null)
+                    {
+                        wheel((short)((m.WParam.ToInt64() >> 16) & 0xFFFF));
+                        return;
+                    }
+                    break;
+                }
                 case WM_LBUTTONDOWN:
                 {
                     SuppressClick = false;

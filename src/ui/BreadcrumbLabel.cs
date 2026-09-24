@@ -7,7 +7,7 @@ namespace Copipe.UI
 {
     /// <summary>
     /// 小窓の見出しの左側。今いる階層を「定型文 > 社外 > 挨拶」のように出す。
-    /// 階層名ごとの位置が分かるので、ドラッグした項目を階層名に落とせる。
+    /// 階層名ごとの位置が分かるので、クリックでその階層へ移動でき、ドラッグした項目を階層名に落とせる。
     /// Text には全体 (区切りを含む) を入れておく (検証ハーネスが読む)。
     /// </summary>
     internal sealed class BreadcrumbLabel : Label
@@ -44,6 +44,50 @@ namespace Copipe.UI
                     Invalidate();
                 }
             }
+        }
+
+        /// <summary>
+        /// 階層名がクリックされたとき。引数は階層の番号 (0 が一番上)。
+        /// 今いる階層 (右端) のクリックでは出さない。
+        /// </summary>
+        public event Action<int> SegmentClicked;
+
+        // 左ボタンを押した階層名 (押していなければ -1)
+        private int _pressedSegment = -1;
+
+        /// <summary>
+        /// 同じ階層名の上で押して離したら、クリックとして扱う。
+        /// WinForms の MouseClick は、短い間隔で続けたクリックをダブルクリックの 2 回目とみなして出さないので使わない
+        /// (階層名を続けてクリックすると 2 回目が効かなかった。E2E で実測)。
+        /// </summary>
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            _pressedSegment = e.Button == MouseButtons.Left ? SegmentAt(e.Location) : -1;
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            int pressed = _pressedSegment;
+            _pressedSegment = -1;
+            if (e.Button != MouseButtons.Left || pressed < 0 || SegmentAt(e.Location) != pressed)
+            {
+                return;
+            }
+            Action<int> handler = SegmentClicked;
+            if (pressed < _segments.Count - 1 && handler != null)
+            {
+                handler(pressed);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            // 移動できる階層名 (今いる階層より上) の上では、指の形にする
+            int segment = SegmentAt(e.Location);
+            Cursor = (segment >= 0 && segment < _segments.Count - 1) ? Cursors.Hand : Cursors.Default;
         }
 
         /// <summary>その位置 (この部品の中の座標) にある階層名の番号。無ければ -1。</summary>

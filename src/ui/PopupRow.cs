@@ -16,6 +16,7 @@ namespace Copipe.UI
     {
         public const string EmptyText = "（空き）";
         public const string GroupMark = "📁 ";
+        public const string PinMark = "📌";
 
         public PopupRow(PopupRowKind kind, string text)
         {
@@ -27,6 +28,9 @@ namespace Copipe.UI
 
         /// <summary>項目なら全文、グループなら名前。空きでは使わない。</summary>
         public string Text { get; private set; }
+
+        /// <summary>ピン止めした履歴の項目か (一覧の上部に番号なしで出し、右端に 📌 を付ける)。</summary>
+        public bool IsPinned { get; set; }
 
         /// <summary>
         /// 一覧に見せる文字列。ListBox はこれを項目の文字列として持つので、
@@ -41,7 +45,7 @@ namespace Copipe.UI
                 case PopupRowKind.Empty:
                     return EmptyText;
                 default:
-                    return Text;
+                    return IsPinned ? PinMark + " " + Text : Text;
             }
         }
     }

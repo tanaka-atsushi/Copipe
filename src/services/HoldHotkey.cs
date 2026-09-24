@@ -55,6 +55,11 @@ namespace Copipe.Services
         public bool TryRegister(Keys keys)
         {
             Unregister();
+            if ((keys & Keys.KeyCode) == Keys.None)
+            {
+                // ホットキーを使わない設定 (ダブルタップだけで小窓を出す)
+                return true;
+            }
 
             uint modifiers = NativeMethods.MOD_NOREPEAT;
             if ((keys & Keys.Control) == Keys.Control) { modifiers |= NativeMethods.MOD_CONTROL; }

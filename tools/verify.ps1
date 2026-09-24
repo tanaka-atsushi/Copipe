@@ -8,6 +8,8 @@
     PowerShell 7 は .NET 8 のため、この 4.8 向けアセンブリの検証には使わない。
 
     実行:  powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1
+           E2E を片方だけ:  ... -E2E History (履歴モード) / -E2E Phrases (定型文モード)
+           E2E を省く:      ... -SkipE2E (マウスとキーボードを使わない。数秒で終わる)
 
     注意:
       - クリップボードを書き換える (元がテキストなら最後に戻す)
@@ -21,6 +23,10 @@
 param(
     # E2E (exe を起動してキー入力を送る部分) を省略する
     [switch]$SkipE2E,
+    # E2E のうち流す部分。All (既定) / History (履歴モード) / Phrases (定型文モード)。
+    # マウスとキーボードを使わない検証 1〜5 は、どれでも流す (数秒で終わる)
+    [ValidateSet('All', 'History', 'Phrases')]
+    [string]$E2E = 'All',
     # 指定すると、E2E で表示中の小窓を撮影して PNG で保存する (見た目の確認用)
     [string]$ScreenshotPath
 )
@@ -42,6 +48,10 @@ Add-Type -AssemblyName System.Windows.Forms
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     throw 'クリップボードを操作するため STA で実行してください (powershell.exe の既定は STA)。'
 }
+
+# 前に途中で止まった検証が、利用者の設定・履歴・定型文を書き換えたままなら、先に元へ戻す
+# (戻さずに始めると、検証用の中身を「利用者のもの」として退避してしまう)
+& (Join-Path $root 'tools\Restore-CopipeData.ps1') -ExePath $exe
 
 # ハーネス用の Win32 API
 Add-Type -Namespace CopipeVerify -Name Native -MemberDefinition @'
@@ -106,19 +116,43 @@ namespace CopipeVerify
             }
             int count = (int)result.ToUInt32();
             List<string> items = new List<string>();
-            for (int i = 0; i < count; i++)
+            // LB_GETTEXT は受け取る側の大きさを見ずに書き込む。長さを聞いてから読むまでの間に一覧が作り直されて
+            // 長い行に変わると、はみ出して PowerShell ごと落ちる (実測)。行の長さの上限 (履歴 1 件の上限 10 万文字 +
+            // 📌 などの印) より十分大きい領域を使い回し、それより長い行は読まない
+            const int BufferChars = 262144;
+            IntPtr buffer = Marshal.AllocHGlobal(BufferChars * 2);
+            try
             {
-                if (SendMessageTimeout(listBox, 0x018A /* LB_GETTEXTLEN */, new IntPtr(i), IntPtr.Zero, SMTO_ABORTIFHUNG, 2000, out result) == IntPtr.Zero)
+                for (int i = 0; i < count; i++)
                 {
-                    return null;
+                    if (SendMessageTimeout(listBox, 0x018A /* LB_GETTEXTLEN */, new IntPtr(i), IntPtr.Zero, SMTO_ABORTIFHUNG, 2000, out result) == IntPtr.Zero)
+                    {
+                        return null;
+                    }
+                    // 読んでいる途中で一覧が作り直されると LB_ERR (-1) が返る。そのときは読めなかったことにする
+                    ulong length = result.ToUInt64();
+                    if (length >= BufferChars)
+                    {
+                        return null;
+                    }
+                    UIntPtr copied;
+                    if (SendMessageTimeoutW(listBox, 0x0189 /* LB_GETTEXT */, new IntPtr(i), buffer, SMTO_ABORTIFHUNG, 2000, out copied) == IntPtr.Zero ||
+                        copied.ToUInt64() >= BufferChars)
+                    {
+                        return null;
+                    }
+                    items.Add(Marshal.PtrToStringUni(buffer, (int)copied.ToUInt64()));
                 }
-                StringBuilder sb = new StringBuilder((int)result.ToUInt32() + 1);
-                UIntPtr copied;
-                SendMessageTimeout(listBox, 0x0189 /* LB_GETTEXT */, new IntPtr(i), sb, SMTO_ABORTIFHUNG, 2000, out copied);
-                items.Add(sb.ToString());
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
             }
             return items.ToArray();
         }
+        // 文字列を受け取る先を IntPtr で渡すときは、Unicode 版を明示する (既定の ANSI 版では Shift_JIS で返る)
+        [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW")]
+        private static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out UIntPtr result);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc proc, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr lParam);
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -143,6 +177,8 @@ namespace CopipeVerify
         public static void LeftUp() { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); }
         /// <summary>カーソルを動かし、マウスが動いたという入力も送る (ドラッグ中の WM_MOUSEMOVE を確実に出す)。</summary>
         public static void MoveMouse(int x, int y) { SetCursorPos(x, y); mouse_event(0x0001 /* MOVE */, 0, 0, 0, UIntPtr.Zero); }
+        /// <summary>マウスのホイールを回す (delta: 上へ +120、下へ -120 が 1 ノッチ)。</summary>
+        public static void Wheel(int delta) { mouse_event(0x0800 /* WHEEL */, 0, 0, unchecked((uint)delta), UIntPtr.Zero); }
         public static void RightClick() { mouse_event(0x0008 /* RIGHTDOWN */, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0010 /* RIGHTUP */, 0, 0, 0, UIntPtr.Zero); }
         [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
         [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
@@ -648,7 +684,7 @@ try {
         $parsed = $K::None
         Check '読み戻し: VK 番号を読める' ($HT::TryParse('VK232', [ref]$parsed) -and $parsed -eq $unknown) "parsed=$parsed"
         $parsed = $K::None
-        Check '読み戻し: 修飾キー付きの VK 番号を読める' ($HT::TryParse('Ctrl+VK232', [ref]$parsed) -and $parsed -eq ($K::Control -bor $unknown)) "parsed=$parsed"
+        Check '読み戻し: 修飾キー付きは使えないので false (Ctrl+VK232)' (-not $HT::TryParse('Ctrl+VK232', [ref]$parsed)) "parsed=$parsed"
         foreach ($badVk in 'VK', 'VK0', 'VK999', 'VKxyz') {
             $parsed = $K::None
             Check "読み戻し: 不正な VK 番号 '$badVk' は false" (-not $HT::TryParse($badVk, [ref]$parsed))
@@ -656,14 +692,10 @@ try {
         $parsed = $K::None
         Check '読み戻し: 使えないキー (半角/全角) は false' (-not $HT::TryParse($HT::ToSetting($zenkakuOff), [ref]$parsed)) "setting=[$($HT::ToSetting($zenkakuOff))] parsed=$parsed"
 
-        # 押しかけ (修飾キーだけを押している途中) の表示
-        Check '押しかけの表示: Ctrl だけなら Ctrl+…' ($HT::DisplayPending($K::Control -bor $K::ControlKey) -ceq 'Ctrl+…') "got=$($HT::DisplayPending($K::Control -bor $K::ControlKey))"
-        Check '押しかけの表示: 修飾キーが無ければ … だけ' ($HT::DisplayPending($K::None) -ceq '…')
-
         # 設定ファイルに書く形式と、その読み戻し
         Check '保存形式: F1' ($HT::ToSetting($K::F1) -ceq 'F1')
         Check '保存形式: Ctrl+Space' ($HT::ToSetting($K::Control -bor $K::Space) -ceq 'Ctrl+Space')
-        foreach ($keys in @($K::F1, ($K::Control -bor $K::Space), $K::IMENonconvert, ($K::Control -bor $K::Shift -bor $K::IMENonconvert), $K::Oem3)) {
+        foreach ($keys in @($K::F1, $K::Pause, $K::IMENonconvert, $K::Oem3)) {
             $text = $HT::ToSetting($keys)
             $parsed = $K::None
             $ok = $HT::TryParse($text, [ref]$parsed)
@@ -679,7 +711,10 @@ try {
 
         # ホットキーにできるキーかどうか (修飾キー単独は RegisterHotKey で登録できない)
         Check '妥当性: F1 は使える' $HT::IsValid($K::F1)
-        Check '妥当性: Ctrl+Space は使える' $HT::IsValid($K::Control -bor $K::Space)
+        # 修飾キー (Ctrl・Shift・Alt) との組み合わせは使えない (モードキーと同じ)
+        foreach ($withModifier in ($K::Control -bor $K::Space), ($K::Alt -bor $K::A), ($K::Shift -bor $K::F2), ($K::Control -bor $K::Alt -bor $K::F9)) {
+            Check "妥当性: 修飾キー付きの $withModifier は使えない" (-not $HT::IsValid($withModifier))
+        }
         Check '妥当性: 無変換は使える' $HT::IsValid($K::IMENonconvert)
         # 数字キーは、小窓の一覧から選ぶために使うのでホットキーにはできない
         foreach ($digit in $K::D1, $K::D0, $K::NumPad5, ($K::Control -bor $K::D1)) {
@@ -701,12 +736,18 @@ try {
         $loaded = $S::Load($path)
         Check '読み込み: ファイルが無ければ既定 (F1)' ($loaded.Hotkey -eq $S::DefaultHotkey -and $S::DefaultHotkey -eq $K::F1) "got=$($loaded.Hotkey)"
 
-        $loaded.Hotkey = $K::Control -bor $K::Space
+        $loaded.Hotkey = $K::F2
         $loaded.Save($path)
         Check '保存: フォルダーが無ければ作る' (Test-Path -LiteralPath $path)
-        Check '保存: 内容は Hotkey=Ctrl+Space の行を含む' ((Get-Content -LiteralPath $path -Raw) -match 'Hotkey\s*=\s*Ctrl\+Space')
+        Check '保存: 内容は Hotkey=F2 の行を含む' ((Get-Content -LiteralPath $path -Raw) -match 'Hotkey\s*=\s*F2')
         Check '保存: メモ帳で開けるよう UTF-8 BOM 付き' ((([IO.File]::ReadAllBytes($path))[0..2] -join ',') -eq '239,187,191')
-        Check '読み込み: 保存した値が戻る' ($S::Load($path).Hotkey -eq ($K::Control -bor $K::Space))
+        Check '読み込み: 保存した値が戻る' ($S::Load($path).Hotkey -eq $K::F2)
+
+        # 前の版で保存した修飾キー付きのホットキーは、既定に戻す (修飾キーだけ外すと、そのキーが全アプリで打てなくなるため)
+        foreach ($legacy in 'Ctrl+Space', 'Alt+A', 'Win+J', 'Ctrl+Shift+F13') {
+            Set-Content -LiteralPath $path -Value "Hotkey=$legacy" -Encoding UTF8
+            Check "読み込み: 修飾キー付きの $legacy が書かれていたら既定 (F1) に戻す" ($S::Load($path).Hotkey -eq $S::DefaultHotkey) "got=$($S::Load($path).Hotkey)"
+        }
 
         Set-Content -LiteralPath $path -Value "# コメント`r`n`r`n   Hotkey = 無変換ではない何か   `r`n" -Encoding UTF8
         Check '読み込み: 読めない値なら既定に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
@@ -723,26 +764,13 @@ try {
         [IO.File]::WriteAllBytes($path, [byte[]](0, 1, 2, 3, 255))
         Check '読み込み: 壊れたファイルでも例外にせず既定に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
 
-        # 履歴の保持数
-        Check '保持数: 既定は 10' ($S::DefaultHistoryCount -eq 10)
-        Check '保持数: 範囲は 1〜50' ($S::MinHistoryCount -eq 1 -and $S::MaxHistoryCount -eq 50)
-        Check '保持数: ファイルが無ければ既定' ($S::Load((Join-Path $settingsDir 'none.ini')).HistoryCount -eq 10)
-
-        $saved = New-Object Copipe.Services.Settings
-        $saved.Hotkey = $K::F1
-        $saved.HistoryCount = 25
-        $saved.Save($path)
-        Check '保持数: 保存して読み戻せる' ($S::Load($path).HistoryCount -eq 25) "got=$($S::Load($path).HistoryCount)"
-        Check '保持数: 保存した内容に HistoryCount の行がある' ((Get-Content -LiteralPath $path -Raw) -match 'HistoryCount\s*=\s*25')
-
-        foreach ($bad in '0', '51', 'abc', '') {
-            Set-Content -LiteralPath $path -Value "Hotkey=F1`r`nHistoryCount=$bad" -Encoding UTF8
-            Check "保持数: 範囲外や読めない値 '$bad' は既定に戻す" ($S::Load($path).HistoryCount -eq 10) "got=$($S::Load($path).HistoryCount)"
-        }
-        Set-Content -LiteralPath $path -Value "Hotkey=F1`r`nHistoryCount=1" -Encoding UTF8
-        Check '保持数: 下限の 1 は読める' ($S::Load($path).HistoryCount -eq 1)
-        Set-Content -LiteralPath $path -Value "Hotkey=F1`r`nHistoryCount=50" -Encoding UTF8
-        Check '保持数: 上限の 50 は読める' ($S::Load($path).HistoryCount -eq 50)
+        # 履歴の保持数は 10 件に固定 (設定には無い)。前の版の HistoryCount の行は読み捨て、保存し直すと消える
+        Check '保持数: 設定に HistoryCount は無い' ($null -eq [Copipe.Services.Settings].GetProperty('HistoryCount'))
+        Set-Content -LiteralPath $path -Value "Hotkey=F2`r`nHistoryCount=50" -Encoding UTF8
+        $old = $S::Load($path)
+        Check '保持数: 前の版の HistoryCount の行があっても読める' ($old.Hotkey -eq $K::F2)
+        $old.Save($path)
+        Check '保持数: 保存し直すと HistoryCount の行は消える' ((Get-Content -LiteralPath $path -Raw) -notmatch 'HistoryCount')
 
         # 貼り付けの操作 (ダブルクリック / シングルクリック)
         $IC = [Copipe.Services.InsertClick]
@@ -776,11 +804,203 @@ try {
             Check "モードキー: 使えない値 '$bad' は既定 (Tab) に戻す" ($S::Load($path).ModeKey -eq $K::Tab) "got=$($S::Load($path).ModeKey)"
         }
         Check 'モードキーの妥当性: Tab・F2・Space は使える' ($HT::IsValidModeKey($K::Tab) -and $HT::IsValidModeKey($K::F2) -and $HT::IsValidModeKey($K::Space))
-        Check 'モードキーの妥当性: 修飾キー付き (Ctrl+Tab) は使えない (ホットキーの修飾キーは自動で付く)' (-not $HT::IsValidModeKey($K::Control -bor $K::Tab))
+        Check 'モードキーの妥当性: 修飾キー付き (Ctrl+Tab) は使えない' (-not $HT::IsValidModeKey($K::Control -bor $K::Tab))
         Check 'モードキーの妥当性: 数字キー・修飾キーだけ・半角/全角は使えない' (-not $HT::IsValidModeKey($K::D1) -and -not $HT::IsValidModeKey($K::ShiftKey) -and -not $HT::IsValidModeKey([System.Windows.Forms.Keys]0xF4))
         Check 'モードキーとホットキーの重なり: F1 と F1 は重なる' $HT::ConflictsWithHotkey($K::F1, $K::F1)
-        Check 'モードキーとホットキーの重なり: Ctrl+Space と Space は重なる' $HT::ConflictsWithHotkey(($K::Control -bor $K::Space), $K::Space)
+        Check 'モードキーとホットキーの重なり: Space と Space は重なる' $HT::ConflictsWithHotkey($K::Space, $K::Space)
         Check 'モードキーとホットキーの重なり: F1 と Tab は重ならない' (-not $HT::ConflictsWithHotkey($K::F1, $K::Tab))
+
+        # ---- 起動方法の「なし」と、修飾キーのダブルタップ ----
+        Check 'ダブルタップ: 既定は なし' ($S::Load((Join-Path $settingsDir 'none.ini')).DoubleTap -eq $K::None)
+        foreach ($pair in @(@('Ctrl', $K::ControlKey), @('Shift', $K::ShiftKey), @('Alt', $K::Menu))) {
+            $saved4 = New-Object Copipe.Services.Settings
+            $saved4.DoubleTap = $pair[1]
+            $saved4.Save($path)
+            Check "ダブルタップ: $($pair[0]) を保存して読み戻せる (DoubleTap=$($pair[0]))" (((Get-Content -LiteralPath $path -Raw) -match "DoubleTap=$($pair[0])") -and $S::Load($path).DoubleTap -eq $pair[1]) "got=$($S::Load($path).DoubleTap)"
+        }
+        foreach ($bad in 'Win', 'A', 'Ctrl+Shift', 'abc', '') {
+            Set-Content -LiteralPath $path -Value "DoubleTap=$bad" -Encoding UTF8
+            Check "ダブルタップ: 使えない値 '$bad' は なし に戻す" ($S::Load($path).DoubleTap -eq $K::None) "got=$($S::Load($path).DoubleTap)"
+        }
+        Set-Content -LiteralPath $path -Value "DoubleTap=ctrl" -Encoding UTF8
+        Check 'ダブルタップ: 大文字小文字は区別しない' ($S::Load($path).DoubleTap -eq $K::ControlKey)
+        $saved5 = New-Object Copipe.Services.Settings
+        $saved5.Hotkey = $K::None
+        $saved5.DoubleTap = $K::ShiftKey
+        $saved5.Save($path)
+        Check 'ホットキー なし: Hotkey=None と書き、読み戻せる' (((Get-Content -LiteralPath $path -Raw) -match 'Hotkey=None') -and $S::Load($path).Hotkey -eq $K::None -and $S::Load($path).DoubleTap -eq $K::ShiftKey) "got=$($S::Load($path).Hotkey)"
+        Set-Content -LiteralPath $path -Value "Hotkey=None`r`nDoubleTap=None" -Encoding UTF8
+        Check 'ホットキーもダブルタップも なし なら、開けなくならないようホットキーを既定 (F1) に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey -and $S::Load($path).DoubleTap -eq $K::None) "hotkey=$($S::Load($path).Hotkey)"
+        Set-Content -LiteralPath $path -Value "Hotkey=None" -Encoding UTF8
+        Check 'ホットキー なし で、ダブルタップの行も無ければ、ホットキーを既定 (F1) に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
+        Check 'ダブルタップに使えるキー: Ctrl・Shift・Alt (左右も)' ($HT::IsValidDoubleTap($K::ControlKey) -and $HT::IsValidDoubleTap($K::ShiftKey) -and $HT::IsValidDoubleTap($K::Menu) -and $HT::IsValidDoubleTap($K::LControlKey) -and $HT::IsValidDoubleTap($K::RMenu))
+        Check 'ダブルタップに使えないキー: Windows キー・A・なし' (-not $HT::IsValidDoubleTap($K::LWin) -and -not $HT::IsValidDoubleTap($K::A) -and -not $HT::IsValidDoubleTap($K::None))
+        Check 'ダブルタップの左右: 右 Ctrl は Ctrl にそろえる' ($HT::NormalizeModifier($K::RControlKey) -eq $K::ControlKey -and $HT::NormalizeModifier($K::LMenu) -eq $K::Menu -and $HT::NormalizeModifier($K::RShiftKey) -eq $K::ShiftKey)
+        Check 'ダブルタップの表示名: Ctrl・Shift・Alt' ($HT::DoubleTapDisplay($K::ControlKey) -ceq 'Ctrl' -and $HT::DoubleTapDisplay($K::ShiftKey) -ceq 'Shift' -and $HT::DoubleTapDisplay($K::Menu) -ceq 'Alt')
+
+        # ダブルタップの判定 (時刻は ms。1 回目は 300 ms 以内に離し、離してから 400 ms 以内に 2 回目を押す)
+        $E = [Copipe.Services.DoubleTapEvent]
+        function Invoke-Taps([System.Windows.Forms.Keys]$Target, [object[]]$Steps) {
+            $tr = New-Object Copipe.Services.DoubleTapTracker $Target
+            $events = @()
+            foreach ($st in $Steps) { $events += $tr.Feed($st[0], $st[1], [long]$st[2]) }
+            return ,$events
+        }
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 200), @($K::LControlKey, $true, 700), @($K::LControlKey, $false, 1500))
+        Check 'ダブルタップ判定: トン・トーンで 2 回目を押したとき Pressed、キーリピートは無視、離すと Released' (($ev -join ',') -ceq 'None,None,Pressed,None,Released') "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::C, $true, 30), @($K::C, $false, 60), @($K::LControlKey, $false, 90), @($K::LControlKey, $true, 200), @($K::C, $true, 230))
+        Check 'ダブルタップ判定: Ctrl+C を 2 回では起動しない' (@($ev | Where-Object { $_ -eq $E::Pressed }).Count -eq 0) "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 600))
+        Check 'ダブルタップ判定: 離してから 400 ms を過ぎた 2 回目では起動しない' ($ev[2] -eq $E::None) "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 500), @($K::LControlKey, $true, 600))
+        Check 'ダブルタップ判定: 1 回目を長く押していたら (300 ms 超) 起動しない' ($ev[2] -eq $E::None) "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::RControlKey, $true, 200), @($K::RControlKey, $false, 900))
+        Check 'ダブルタップ判定: 左 Ctrl → 右 Ctrl でも起動する (左右を区別しない)' (($ev -join ',') -ceq 'None,None,Pressed,Released') "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LShiftKey, $true, 120), @($K::LShiftKey, $false, 150), @($K::LControlKey, $true, 200))
+        Check 'ダブルタップ判定: 間に別の修飾キー (Shift) を挟むと起動しない' ($ev[4] -eq $E::None) "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ShiftKey @(@($K::LShiftKey, $true, 0), @($K::LShiftKey, $false, 80), @($K::LShiftKey, $true, 200), @($K::D1, $true, 300), @($K::D1, $false, 350), @($K::LShiftKey, $false, 900))
+        Check 'ダブルタップ判定: 押し続けている間の数字キーでは取り消さず、離したとき Released' (($ev -join ',') -ceq 'None,None,Pressed,None,None,Released') "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 200), @($K::LControlKey, $false, 250), @($K::LControlKey, $true, 330))
+        Check 'ダブルタップ判定: 3 回目は新しい 1 回目として数える (続けて起動しない)' (($ev -join ',') -ceq 'None,None,Pressed,Released,None') "got=$($ev -join ',')"
+        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $false, 0), @($K::LControlKey, $true, 50), @($K::LControlKey, $false, 100), @($K::LControlKey, $true, 200))
+        Check 'ダブルタップ判定: 見張り始めたときに押されていたキーの「離す」は無視する' (($ev -join ',') -ceq 'None,None,None,Pressed') "got=$($ev -join ',')"
+    }
+
+    # ==========================================================================
+    Section '検証 3b: 設定画面のキーの取り込み (SettingsDialog)' {
+    # ==========================================================================
+        # 設定画面を開き、キーが押されたときの処理 (ProcessCmdKey・OnKeyUp) を、押されたときと同じ引数で直接呼ぶ。
+        # 本物のキー入力は送らない (Windows や他のアプリが先に受け取る組み合わせも確かめられるように。
+        # マウスとキーボードは使わない)。画面には設定画面が一瞬出る
+        $K = [System.Windows.Forms.Keys]
+        $F = [Reflection.BindingFlags]'Public,NonPublic,Instance'
+        # SettingsDialog は internal なので、型は exe から名前で取り出して作る
+        $DT = [Copipe.UI.HotkeyText].Assembly.GetType('Copipe.UI.SettingsDialog', $true)
+        function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode, [System.Windows.Forms.Keys]$DoubleTap = [System.Windows.Forms.Keys]::None) {
+            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $DoubleTap, $Mode, [Copipe.Services.InsertClick]::Double), $null)
+            $d.StartPosition = 'Manual'
+            $d.Location = New-Object System.Drawing.Point 200, 150
+            $d.Show()
+            [System.Windows.Forms.Application]::DoEvents()
+            return $d
+        }
+        function Get-DialogField($d, [string]$Name) { return $DT.GetField($Name, $F).GetValue($d) }
+        function Send-DialogKey($d, [string]$Box, [System.Windows.Forms.Keys]$KeyData) {
+            $d.ActiveControl = Get-DialogField $d $Box
+            $msg = [System.Windows.Forms.Message]::Create($d.Handle, 0x0100, [IntPtr]([int]($KeyData -band $K::KeyCode)), [IntPtr]::Zero)
+            [void]$DT.GetMethod('ProcessCmdKey', $F).Invoke($d, [object[]]@($msg, $KeyData))
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        function Send-DialogKeyUp($d, [System.Windows.Forms.Keys]$Key) {
+            $e = New-Object System.Windows.Forms.KeyEventArgs $Key
+            [void]$DT.GetMethod('OnKeyUp', $F).Invoke($d, [object[]]@($e.PSObject.BaseObject))
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        function Get-DialogState($d) {
+            $note = Get-DialogField $d '_note'
+            return @{ Box = (Get-DialogField $d '_hotkeyBox').Text; Mode = (Get-DialogField $d '_modeKeyBox').Text; Note = $note.Text
+                      Tap = (Get-DialogField $d '_doubleTapBox').Text; DoubleTap = $d.SelectedDoubleTap
+                      Red = ($note.ForeColor.ToArgb() -ne [System.Drawing.SystemColors]::GrayText.ToArgb()); Ok = (Get-DialogField $d '_ok').Enabled
+                      Hotkey = $d.SelectedHotkey; ModeKey = $d.SelectedModeKey }
+        }
+
+        # ホットキーの欄
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            $s = Get-DialogState $d
+            Check '設定画面: 開いたときは今のホットキー (Pause) が出て、OK を押せる' ($s.Box -ceq 'Pause' -and $s.Ok) "box=$($s.Box) ok=$($s.Ok)"
+            Send-DialogKey $d '_hotkeyBox' ($K::Control -bor $K::Space); $s = Get-DialogState $d
+            Check '設定画面: Ctrl+Space を押すと、修飾キーを外して Space になる' ($s.Box -ceq 'Space' -and $s.Hotkey -eq $K::Space -and $s.Ok -and -not $s.Red) "box=$($s.Box) hotkey=$($s.Hotkey) note=$($s.Note)"
+            Send-DialogKey $d '_hotkeyBox' ($K::Alt -bor $K::A); $s = Get-DialogState $d
+            Check '設定画面: Alt+A を押すと A になる' ($s.Box -ceq 'A' -and $s.Hotkey -eq $K::A) "box=$($s.Box)"
+            Send-DialogKey $d '_hotkeyBox' ($K::Control -bor $K::Shift -bor $K::F9); $s = Get-DialogState $d
+            Check '設定画面: Ctrl+Shift+F9 を押すと F9 になる' ($s.Box -ceq 'F9' -and $s.Hotkey -eq $K::F9) "box=$($s.Box)"
+            foreach ($only in ($K::Control -bor $K::ControlKey), ($K::Shift -bor $K::ShiftKey), ($K::Alt -bor $K::Menu), $K::LWin) {
+                Send-DialogKey $d '_hotkeyBox' $only; $s = Get-DialogState $d
+                Check "設定画面: 修飾キーだけ ($($only -band $K::KeyCode)) を押しても何も変わらない" ($s.Box -ceq 'F9' -and $s.Hotkey -eq $K::F9 -and $s.Ok -and -not $s.Red) "box=$($s.Box) ok=$($s.Ok) note=$($s.Note)"
+            }
+            Send-DialogKey $d '_hotkeyBox' ($K::Control -bor $K::D1); $s = Get-DialogState $d
+            Check '設定画面: 数字キー (Ctrl+1) は理由を赤字で出し、OK を押せない' ($s.Box -ceq '1' -and $s.Red -and -not $s.Ok -and $s.Note -like '*数字キー*ホットキーにはできません*') "box=$($s.Box) ok=$($s.Ok) note=$($s.Note)"
+            Send-DialogKeyUp $d $K::D1; $s = Get-DialogState $d
+            Check '設定画面: 使えないキーを離すと、選ばれていたキー (F9) の表示に戻り、OK を押せる' ($s.Box -ceq 'F9' -and $s.Ok -and $s.Hotkey -eq $K::F9) "box=$($s.Box) ok=$($s.Ok)"
+            Send-DialogKey $d '_hotkeyBox' ([System.Windows.Forms.Keys]0xF3); $s = Get-DialogState $d
+            Check '設定画面: 半角/全角 は離したことを判定できない理由を赤字で出す' ($s.Red -and -not $s.Ok -and $s.Note -like '*離したことを判定できない*') "note=$($s.Note)"
+            $note = Get-DialogField $d '_note'
+            $need = [System.Windows.Forms.TextRenderer]::MeasureText($note.Text, $note.Font, (New-Object System.Drawing.Size $note.Width, 0), [System.Windows.Forms.TextFormatFlags]'WordBreak').Height
+            Check '設定画面: 赤字の説明が欄に収まる (切れない)' ($need -le $note.Height) "need=$need height=$($note.Height)"
+            Send-DialogKeyUp $d ([System.Windows.Forms.Keys]0xF3)
+            Send-DialogKey $d '_hotkeyBox' $K::Tab; $s = Get-DialogState $d
+            Check '設定画面: モードキーと同じキー (Tab) にすると、重なっている理由を出し OK を押せない' ($s.Red -and -not $s.Ok -and $s.Note -like '*同じキーは使えません*') "ok=$($s.Ok) note=$($s.Note)"
+            Send-DialogKey $d '_hotkeyBox' $K::F2; $s = Get-DialogState $d
+            Check '設定画面: 別のキー (F2) にすると重なりが解け、OK を押せる' ($s.Box -ceq 'F2' -and $s.Ok -and -not $s.Red) "ok=$($s.Ok) note=$($s.Note)"
+        } finally { $d.Close(); $d.Dispose() }
+
+        # モードキーの欄 (ホットキーと同じ決まり)
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            Send-DialogKey $d '_modeKeyBox' ($K::Shift -bor $K::Tab); $s = Get-DialogState $d
+            Check '設定画面: モードキーで Shift+Tab を押すと Tab になる' ($s.Mode -ceq 'Tab' -and $s.ModeKey -eq $K::Tab -and $s.Ok) "mode=$($s.Mode)"
+            Send-DialogKey $d '_modeKeyBox' ($K::Control -bor $K::F3); $s = Get-DialogState $d
+            Check '設定画面: モードキーで Ctrl+F3 を押すと F3 になる' ($s.Mode -ceq 'F3' -and $s.ModeKey -eq $K::F3) "mode=$($s.Mode)"
+            Send-DialogKey $d '_modeKeyBox' ($K::Control -bor $K::ControlKey); $s = Get-DialogState $d
+            Check '設定画面: モードキーで Ctrl だけを押しても何も変わらない' ($s.Mode -ceq 'F3' -and $s.Ok) "mode=$($s.Mode)"
+            Send-DialogKey $d '_modeKeyBox' $K::NumPad5; $s = Get-DialogState $d
+            Check '設定画面: モードキーでテンキーの 5 は「モードキーにはできません」と出す' ($s.Red -and -not $s.Ok -and $s.Note -like '*モードキーにはできません*') "note=$($s.Note)"
+            Send-DialogKeyUp $d $K::NumPad5
+            Send-DialogKey $d '_modeKeyBox' $K::Pause; $s = Get-DialogState $d
+            Check '設定画面: モードキーをホットキーと同じキー (Pause) にすると OK を押せない' (-not $s.Ok -and $s.Note -like '*同じキーは使えません*') "note=$($s.Note)"
+        } finally { $d.Close(); $d.Dispose() }
+
+        # 起動方法の「なし」と、ダブルタップの欄
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            $s = Get-DialogState $d
+            Check '設定画面: ダブルタップの既定は（なし）' ($s.Tap -ceq '（なし）' -and $s.DoubleTap -eq $K::None) "tap=$($s.Tap)"
+            Send-DialogKey $d '_doubleTapBox' ($K::Control -bor $K::ControlKey); $s = Get-DialogState $d
+            Check '設定画面: ダブルタップの欄で Ctrl を押すと Ctrl になる' ($s.Tap -ceq 'Ctrl' -and $s.DoubleTap -eq $K::ControlKey -and $s.Ok -and -not $s.Red) "tap=$($s.Tap) note=$($s.Note)"
+            Send-DialogKey $d '_doubleTapBox' ($K::Shift -bor $K::RShiftKey); $s = Get-DialogState $d
+            Check '設定画面: 右 Shift でも Shift になる' ($s.Tap -ceq 'Shift' -and $s.DoubleTap -eq $K::ShiftKey) "tap=$($s.Tap)"
+            Send-DialogKey $d '_doubleTapBox' $K::A; $s = Get-DialogState $d
+            Check '設定画面: ダブルタップの欄で A を押すと、使えるキーを赤字で案内し OK を押せない' ($s.Red -and -not $s.Ok -and $s.Note -like '*Ctrl・Shift・Alt*') "note=$($s.Note)"
+            Send-DialogKeyUp $d $K::A; $s = Get-DialogState $d
+            Check '設定画面: A を離すと Shift の表示に戻る' ($s.Tap -ceq 'Shift' -and $s.Ok) "tap=$($s.Tap)"
+            Send-DialogKey $d '_doubleTapBox' ($K::Alt -bor $K::Menu); $s = Get-DialogState $d
+            Check '設定画面: Alt を選ぶとメニューバーの注意を出す (OK は押せる)' ($s.Tap -ceq 'Alt' -and $s.DoubleTap -eq $K::Menu -and $s.Ok -and $s.Note -like '*メニューバー*') "note=$($s.Note)"
+            (Get-DialogField $d '_hotkeyClear').PerformClick(); [System.Windows.Forms.Application]::DoEvents(); $s = Get-DialogState $d
+            Check '設定画面: ホットキーの「なし」で（なし）になる (ダブルタップがあるので OK を押せる)' ($s.Box -ceq '（なし）' -and $s.Hotkey -eq $K::None -and $s.Ok) "box=$($s.Box) ok=$($s.Ok) note=$($s.Note)"
+            (Get-DialogField $d '_doubleTapClear').PerformClick(); [System.Windows.Forms.Application]::DoEvents(); $s = Get-DialogState $d
+            Check '設定画面: 両方「なし」にすると理由を出し、OK を押せない' ($s.Tap -ceq '（なし）' -and -not $s.Ok -and $s.Red -and $s.Note -like '*どちらかを設定*') "tap=$($s.Tap) ok=$($s.Ok) note=$($s.Note)"
+            $note = Get-DialogField $d '_note'
+            $need = [System.Windows.Forms.TextRenderer]::MeasureText($note.Text, $note.Font, (New-Object System.Drawing.Size $note.Width, 0), [System.Windows.Forms.TextFormatFlags]'WordBreak').Height
+            Check '設定画面: 両方なしの理由が欄に収まる' ($need -le $note.Height) "need=$need height=$($note.Height)"
+            Send-DialogKey $d '_hotkeyBox' $K::F9; $s = Get-DialogState $d
+            Check '設定画面: ホットキーを設定し直すと OK を押せる' ($s.Box -ceq 'F9' -and $s.Ok) "ok=$($s.Ok)"
+            (Get-DialogField $d '_hotkeyClear').PerformClick()
+            Send-DialogKey $d '_doubleTapBox' ($K::Control -bor $K::LControlKey)
+            Send-DialogKey $d '_doubleTapBox' $K::Enter
+            Check '設定画面: ホットキーなし・ダブルタップ Ctrl で確定できる' ($d.DialogResult -eq 'OK' -and $d.SelectedHotkey -eq $K::None -and $d.SelectedDoubleTap -eq $K::ControlKey) "result=$($d.DialogResult) hotkey=$($d.SelectedHotkey) tap=$($d.SelectedDoubleTap)"
+        } finally { $d.Dispose() }
+        $d = New-Dialog $K::None $K::Tab $K::ShiftKey
+        try {
+            $s = Get-DialogState $d
+            Check '設定画面: ホットキーなしで開くと（なし）と出る' ($s.Box -ceq '（なし）' -and $s.Tap -ceq 'Shift' -and $s.Ok) "box=$($s.Box) tap=$($s.Tap)"
+        } finally { $d.Close(); $d.Dispose() }
+
+        # 確定と取り消し
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            Send-DialogKey $d '_hotkeyBox' ($K::Alt -bor $K::F7)
+            Send-DialogKey $d '_hotkeyBox' $K::Enter
+            Check '設定画面: Enter で確定して閉じる (選んだのは F7)' ($d.DialogResult -eq 'OK' -and $d.SelectedHotkey -eq $K::F7) "result=$($d.DialogResult) hotkey=$($d.SelectedHotkey)"
+        } finally { $d.Dispose() }
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            Send-DialogKey $d '_hotkeyBox' $K::D5
+            Send-DialogKey $d '_hotkeyBox' $K::Enter
+            Check '設定画面: 使えないキー (5) を表示している間は Enter で閉じない' ($d.Visible -and $d.DialogResult -eq 'None') "result=$($d.DialogResult)"
+            Send-DialogKey $d '_hotkeyBox' $K::Escape
+            Check '設定画面: Esc で取り消して閉じる' ($d.DialogResult -eq 'Cancel') "result=$($d.DialogResult)"
+        } finally { $d.Dispose() }
     }
 
     # ==========================================================================
@@ -792,6 +1012,8 @@ try {
 
         Check '保存先の既定は %LOCALAPPDATA%\Copipe\history.json' ($H::DefaultPath -ceq (Join-Path $env:LOCALAPPDATA 'Copipe\history.json')) "got=$($H::DefaultPath)"
 
+        # 小窓で履歴に振れる番号 (1〜9、0) と同じ 10 件だけ残す (設定では変えられない)
+        Check '保持数: 10 件に固定 (番号 1〜9、0 と同じ数)' ($H::MaxItems -eq 10 -and $H::MaxItems -eq [Copipe.UI.ItemNumber]::Count)
         $h = New-Object Copipe.Services.ClipboardHistory 10
         Check '最初は空' ($h.Items.Count -eq 0)
 
@@ -854,6 +1076,64 @@ try {
         $h = New-Object Copipe.Services.ClipboardHistory 10
         $h.Save($historyPath)
         Check '保存: 空でも保存できる' ($H::Load($historyPath, 10).Items.Count -eq 0)
+
+        # ---- ピン止め ----
+        $h = New-Object Copipe.Services.ClipboardHistory 3
+        foreach ($t in 'a', 'b', 'c') { [void]$h.Add($t) }
+        Check 'ピン止め: 最初は無い' ($h.Pinned.Count -eq 0)
+        Check 'ピン止め: 普通の履歴の項目をピン止めできる' ($h.Pin('b') -and ($h.Pinned -join ',') -ceq 'b' -and ($h.Items -join ',') -ceq 'c,a') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check 'ピン止め: 新しくピン止めしたものがピン止めの先頭' ($h.Pin('a') -and ($h.Pinned -join ',') -ceq 'a,b') "pinned=$($h.Pinned -join ',')"
+        Check 'ピン止め: 同じものをもう一度ピン止めしても変わらない' ((-not $h.Pin('a')) -and ($h.Pinned -join ',') -ceq 'a,b')
+        Check 'ピン止め: 履歴に無いものはピン止めしない' ((-not $h.Pin('無い')) -and $h.Pinned.Count -eq 2)
+        foreach ($t in 'd', 'e', 'f', 'g') { [void]$h.Add($t) }
+        Check 'ピン止め: 保持数に数えない (普通の履歴は 3 件まで、ピン止めは残る)' (($h.Items -join ',') -ceq 'g,f,e' -and ($h.Pinned -join ',') -ceq 'a,b') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check 'ピン止め: ピン止めした内容をまたコピーしても増えず、位置も変わらない' ((-not $h.Add('b')) -and ($h.Items -join ',') -ceq 'g,f,e' -and ($h.Pinned -join ',') -ceq 'a,b')
+        Check 'ピン止め: Contains はピン止めも見る' ($h.Contains('b') -and $h.Contains('g') -and -not $h.Contains('c'))
+        Check 'ピン止めを外す: 普通の履歴の先頭に戻り、保持数を超えた分は古いものから捨てる' ($h.Unpin('b') -and ($h.Pinned -join ',') -ceq 'a' -and ($h.Items -join ',') -ceq 'b,g,f') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check 'ピン止めを外す: ピン止めに無いものは何もしない' ((-not $h.Unpin('g')) -and ($h.Items -join ',') -ceq 'b,g,f')
+        $h.Clear()
+        Check '消去: 普通の履歴だけ消し、ピン止めは残る' ($h.Items.Count -eq 0 -and ($h.Pinned -join ',') -ceq 'a')
+        $h.Capacity = 1
+        Check '保持数を減らしても、ピン止めは残る' (($h.Pinned -join ',') -ceq 'a')
+
+        # 並べ替え (ドラッグ＆ドロップ)。ピン止めはピン止めの中、普通の履歴は普通の履歴の中だけで動かす
+        $h = New-Object Copipe.Services.ClipboardHistory 10
+        foreach ($t in 'i4', 'i3', 'i2', 'i1') { [void]$h.Add($t) }
+        foreach ($t in 'p3', 'p2', 'p1') { [void]$h.PinText($t) }
+        Check '並べ替え: (準備) ピン止め p1,p2,p3 / 履歴 i1,i2,i3,i4' ((($h.Pinned -join ',') -ceq 'p1,p2,p3') -and (($h.Items -join ',') -ceq 'i1,i2,i3,i4'))
+        Check '並べ替え: ピン止めを上へ移すと、間のものは 1 つずつ下がる' ($h.Move('p3', 0) -and ($h.Pinned -join ',') -ceq 'p3,p1,p2') "pinned=$($h.Pinned -join ',')"
+        Check '並べ替え: ピン止めを下へ移す' ($h.Move('p3', 2) -and ($h.Pinned -join ',') -ceq 'p1,p2,p3') "pinned=$($h.Pinned -join ',')"
+        Check '並べ替え: 普通の履歴を上へ移す (ピン止めは変わらない)' ($h.Move('i4', 0) -and ($h.Items -join ',') -ceq 'i4,i1,i2,i3' -and ($h.Pinned -join ',') -ceq 'p1,p2,p3') "items=$($h.Items -join ',')"
+        Check '並べ替え: 普通の履歴を下へ移す' ($h.Move('i4', 2) -and ($h.Items -join ',') -ceq 'i1,i2,i4,i3') "items=$($h.Items -join ',')"
+        Check '並べ替え: 同じ位置なら何も変わらない' ((-not $h.Move('i1', 0)) -and ($h.Items -join ',') -ceq 'i1,i2,i4,i3')
+        Check '並べ替え: 範囲の外には移さない' ((-not $h.Move('i1', 4)) -and (-not $h.Move('i1', -1)) -and (-not $h.Move('p1', 3)) -and ($h.Items -join ',') -ceq 'i1,i2,i4,i3' -and ($h.Pinned -join ',') -ceq 'p1,p2,p3')
+        Check '並べ替え: 無い内容は何もしない' ((-not $h.Move('無い', 0)) -and (-not $h.Move($null, 0)))
+
+        # 定型文から履歴にピン止めする (履歴に無い内容でもピン止めできる)
+        $h = New-Object Copipe.Services.ClipboardHistory 3
+        foreach ($t in 'a', 'b') { [void]$h.Add($t) }
+        [void]$h.Pin('a')
+        Check '定型文のピン止め: 履歴に無い内容はピン止めの先頭に加わる' ($h.PinText('定型') -and ($h.Pinned -join ',') -ceq '定型,a' -and ($h.Items -join ',') -ceq 'b') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check '定型文のピン止め: 普通の履歴にある内容は、そこから移る' ($h.PinText('b') -and ($h.Pinned -join ',') -ceq 'b,定型,a' -and $h.Items.Count -eq 0) "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check '定型文のピン止め: ピン止め済みの内容は、ピン止めの先頭へ移る (増えない)' ($h.PinText('a') -and ($h.Pinned -join ',') -ceq 'a,b,定型') "pinned=$($h.Pinned -join ',')"
+        Check '定型文のピン止め: 先頭と同じなら何も変わらない' ((-not $h.PinText('a')) -and ($h.Pinned -join ',') -ceq 'a,b,定型')
+        Check '定型文のピン止め: 空の内容はピン止めしない' ((-not $h.PinText('')) -and (-not $h.PinText($null)) -and $h.Pinned.Count -eq 3)
+        Check '定型文のピン止め: 長すぎる内容はピン止めしない (コピーと同じ上限)' ((-not $h.PinText(('x' * ($H::MaxTextLength + 1)))) -and $h.Pinned.Count -eq 3)
+
+        $h = New-Object Copipe.Services.ClipboardHistory 10
+        foreach ($t in 'p1', 'p2', 'x', 'y') { [void]$h.Add($t) }
+        [void]$h.Pin('p1'); [void]$h.Pin('p2')
+        $h.Save($historyPath)
+        $loaded = $H::Load($historyPath, 10)
+        Check 'ピン止め: 保存して読み戻せる (順番も)' (($loaded.Pinned -join ',') -ceq 'p2,p1' -and ($loaded.Items -join ',') -ceq 'y,x') "pinned=$($loaded.Pinned -join ',') items=$($loaded.Items -join ',')"
+        $loaded = $H::Load($historyPath, 1)
+        Check 'ピン止め: 保持数より多くても、ピン止めは全部読む' ($loaded.Pinned.Count -eq 2 -and $loaded.Items.Count -eq 1)
+        Set-Content -LiteralPath $historyPath -Encoding UTF8 -Value '{"Items":["x","y"]}'
+        $loaded = $H::Load($historyPath, 10)
+        Check 'ピン止め: Pinned の無い前の形式の history.json も読める' ($loaded.Pinned.Count -eq 0 -and ($loaded.Items -join ',') -ceq 'x,y')
+        Set-Content -LiteralPath $historyPath -Encoding UTF8 -Value '{"Items":["x","p","y"],"Pinned":["p","","p","q"]}'
+        $loaded = $H::Load($historyPath, 10)
+        Check 'ピン止め: 空・重複は捨て、普通の履歴と重なった内容はピン止めを優先して読む' (($loaded.Pinned -join ',') -ceq 'p,q' -and ($loaded.Items -join ',') -ceq 'x,y') "pinned=$($loaded.Pinned -join ',') items=$($loaded.Items -join ',')"
     }
 
     try {
@@ -1135,6 +1415,9 @@ try {
     Section '検証 6: E2E (bin\Copipe.exe を起動してホットキーを擬似入力)' {
     # ==========================================================================
         if ($SkipE2E) { Info '-SkipE2E が指定されたので省略'; return }
+        $runHistory = ($E2E -ne 'Phrases')
+        $runPhrases = ($E2E -ne 'History')
+        if ($E2E -ne 'All') { Info "-E2E ${E2E}: $(if ($runHistory) { '履歴モード' } else { '定型文モード' }) の E2E だけ流す" }
 
         $W = [CopipeVerify.Win]
         $stopScript = Join-Path $root 'tools\Stop-Copipe.ps1'
@@ -1143,12 +1426,12 @@ try {
 
         # 設定ファイルにホットキーを書き、ハーネスが擬似入力するキーもそれに合わせる
         # 貼り付けの操作は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
-        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [int]$HistoryCount = 0, [string]$InsertClick = 'Double') {
+        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double', [System.Windows.Forms.Keys]$DoubleTap = [System.Windows.Forms.Keys]::None) {
             $settings = [Copipe.Services.Settings]::Load([Copipe.Services.Settings]::DefaultPath)
             $settings.Hotkey = $Keys
-            if ($HistoryCount -gt 0) { $settings.HistoryCount = $HistoryCount }
             $settings.InsertClick = [Copipe.Services.InsertClick]$InsertClick
             $settings.ModeKey = [System.Windows.Forms.Keys]::Tab
+            $settings.DoubleTap = $DoubleTap
             $settings.Save([Copipe.Services.Settings]::DefaultPath)
             $script:hotkeyKeys = $Keys
             $script:hotkeyName = [Copipe.UI.HotkeyText]::Display($Keys)
@@ -1313,6 +1596,14 @@ try {
         # 起動中の Copipe を終了 (二重起動にならないように)
         & $stopScript -ExePath $exe
 
+        # 途中で止められても戻せるよう、退避の前に「まだ戻していない」印を書く。
+        # 印には、各ファイルが検証の前にあったかを書いておく (tools\Restore-CopipeData.ps1 が読む)
+        $pendingMarker = Join-Path $tempDir 'restore-pending.txt'
+        $markerLines = foreach ($pair in @(@('settings', [Copipe.Services.Settings]::DefaultPath), @('history', [Copipe.Services.ClipboardHistory]::DefaultPath), @('phrases', [Copipe.Services.PhraseBook]::DefaultPath))) {
+            '{0}={1}' -f $pair[0], $(if (Test-Path -LiteralPath $pair[1]) { 'present' } else { 'absent' })
+        }
+        Set-Content -LiteralPath $pendingMarker -Value $markerLines -Encoding ASCII
+
         # 設定ファイルと履歴を書き換えるので、利用者のものを退避しておく
         $settingsPath = [Copipe.Services.Settings]::DefaultPath
         $settingsBackup = $null
@@ -1347,6 +1638,7 @@ try {
             $mainHotkey = Find-UsableHotkey @([Copipe.Services.Settings]::DefaultHotkey, $K::F2, $K::F13, $K::F9, $K::Pause)
             Check '(準備) 登録できて擬似入力も届くホットキーが見つかる' ($null -ne $mainHotkey)
             if ($null -eq $mainHotkey) { return }
+            if ($runHistory) {   # ---- ここから履歴の E2E (起動・表示位置・二重起動・設定したホットキー) ----
             Use-Hotkey $mainHotkey
             $app = Start-Process -FilePath $exe -PassThru
             $null = $app.Handle   # 終了コードを後で読むため (Windows PowerShell の Process の癖)
@@ -1462,14 +1754,9 @@ try {
             if ($app.HasExited) { Check '終了: 終了コードは 0' ($app.ExitCode -eq 0) "exit=$($app.ExitCode)" }
 
             # ---- 設定ファイルで指定した別のホットキーで動くか ----
-            # 他のアプリが使っているキー (例: このマシンでは Ctrl+Space が別のアプリに登録済み) や、
-            # 擬似入力が横取りされるキーは避ける
-            $chosen = Find-UsableHotkey @(
-                ($K::Control -bor $K::Shift -bor $K::Space),
-                ($K::Control -bor $K::F13),
-                ($K::Alt -bor $K::F13),
-                $K::F13
-            )
+            # 既定 (F1) と違うキーを選ぶ。他のアプリが使っているキーや、擬似入力が横取りされるキーは避ける
+            # (ホットキーは修飾キーを付けられないので、単独のキーから選ぶ)
+            $chosen = Find-UsableHotkey @(@($K::F13, $K::F14, $K::F9, $K::Pause) | Where-Object { $_ -ne [Copipe.Services.Settings]::DefaultHotkey })
             Check '(準備) 変更先に使える空きホットキーが見つかる' ($null -ne $chosen)
             if ($null -eq $chosen) { return }
             Use-Hotkey $chosen
@@ -1507,13 +1794,14 @@ try {
             }
             [void]$W::PostMessage($popup, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
             [void]$app.WaitForExit(5000)
+            }
 
             # ---- クリップボードの履歴 ----
             # ここまでの検証でコピーした目印が残っているので、空の履歴から始める。
             # Copipe は起動時に今のクリップボードも拾うので、クリップボードも空にしておく
             if (Test-Path -LiteralPath $historyPath) { Remove-Item -LiteralPath $historyPath -Force }
             Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
-            Use-Hotkey $mainHotkey -HistoryCount 10
+            Use-Hotkey $mainHotkey
 
             # 履歴を確かめるために Copipe を起動し、小窓の一覧を読む
             function Start-Copipe {
@@ -1548,6 +1836,7 @@ try {
                 [void]$Copipe.Process.WaitForExit(5000)
             }
 
+            if ($runHistory) {   # 履歴の E2E
             [void]$W::SetCursorPos($center.X, $center.Y)
             $copipe = Start-Copipe
             $app = $copipe.Process
@@ -1578,23 +1867,15 @@ try {
                     $items = Read-History $copipe
                     Check '履歴: 終了して起動し直しても残っている' ($items.Count -eq 3 -and $items[0] -ceq 'あ 1件目') "got=[$($items -join '] [')]"
 
-                    Stop-Copipe $copipe
-                    Use-Hotkey $mainHotkey -HistoryCount 2
-                    $copipe = Start-Copipe
-                    $app = $copipe.Process
-                    $popup = $copipe.Popup
-                    if ($popup -ne [IntPtr]::Zero) {
-                        $items = Read-History $copipe
-                        Check '履歴: 保持数を 2 にすると新しい 2 件だけになる' ($items.Count -eq 2 -and $items[0] -ceq 'あ 1件目' -and $items[1] -ceq 'う 3件目') "got=[$($items -join '] [')]"
-                    }
                 }
+            }
             }
             if ($app -and -not $app.HasExited) { Stop-Copipe $copipe }
 
             # ---- ダブルクリックで、テキストカーソルの位置に入力する ----
             if (Test-Path -LiteralPath $historyPath) { Remove-Item -LiteralPath $historyPath -Force }
             Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
-            Use-Hotkey $mainHotkey -HistoryCount 10
+            Use-Hotkey $mainHotkey
             $copipe = Start-Copipe
             $app = $copipe.Process
             $popup = $copipe.Popup
@@ -1639,6 +1920,7 @@ try {
                     [void](Wait-Pumping { $false } 100)
                     Check '(準備) 入力先が前面になった' ($W::GetForegroundWindow() -eq $target.Handle)
 
+                    if ($runHistory) {   # 履歴の E2E: ダブルクリックでの入力
                     # 小窓が入力先に重ならないよう、入力先から離れた位置でホットキーを押す
                     [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
                     Invoke-HotkeyPress
@@ -1677,6 +1959,7 @@ try {
                     $again = Read-History $copipe
                     Check '入力: 入力した項目は履歴の先頭に移動しない' ($again.Count -eq 3 -and $again[0] -ceq $insertItems[2] -and $again[1] -ceq $insertItems[1]) ("items=" + (Format-Items $again))
 
+                    }
                     # 入力先のテキストを「前:」に戻し、テキストカーソルを末尾に置く
                     function Reset-Target {
                         $box.Text = '前:'
@@ -1699,6 +1982,7 @@ try {
                         return $result
                     }
 
+                    if ($runHistory) {   # 履歴の E2E: ダブル / シングルクリックの切り替え
                     # ダブルクリックの設定 (既定) では、シングルクリックでは入力しない
                     Reset-Target
                     $text = Test-ClickInsert 0
@@ -1706,7 +1990,7 @@ try {
 
                     # シングルクリックの設定に切り替えて起動し直す (履歴はファイルから読み戻される)
                     Stop-Copipe $copipe
-                    Use-Hotkey $mainHotkey -HistoryCount 10 -InsertClick Single
+                    Use-Hotkey $mainHotkey -InsertClick Single
                     $copipe = Start-Copipe
                     $app = $copipe.Process
                     $popup = $copipe.Popup
@@ -1731,17 +2015,18 @@ try {
                         Check '貼り付けの操作 (シングルクリック): うっかりダブルクリックしても入力は 1 回だけ' ($text -ceq ('前:' + $insertItems[0])) ("text=[" + $text + "]")
                     }
 
+                    }
                     # ---- 数字キーで選んで入力する (1〜9、0。10 件目が 0) ----
                     Stop-Copipe $copipe
                     if (Test-Path -LiteralPath $historyPath) { Remove-Item -LiteralPath $historyPath -Force }
                     Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
-                    Use-Hotkey $mainHotkey -HistoryCount 20
+                    Use-Hotkey $mainHotkey
                     $copipe = Start-Copipe
                     $app = $copipe.Process
                     $popup = $copipe.Popup
                     Check '数字キー: 起動できる' ($popup -ne [IntPtr]::Zero)
                     if ($popup -ne [IntPtr]::Zero) {
-                        # 11 件貯める。新しい順なので、一覧の 1 件目は「数字キー検証 11」、10 件目は「数字キー検証 02」
+                        # 11 件コピーする。履歴は 10 件までなので「数字キー検証 01」は消え、一覧の 1 件目は「数字キー検証 11」、10 件目は「数字キー検証 02」
                         for ($n = 1; $n -le 11; $n++) {
                             Set-ClipboardText (('数字キー検証 {0:D2}' -f $n))
                             Start-Sleep -Milliseconds 400
@@ -1750,6 +2035,7 @@ try {
                         $W::LeftClick()
                         [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                         Reset-Target
+                        if ($runHistory) {   # 履歴の E2E: 数字キー
 
                         [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
                         Invoke-HotkeyPress
@@ -1778,6 +2064,7 @@ try {
                         $freeMs = Wait-Pumping { $box.Text -ceq '前:75' } 2000
                         Check '数字キー: 小窓を消した後は、数字キー (上段・テンキー) が普通に入力できる' ($freeMs -ge 0) ("text=[" + $box.Text + "]")
 
+                        }
                         # ---- 矢印キーと Enter は横取りしない。数字キーで選んだ項目は強調表示する ----
                         function Get-Selected {
                             foreach ($child in $W::Children($popup)) {
@@ -1789,6 +2076,54 @@ try {
                             for ($i = 0; $i -lt $Times; $i++) { $W::KeyDown($Vk); $W::KeyUp($Vk) }
                             [void](Wait-Pumping { $false } 150)
                         }
+                        # 見えている Copipe の右クリックメニューを探す。
+                        # UI オートメーションからは項目が見えないので、MSAA で読む (実測)
+                        function Find-RowMenu {
+                            foreach ($h in $W::TopWindows($app.Id)) {
+                                if ($h -eq $popup -or -not $W::IsWindowVisible($h) -or $W::GetClass($h) -eq 'SysShadow') { continue }
+                                if ($W::MenuItems($h).Count -gt 0) { return $h }
+                            }
+                            return $null
+                        }
+                        function Get-MenuNames($Menu) { return (@($W::MenuItems($Menu) | ForEach-Object { if ($_.Key) { $_.Key } else { '-' } }) -join ' | ') }   # 区切り線は名前が無いので「-」
+                        # ホットキーを押したまま Index 番目の行を右クリックし、出たメニューを返す。-Phrases なら定型文モードにしてから
+                        function Open-RowMenu([int]$Index, [switch]$Phrases) {
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                            Invoke-HotkeyPress
+                            [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                            if ($Phrases) { Send-Key 0x09 1 }
+                            $pt = Get-ItemCenter $popup $Index
+                            [void]$W::SetCursorPos($pt.X, $pt.Y)
+                            $W::RightClick()
+                            [void](Wait-Pumping { $null -ne (Find-RowMenu) } 1500)
+                            $found = Find-RowMenu
+                            if ($null -eq $found) {
+                                # 見つからなかった理由の手がかり: Copipe の見えているウインドウの一覧
+                                $list = foreach ($h in $W::TopWindows($app.Id)) {
+                                    if ($W::IsWindowVisible($h)) {
+                                        $ctl = $W::MenuItems($h).Count
+                                        "{0} [{1}] {2} {3}" -f $W::GetClass($h), $W::GetText($h), $ctl, $W::GetRect($h)
+                                    }
+                                }
+                                $fg = $W::GetForegroundWindow()
+                                Info ("メニューが見つからない。見えているウインドウ: " + ($list -join ' / ') +
+                                      " | Copipe 終了=" + $app.HasExited + " 小窓=" + $W::IsWindowVisible($popup) +
+                                      " 前面=" + $W::GetClass($fg) + " [" + $W::GetText($fg) + "]")
+                            }
+                            return $found
+                        }
+                        function Invoke-MenuItem($Menu, [string]$Name) {
+                            foreach ($item in $W::MenuItems($Menu)) {
+                                if ($item.Key -ceq $Name) {
+                                    $r = $item.Value
+                                    [void]$W::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
+                                    $W::LeftClick()
+                                    return $true
+                                }
+                            }
+                            return $false
+                        }
+                        if ($runHistory) {   # 履歴の E2E: 矢印キー・Enter・強調表示
                         # 2 行にして 2 行目の末尾から ↑ を押す (1 行だけだと ↑ でカーソルが動かない)
                         $box.Text = "前:`r`n後:"
                         $box.SelectionStart = $box.Text.Length
@@ -1818,7 +2153,7 @@ try {
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check 'Enter: 小窓を出している間に押しても、項目は入力しない (入力先の改行になる)' ($enterText -ceq "前:`r`n") ("text=[" + $enterText + "]")
 
-                        # ---- モードキー (Tab) で、履歴と定型文を切り替える ----
+                        }
                         # 小窓の上の見出し (Label) の文字を読む
                         function Get-PopupLabels {
                             $texts = @()
@@ -1831,6 +2166,35 @@ try {
                         function Test-Title([string]$Labels, [string]$Title) {
                             return (($Labels -split ' \| ') -contains $Title)
                         }
+                        # 一覧の Index 行目の、上から Frac の高さの位置
+                        function Get-RowPoint([int]$Index, [double]$Frac = 0.5) {
+                            foreach ($child in $W::Children($popup)) {
+                                if ($W::GetClass($child) -like '*LISTBOX*') {
+                                    $r = $W::GetRect($child)
+                                    $h = $W::ListItemHeight($child)
+                                    return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + [int]($h * ($Index + $Frac))))
+                                }
+                            }
+                            return $null
+                        }
+                        # 左ボタンを押したまま From から To へ少しずつ動かす。HoldMs だけ To で止めてから離す
+                        function Invoke-Drag($From, $To, [int]$HoldMs = 0, [switch]$NoRelease) {
+                            $W::MoveMouse($From.X, $From.Y)
+                            [void](Wait-Pumping { $false } 50)
+                            $W::LeftDown()
+                            [void](Wait-Pumping { $false } 50)
+                            for ($i = 1; $i -le 8; $i++) {
+                                $W::MoveMouse([int]($From.X + ($To.X - $From.X) * $i / 8), [int]($From.Y + ($To.Y - $From.Y) * $i / 8))
+                                [void](Wait-Pumping { $false } 25)
+                            }
+                            if ($HoldMs -gt 0) { [void](Wait-Pumping { $false } $HoldMs) }
+                            if (-not $NoRelease) {
+                                $W::LeftUp()
+                                [void](Wait-Pumping { $false } 300)
+                            }
+                        }
+                        if ($runPhrases) {   # ---- ここから定型文の E2E ----
+                        # ---- モードキー (Tab) で、履歴と定型文を切り替える ----
                         # 入力先で Tab を受け付ける (Tab が漏れたら文字として入り、分かるように)
                         $box.AcceptsTab = $true
                         Reset-Target
@@ -1841,7 +2205,7 @@ try {
                         $items = Get-PopupItems $popup
                         Check 'モード: 小窓はクリップボード履歴で開く (見出し)' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
                         Check 'モード: 見出しに、モードキー (Tab) で定型文に切り替えられることが出ている' ($labels -like '*Tab*定型文*') "labels=[$labels]"
-                        Check 'モード: 履歴の一覧が出ている' ($items.Count -eq 11 -and $items[0] -ceq '数字キー検証 11') ("items=" + (Format-Items $items))
+                        Check 'モード: 履歴の一覧が出ている' ($items.Count -eq 10 -and $items[0] -ceq '数字キー検証 11') ("items=" + (Format-Items $items))
 
                         Send-Key 0x09 1   # Tab
                         $labels = Get-PopupLabels
@@ -1857,7 +2221,7 @@ try {
                         Send-Key 0x09 1   # Tab
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check 'モード: もう一度 Tab で履歴に戻る' ((Test-Title $labels 'クリップボード履歴') -and $items.Count -eq 11 -and $items[0] -ceq '数字キー検証 11') ("labels=[$labels] items=" + (Format-Items $items))
+                        Check 'モード: もう一度 Tab で履歴に戻る' ((Test-Title $labels 'クリップボード履歴') -and $items.Count -eq 10 -and $items[0] -ceq '数字キー検証 11') ("labels=[$labels] items=" + (Format-Items $items))
 
                         Send-Key 0x09 1   # 定型文にしたまま離す
                         Invoke-HotkeyRelease
@@ -1871,6 +2235,45 @@ try {
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check 'モード: 定型文モードで離しても、次に開くときはクリップボード履歴' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
+
+                        # マウスのホイール: 小窓の上で ↓ に回すと定型文モード、↑ に回すと履歴モード (端で止まる。回り込まない)
+                        function Send-Wheel([int]$Delta) {
+                            $W::Wheel($Delta)
+                            [void](Wait-Pumping { $false } 200)
+                        }
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        $wheelPt = Get-ItemCenter $popup 0
+                        [void]$W::SetCursorPos($wheelPt.X, $wheelPt.Y)
+                        [void](Wait-Pumping { $false } 100)
+                        Send-Wheel 120
+                        Check 'ホイール: 履歴モードで ↑ に回しても履歴のまま (回り込まない)' (Test-Title (Get-PopupLabels) 'クリップボード履歴') "labels=[$(Get-PopupLabels)]"
+                        Send-Wheel -120
+                        Check 'ホイール: ↓ に回すと定型文モードになる' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
+                        Send-Wheel -120
+                        Check 'ホイール: 定型文モードで ↓ に回しても定型文のまま (回り込まない)' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
+                        Send-Wheel 120
+                        Check 'ホイール: ↑ に回すと履歴モードに戻る' (Test-Title (Get-PopupLabels) 'クリップボード履歴') "labels=[$(Get-PopupLabels)]"
+                        # 高精度ホイールの細かい量は、1 ノッチ分 (120) たまるまで切り替えない
+                        Send-Wheel -40
+                        $afterSmall = Test-Title (Get-PopupLabels) 'クリップボード履歴'
+                        Send-Wheel -40
+                        Send-Wheel -40
+                        Check 'ホイール: 細かい量は 1 ノッチ分たまってから切り替わる' ($afterSmall -and (Test-Title (Get-PopupLabels) '定型文')) "small=$afterSmall labels=[$(Get-PopupLabels)]"
+                        # 見出しの上で回しても切り替わる
+                        foreach ($child in $W::Children($popup)) {
+                            if ($W::GetClass($child) -like '*STATIC*' -and $W::GetText($child) -like '定型文*') {
+                                $hr = $W::GetRect($child)
+                                [void]$W::SetCursorPos($hr.Left + 10, $hr.Top + [int]($hr.Height / 2))
+                            }
+                        }
+                        Send-Wheel 120
+                        Check 'ホイール: 見出しの上で回しても切り替わる' (Test-Title (Get-PopupLabels) 'クリップボード履歴') "labels=[$(Get-PopupLabels)]"
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        Check 'ホイール: 入力先には何も入らない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
 
                         # 小窓を消した後は、Tab を横取りしない
                         Reset-Target
@@ -1957,53 +2360,6 @@ try {
                         Check '定型文: 開き直すと一番上から' (Test-Title $labels '定型文') "labels=[$labels]"
 
                         # ---- 定型文: 右クリックのメニューと、登録・編集・削除のダイアログ ----
-                        # 見えている Copipe のメニュー (ToolStripDropDown) を探す。
-                        # UI オートメーションからは項目が見えないので、MSAA で読む (実測)
-                        function Find-RowMenu {
-                            foreach ($h in $W::TopWindows($app.Id)) {
-                                if ($h -eq $popup -or -not $W::IsWindowVisible($h) -or $W::GetClass($h) -eq 'SysShadow') { continue }
-                                if ($W::MenuItems($h).Count -gt 0) { return $h }
-                            }
-                            return $null
-                        }
-                        function Get-MenuNames($Menu) { return (@($W::MenuItems($Menu) | ForEach-Object { $_.Key }) -join ' | ') }
-                        # ホットキーを押したまま定型文モードにして、Index 番目の行を右クリックし、出たメニューを返す
-                        function Open-RowMenu([int]$Index) {
-                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                            Invoke-HotkeyPress
-                            [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
-                            Send-Key 0x09 1
-                            $pt = Get-ItemCenter $popup $Index
-                            [void]$W::SetCursorPos($pt.X, $pt.Y)
-                            $W::RightClick()
-                            [void](Wait-Pumping { $null -ne (Find-RowMenu) } 1500)
-                            $found = Find-RowMenu
-                            if ($null -eq $found) {
-                                # 見つからなかった理由の手がかり: Copipe の見えているウインドウの一覧
-                                $list = foreach ($h in $W::TopWindows($app.Id)) {
-                                    if ($W::IsWindowVisible($h)) {
-                                        $ctl = $W::MenuItems($h).Count
-                                        "{0} [{1}] {2} {3}" -f $W::GetClass($h), $W::GetText($h), $ctl, $W::GetRect($h)
-                                    }
-                                }
-                                $fg = $W::GetForegroundWindow()
-                                Info ("メニューが見つからない。見えているウインドウ: " + ($list -join ' / ') +
-                                      " | Copipe 終了=" + $app.HasExited + " 小窓=" + $W::IsWindowVisible($popup) +
-                                      " 前面=" + $W::GetClass($fg) + " [" + $W::GetText($fg) + "]")
-                            }
-                            return $found
-                        }
-                        function Invoke-MenuItem($Menu, [string]$Name) {
-                            foreach ($item in $W::MenuItems($Menu)) {
-                                if ($item.Key -ceq $Name) {
-                                    $r = $item.Value
-                                    [void]$W::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
-                                    $W::LeftClick()
-                                    return $true
-                                }
-                            }
-                            return $false
-                        }
                         function Find-TopWindow([string]$Title) {
                             foreach ($h in $W::TopWindows($app.Id)) {
                                 if ($W::IsWindowVisible($h) -and $W::GetText($h) -ceq $Title) { return $h }
@@ -2027,7 +2383,7 @@ try {
                         }
                         # メニューの項目を選んで、出てきたダイアログ (Title) を返す。ホットキーはその後で離す
                         function Open-PhraseDialog([int]$Index, [string]$MenuName, [string]$Title) {
-                            $menu = Open-RowMenu $Index
+                            $menu = Open-RowMenu $Index -Phrases
                             if ($null -eq $menu -or -not (Invoke-MenuItem $menu $MenuName)) {
                                 Invoke-HotkeyRelease
                                 return [IntPtr]::Zero
@@ -2047,6 +2403,8 @@ try {
                             if ($ButtonId -eq 'okButton') {
                                 [void](Wait-Pumping { (Get-PhrasesWritten) -ne $writtenBefore } 2000)
                             }
+                            # 元のアプリ役 (このハーネスの画面) は、実際のアプリと同じくメッセージを処理しながら前面に戻るのを待つ
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                             return $closedMs
                         }
                         function Read-Phrases { [void](Get-PhrasesWritten); return [Copipe.Services.PhraseBook]::Load($phrasesPath).Root }
@@ -2065,20 +2423,8 @@ try {
                         [System.IO.File]::WriteAllText($phrasesPath, $phraseJson2, (New-Object System.Text.UTF8Encoding $false))
                         Reset-Target
 
-                        # 履歴モードでは右クリックしても何も出ない
-                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                        Invoke-HotkeyPress
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
-                        $pt = Get-ItemCenter $popup 0
-                        [void]$W::SetCursorPos($pt.X, $pt.Y)
-                        $W::RightClick()
-                        [void](Wait-Pumping { $false } 600)
-                        Check '右クリック: 履歴モードではメニューを出さない' ($null -eq (Find-RowMenu))
-                        Invoke-HotkeyRelease
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
-
                         # 空きの枠: 登録とグループの作成。ホットキーを離すとメニューも閉じる
-                        $menu = Open-RowMenu 0
+                        $menu = Open-RowMenu 0 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
                         Check '右クリック: 空きの枠では「定型文を登録...」「グループを作成...」が出る' ($names -ceq '定型文を登録... | グループを作成...') "names=[$names]"
                         Invoke-HotkeyRelease
@@ -2128,9 +2474,9 @@ try {
                         Check '登録: 登録した定型文が表示名で出て、数字キーで本文を入力できる' ($items[0] -ceq 'E2E表示名' -and $regMs -ge 0) ("items=" + (Format-Items $items) + " text=[" + $box.Text + "] 前面=" + ($W::GetForegroundWindow() -eq $target.Handle) + " フォーカス=" + $box.Focused + " 1 を登録できるか=" + $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x31))
 
                         # 定型文の枠: 編集と削除
-                        $menu = Open-RowMenu 0
+                        $menu = Open-RowMenu 0 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check '右クリック: 定型文では「編集...」「削除」が出る' ($names -ceq '編集... | 削除') "names=[$names]"
+                        Check '右クリック: 定型文では「履歴にピン止め」、区切り線、「編集...」「削除」の順に出る' ($names -ceq '履歴にピン止め | - | 編集... | 削除') "names=[$names]"
                         Invoke-HotkeyRelease
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
                         $dlg = Open-PhraseDialog 0 '編集...' '定型文を編集'
@@ -2146,6 +2492,36 @@ try {
                             Check '編集: 変えた本文が保存される' ($r.Slots[0].Text -ceq "  `r`nE2E編集後`r`n続き") "text=[$($r.Slots[0].Text)]"
                             Check '編集: 表示名を空にすると、本文の最初の空でない行が出る' ($r.Slots[0].Label -ceq 'E2E編集後') "label=[$($r.Slots[0].Label)]"
                         }
+
+                        # 定型文を履歴にピン止めする (本文がピン止めの先頭に入る。ダイアログは出ない)
+                        # 後の履歴のピン止めの検証が今の履歴を前提にしているので、終わったら履歴を元に戻す
+                        $historyBeforePin = if ([System.IO.File]::Exists($historyPath)) { [System.IO.File]::ReadAllBytes($historyPath) } else { $null }
+                        $pinText = (Read-Phrases).Slots[0].Text
+                        $menu = Open-RowMenu 0 -Phrases
+                        $chose = ($null -ne $menu) -and (Invoke-MenuItem $menu '履歴にピン止め')
+                        $pinMs = Wait-Pumping {
+                            $pinned = ([Copipe.Services.ClipboardHistory]::Load($historyPath, 10)).Pinned
+                            $pinned.Count -gt 0 -and $pinned[0] -ceq $pinText
+                        } 3000
+                        Check '定型文のピン止め: 「履歴にピン止め」で本文が履歴のピン止めの先頭に入る' ($chose -and $pinMs -ge 0) "chose=$chose"
+                        Check '定型文のピン止め: 選んだ後も小窓は出たまま、元のアプリが前面のまま' ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                        Send-Key 0x09 1   # 履歴へ
+                        $items = Get-PopupItems $popup
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        Check '定型文のピン止め: 履歴モードの一番上に 📌 付きで出る' ($items.Count -gt 0 -and $items[0] -like '📌 *E2E編集後*') ("items=" + (Format-Items $items))
+                        Stop-Copipe $copipe
+                        # Copipe は起動時に今のクリップボードも拾うので、空にしておく (直前に入力した定型文が残っている)
+                        Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
+                        if ($null -ne $historyBeforePin) { [System.IO.File]::WriteAllBytes($historyPath, $historyBeforePin) } else { [System.IO.File]::Delete($historyPath) }
+                        $copipe = Start-Copipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Reset-Target
 
                         # 取り消すと何も変わらない
                         $before = [System.IO.File]::ReadAllText($phrasesPath)
@@ -2170,7 +2546,7 @@ try {
                         }
 
                         # グループの名前を変える (中身はそのまま)
-                        $menu = Open-RowMenu 1
+                        $menu = Open-RowMenu 1 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
                         Check '右クリック: グループでは「名前を変更...」「削除」が出る' ($names -ceq '名前を変更... | 削除') "names=[$names]"
                         Invoke-HotkeyRelease
@@ -2187,7 +2563,7 @@ try {
 
                         # 削除は確認してから。いいえなら消さない
                         function Open-DeleteConfirm([int]$Index) {
-                            $menu = Open-RowMenu $Index
+                            $menu = Open-RowMenu $Index -Phrases
                             if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { Invoke-HotkeyRelease; return [IntPtr]::Zero }
                             [void](Wait-Pumping { (Find-Dialog $app.Id) -ne [IntPtr]::Zero } 3000)
                             Invoke-HotkeyRelease
@@ -2237,17 +2613,6 @@ try {
                         [System.IO.File]::WriteAllText($phrasesPath, $phraseJson3, (New-Object System.Text.UTF8Encoding $false))
                         Reset-Target
 
-                        # 一覧の Index 行目の、上から Frac の高さの位置
-                        function Get-RowPoint([int]$Index, [double]$Frac = 0.5) {
-                            foreach ($child in $W::Children($popup)) {
-                                if ($W::GetClass($child) -like '*LISTBOX*') {
-                                    $r = $W::GetRect($child)
-                                    $h = $W::ListItemHeight($child)
-                                    return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + [int]($h * ($Index + $Frac))))
-                                }
-                            }
-                            return $null
-                        }
                         # 見出しの左端 (一番上の「定型文」の文字の上)
                         function Get-TopLevelPoint {
                             foreach ($child in $W::Children($popup)) {
@@ -2257,22 +2622,6 @@ try {
                                 }
                             }
                             return $null
-                        }
-                        # 左ボタンを押したまま From から To へ少しずつ動かす。HoldMs だけ To で止めてから離す
-                        function Invoke-Drag($From, $To, [int]$HoldMs = 0, [switch]$NoRelease) {
-                            $W::MoveMouse($From.X, $From.Y)
-                            [void](Wait-Pumping { $false } 50)
-                            $W::LeftDown()
-                            [void](Wait-Pumping { $false } 50)
-                            for ($i = 1; $i -le 8; $i++) {
-                                $W::MoveMouse([int]($From.X + ($To.X - $From.X) * $i / 8), [int]($From.Y + ($To.Y - $From.Y) * $i / 8))
-                                [void](Wait-Pumping { $false } 25)
-                            }
-                            if ($HoldMs -gt 0) { [void](Wait-Pumping { $false } $HoldMs) }
-                            if (-not $NoRelease) {
-                                $W::LeftUp()
-                                [void](Wait-Pumping { $false } 300)
-                            }
                         }
                         function Open-Phrases {
                             [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
@@ -2286,15 +2635,6 @@ try {
                         }
                         function Get-Slots($Group) { return (@($Group.Slots | ForEach-Object { if ($null -eq $_) { '-' } elseif ($_.IsGroup) { '[' + $_.Name + ']' } else { $_.Text } }) -join ',') }
 
-                        # 履歴モードではドラッグしても何も起きない
-                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                        Invoke-HotkeyPress
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
-                        $historyBefore = Format-Items (Get-PopupItems $popup)
-                        Invoke-Drag (Get-RowPoint 0) (Get-RowPoint 2)
-                        $historyAfter = Format-Items (Get-PopupItems $popup)
-                        Close-Popup
-                        Check 'ドラッグ: 履歴モードでは並べ替えない' ($historyAfter -ceq $historyBefore) "before=$historyBefore after=$historyAfter"
 
                         # 入れ替え: A を B の上へ
                         Open-Phrases
@@ -2378,12 +2718,352 @@ try {
                         Reset-Target
                         Open-Phrases
                         Send-Key 0x31 1   # 1: 箱 (グループ) に入る
+                        $afterDragLabels = Get-PopupLabels
                         Send-Key 0x36 1   # 6: ドラッグB
                         $afterDragMs = Wait-Pumping { $box.Text -ceq '前:ドラッグB' } 3000
+                        $afterDragFg = $W::GetForegroundWindow()
                         Close-Popup
-                        Check 'ドラッグ: 並べ替えた後も、数字キーでグループに入って入力できる' ($afterDragMs -ge 0) ("text=[" + $box.Text + "]")
+                        Check 'ドラッグ: 並べ替えた後も、数字キーでグループに入って入力できる' ($afterDragMs -ge 0) ("text=[" + $box.Text + "]" + " labels=[$afterDragLabels] 前面=" + $W::GetClass($afterDragFg) + " [" + $W::GetText($afterDragFg) + "]" + " 入力先=" + ($afterDragFg -eq $target.Handle))
 
+
+                        # ---- 定型文: 見出しの階層名 (パンくずリスト) をクリックして移動する ----
+                        $crumbJson = '{"Slots":[{"Kind":"Group","Name":"外側","Slots":[{"Kind":"Group","Name":"内側","Slots":[{"Kind":"Phrase","Text":"一番奥"}]}]}]}'
+                        [System.IO.File]::WriteAllText($phrasesPath, $crumbJson, (New-Object System.Text.UTF8Encoding $false))
+                        # 見出しの Index 番目の階層名の真ん中 (小窓と同じフォント・描き方で幅を測る)
+                        function Get-SegmentPoint([int]$Index) {
+                            foreach ($child in $W::Children($popup)) {
+                                if ($W::GetClass($child) -like '*STATIC*' -and $W::GetText($child) -like '定型文*') {
+                                    $r = $W::GetRect($child)
+                                    $segments = $W::GetText($child) -split ' > '
+                                    $font = New-Object System.Drawing.Font([System.Drawing.SystemFonts]::MessageBoxFont, [System.Drawing.FontStyle]::Bold)
+                                    $flags = [System.Windows.Forms.TextFormatFlags]'NoPrefix, SingleLine, VerticalCenter, NoPadding'
+                                    # Copipe と同じく、画面の Graphics を渡して測る (渡さないと NoPadding が効かず、余白の分だけ幅が大きくなる。実測)
+                                    $screen = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+                                    $measure = { param($s) [System.Windows.Forms.TextRenderer]::MeasureText($screen, $s, $font, [System.Drawing.Size]::Empty, $flags).Width }
+                                    $x = $r.Left
+                                    for ($i = 0; $i -lt $Index; $i++) { $x += (& $measure $segments[$i]) + (& $measure ' > ') }
+                                    $x += [int]((& $measure $segments[$Index]) / 2)
+                                    $font.Dispose()
+                                    $screen.Dispose()
+                                    return (Pt $x ($r.Top + [int]($r.Height / 2)))
+                                }
+                            }
+                            return $null
+                        }
+                        Reset-Target
+                        Open-Phrases
+                        Send-Key 0x31 1   # 外側
+                        Send-Key 0x31 1   # 内側
+                        $labels = Get-PopupLabels
+                        Check 'パンくず: (準備) 2 階層下まで入れた' (Test-Title $labels '定型文 > 外側 > 内側') "labels=[$labels]"
+                        $pt = Get-SegmentPoint 2
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { $false } 300)
+                        Check 'パンくず: 今いる階層 (右端) をクリックしても何も変わらない' (Test-Title (Get-PopupLabels) '定型文 > 外側 > 内側') "labels=[$(Get-PopupLabels)]"
+                        $pt = Get-SegmentPoint 1
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文 > 外側' } 1000)
+                        $items = Get-PopupItems $popup
+                        Check 'パンくず: 途中の階層名をクリックすると、その階層へ移る' ((Test-Title (Get-PopupLabels) '定型文 > 外側') -and $items[0] -ceq '📁 内側') ("labels=[$(Get-PopupLabels)] items=" + (Format-Items $items))
+                        Send-Key 0x31 1   # また内側へ
+                        $pt = Get-SegmentPoint 0
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文' } 1000)
+                        Check 'パンくず: 「定型文」をクリックすると、一気に一番上へ戻る' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
+                        Check 'パンくず: クリックしても小窓は出たまま、入力もしない' ($W::IsWindowVisible($popup) -and $box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Close-Popup
+                        Check 'パンくず: クリックの後も、元のアプリが前面のまま' ($W::GetForegroundWindow() -eq $target.Handle)
+
+                        }
                         $box.AcceptsTab = $false
+
+                        # ---- 履歴のピン止め (右クリックでピン止め、📌 のクリックで外す) ----
+                        # 履歴の並びを変えるので、定型文の検証 (モードキーの検証が履歴の並びを見る) の後に置く
+                        if ($runHistory) {
+                        function Open-History {
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                            Invoke-HotkeyPress
+                            [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        }
+                        function Close-History {
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                            Invoke-HotkeyRelease
+                            [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        }
+                        # 一覧の Index 行目の右端 (📌 の上)
+                        function Get-PinIconPoint([int]$Index) {
+                            $center = Get-ItemCenter $popup $Index
+                            foreach ($child in $W::Children($popup)) {
+                                if ($W::GetClass($child) -like '*LISTBOX*') { return (Pt ($W::GetRect($child).Right - 10) $center.Y) }
+                            }
+                            return $null
+                        }
+                        Reset-Target
+                        # 今の履歴は、新しい順に「数字キー検証 11」〜「数字キー検証 02」の 10 件
+                        $menu = Open-RowMenu 2
+                        $names = if ($menu) { Get-MenuNames $menu } else { '' }
+                        Check 'ピン止め: 履歴の行を右クリックすると「ピン止め」が出る' ($names -ceq 'ピン止め') "names=[$names]"
+                        if ($menu) { [void](Invoke-MenuItem $menu 'ピン止め') }
+                        [void](Wait-Pumping { (Get-PopupItems $popup)[0] -ceq '📌 数字キー検証 09' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check 'ピン止め: ピン止めした項目が一番上に 📌 付きで移る' ($items.Count -eq 10 -and $items[0] -ceq '📌 数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items[2] -ceq '数字キー検証 10' -and $items[3] -ceq '数字キー検証 08') ("items=" + (Format-Items $items))
+                        # 元のアプリへ戻すのは、メニューが閉じてから少し後になる
+                        $fgMs = Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 1000
+                        Check 'ピン止め: メニューで選んだ後も、元のアプリが前面のまま' ($fgMs -ge 0)
+                        Check 'ピン止め: 小窓は出たまま' ($W::IsWindowVisible($popup))
+                        Send-Key 0x31 1   # 1
+                        $pinNumMs = Wait-Pumping { $box.Text -ceq '前:数字キー検証 11' } 3000
+                        Check 'ピン止め: ピン止めは番号なし。数字キー 1 は普通の履歴の 1 件目を入力する' ($pinNumMs -ge 0) ("text=[" + $box.Text + "]")
+                        $pt = Get-ItemCenter $popup 0
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::DoubleClick()
+                        $pinDblMs = Wait-Pumping { $box.Text -ceq '前:数字キー検証 11数字キー検証 09' } 3000
+                        Check 'ピン止め: ピン止めした行の本文をダブルクリックすると入力される' ($pinDblMs -ge 0) ("text=[" + $box.Text + "]")
+                        Close-History
+
+                        $menu = Open-RowMenu 0
+                        $names = if ($menu) { Get-MenuNames $menu } else { '' }
+                        Check 'ピン止め: ピン止めした行を右クリックすると「ピン止めを外す」が出る' ($names -ceq 'ピン止めを外す') "names=[$names]"
+                        Close-History
+                        [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
+
+                        # 新しくコピーしても、ピン止めは一番上に残る
+                        Set-ClipboardText ('ピン止め検証 新しいコピー')
+                        Start-Sleep -Milliseconds 400
+                        Open-History
+                        $items = Get-PopupItems $popup
+                        Close-History
+                        Check 'ピン止め: 新しくコピーしても、ピン止めは一番上に残る' ($items[0] -ceq '📌 数字キー検証 09' -and $items[1] -ceq 'ピン止め検証 新しいコピー') ("items=" + (Format-Items $items))
+
+                        # 起動し直しても残る
+                        Stop-Copipe $copipe
+                        $copipe = Start-Copipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        Reset-Target
+                        Open-History
+                        $items = Get-PopupItems $popup
+                        Check 'ピン止め: Copipe を起動し直しても残る' ($items[0] -ceq '📌 数字キー検証 09') ("items=" + (Format-Items $items))
+
+                        # 📌 をクリックすると外れる (入力はしない)
+                        $pt = Get-PinIconPoint 0
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { (Get-PopupItems $popup)[0] -ceq '数字キー検証 09' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check 'ピン止めを外す: 📌 をクリックすると外れ、普通の履歴の先頭に戻る' ($items[0] -ceq '数字キー検証 09' -and $items[1] -ceq 'ピン止め検証 新しいコピー' -and @($items | Where-Object { $_ -like '📌*' }).Count -eq 0) ("items=" + (Format-Items $items))
+                        # ダブルクリックの設定なので、続けてもう 1 回クリックしても (ダブルクリック扱い) 入力しない
+                        $W::LeftClick()
+                        [void](Wait-Pumping { $false } 700)
+                        Check 'ピン止めを外す: 📌 のクリックでは入力しない (続けてクリックしても)' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        Check 'ピン止めを外す: 小窓は出たまま、元のアプリが前面のまま' ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                        Close-History
+
+                        # ---- 履歴モード: ドラッグ＆ドロップで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中) ----
+                        # 決まった中身の履歴で起動し直す。終わったら元の履歴に戻す (後の検証は今の履歴を前提にしている)
+                        $historyBeforeDrag = [System.IO.File]::ReadAllBytes($historyPath)
+                        function Restart-WithHistory([byte[]]$Bytes) {
+                            Stop-Copipe $script:dragCopipe
+                            [System.IO.File]::WriteAllBytes($historyPath, $Bytes)
+                            $script:dragCopipe = Start-Copipe
+                            [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                            $W::LeftClick()
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        }
+                        $dragHistory = New-Object Copipe.Services.ClipboardHistory 10
+                        foreach ($t in '並べ替えI4', '並べ替えI3', '並べ替えI2', '並べ替えI1') { [void]$dragHistory.Add($t) }
+                        foreach ($t in '並べ替えP3', '並べ替えP2', '並べ替えP1') { [void]$dragHistory.PinText($t) }
+                        $dragHistory.Save($historyPath)
+                        # Copipe は起動時に今のクリップボードも拾うので、空にしておく
+                        Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
+                        $script:dragCopipe = $copipe
+                        Restart-WithHistory ([System.IO.File]::ReadAllBytes($historyPath))
+                        $copipe = $script:dragCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        function Read-SavedHistory { return [Copipe.Services.ClipboardHistory]::Load($historyPath, 10) }
+                        # 行: 0 P1、1 P2、2 P3 (ピン止め)、3 I1、4 I2、5 I3、6 I4
+                        Reset-Target
+                        Open-History
+                        Invoke-Drag (Get-RowPoint 2) (Get-RowPoint 0)
+                        [void](Wait-Pumping { ((Read-SavedHistory).Pinned -join ',') -ceq '並べ替えP3,並べ替えP1,並べ替えP2' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check '並べ替え: ピン止めの 3 行目を 1 行目に落とすと、1 行目に移り、間のものは 1 つずつ下がる' ($items[0] -ceq '📌 並べ替えP3' -and $items[1] -ceq '📌 並べ替えP1' -and $items[2] -ceq '📌 並べ替えP2') ("items=" + (Format-Items $items))
+                        Check '並べ替え: ピン止めの並びが保存される' (((Read-SavedHistory).Pinned -join ',') -ceq '並べ替えP3,並べ替えP1,並べ替えP2') "pinned=$((Read-SavedHistory).Pinned -join ',')"
+                        Check '並べ替え: 落とした後も小窓は出たまま、元のアプリが前面のまま' ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                        Check '並べ替え: ドラッグでは入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+
+                        Invoke-Drag (Get-RowPoint 6) (Get-RowPoint 3)
+                        [void](Wait-Pumping { ((Read-SavedHistory).Items -join ',') -ceq '並べ替えI4,並べ替えI1,並べ替えI2,並べ替えI3' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check '並べ替え: 普通の履歴の最後の行を先頭に落とすと、先頭に移る' ($items[3] -ceq '並べ替えI4' -and $items[4] -ceq '並べ替えI1' -and $items[6] -ceq '並べ替えI3') ("items=" + (Format-Items $items))
+                        Check '並べ替え: 普通の履歴の並びが保存される' (((Read-SavedHistory).Items -join ',') -ceq '並べ替えI4,並べ替えI1,並べ替えI2,並べ替えI3') "items=$((Read-SavedHistory).Items -join ',')"
+                        Send-Key 0x31 1
+                        $moveNumMs = Wait-Pumping { $box.Text -ceq '前:並べ替えI4' } 3000
+                        Check '並べ替え: 番号は新しい並びで振られる (数字キー 1 で移した項目が入る)' ($moveNumMs -ge 0) ("text=[" + $box.Text + "]")
+
+                        Invoke-Drag (Get-RowPoint 3) (Get-RowPoint 5)
+                        [void](Wait-Pumping { ((Read-SavedHistory).Items -join ',') -ceq '並べ替えI1,並べ替えI2,並べ替えI4,並べ替えI3' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check '並べ替え: 普通の履歴を下の行に落とすと、その行の位置に移る' ($items[3] -ceq '並べ替えI1' -and $items[5] -ceq '並べ替えI4' -and $items[6] -ceq '並べ替えI3') ("items=" + (Format-Items $items))
+
+                        $before = Format-Items (Get-PopupItems $popup)
+                        Invoke-Drag (Get-RowPoint 0) (Get-RowPoint 4)
+                        Invoke-Drag (Get-RowPoint 5) (Get-RowPoint 1)
+                        [void](Wait-Pumping { $false } 300)
+                        $after = Format-Items (Get-PopupItems $popup)
+                        Check '並べ替え: ピン止めと普通の履歴の間では移さない (両方向とも)' ($after -ceq $before) "before=$before after=$after"
+                        Close-History
+
+                        Restart-WithHistory $historyBeforeDrag
+                        $copipe = $script:dragCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        Reset-Target
+
+                        # ---- 修飾キーのダブルタップ (小窓を出したままにする。もう一度のダブルタップ・Esc・外のクリック・別のアプリへの切り替えで閉じる) ----
+                        function Restart-Copipe([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$DoubleTap) {
+                            Stop-Copipe $script:copipeRef
+                            Use-Hotkey $Hotkey -DoubleTap $DoubleTap
+                            $script:copipeRef = Start-Copipe
+                            [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                            $W::LeftClick()
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        }
+                        # トン・トン と 2 回押す (2 回目は -Hold なら押したまま)
+                        function Invoke-DoubleTap([byte]$Vk, [switch]$Hold) {
+                            $W::KeyDown($Vk); [void](Wait-Pumping { $false } 50); $W::KeyUp($Vk)
+                            [void](Wait-Pumping { $false } 90)
+                            $W::KeyDown($Vk)
+                            if (-not $Hold) { [void](Wait-Pumping { $false } 50); $W::KeyUp($Vk) }
+                        }
+                        $script:copipeRef = $copipe
+                        Restart-Copipe $mainHotkey $K::ControlKey
+                        $popup = $script:copipeRef.Popup
+                        $items = Read-History $script:copipeRef
+                        Reset-Target
+
+                        Invoke-DoubleTap 0x11
+                        $tapMs = Wait-Until { $W::IsWindowVisible($popup) } 1500
+                        Check 'ダブルタップ (Ctrl): 2 回押すと小窓が出る' ($tapMs -ge 0) "exited=$($script:copipeRef.Process.HasExited)"
+                        [void](Wait-Pumping { $false } 500)
+                        Check 'ダブルタップ (Ctrl): 離しても小窓は出たまま' ($W::IsWindowVisible($popup))
+                        Send-Key 0x09 1
+                        Check 'ダブルタップ (Ctrl): 出したままの間、Tab でモードが切り替わる' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
+                        Send-Key 0x09 1
+                        Send-Key 0x31 1
+                        $insMs = Wait-Pumping { $box.Text -ceq ('前:' + $items[0]) } 3000
+                        Check 'ダブルタップ (Ctrl): 出したままの間、数字キーで入力できる' ($insMs -ge 0) ("text=[" + $box.Text + "]")
+                        $closeMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check 'ダブルタップ (Ctrl): 入力すると小窓は閉じる' ($closeMs -ge 0)
+                        Check 'ダブルタップ (Ctrl): 閉じた後は Tab・数字キー・Esc の横取りをやめる' ($W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x09) -and $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x31) -and $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x1B))
+                        [void](Wait-Pumping { $false } 500)
+
+                        # Esc で閉じる (入力はしない)
+                        Reset-Target
+                        Invoke-DoubleTap 0x11
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
+                        [void](Wait-Pumping { $false } 300)
+                        Send-Key 0x1B 1
+                        $escMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check 'ダブルタップ (Ctrl): Esc で閉じる (入力はしない)' ($escMs -ge 0 -and $box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        [void](Wait-Pumping { $false } 500)
+
+                        # もう一度のダブルタップで閉じる
+                        Invoke-DoubleTap 0x11
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
+                        [void](Wait-Pumping { $false } 500)
+                        Invoke-DoubleTap 0x11
+                        $againMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1500
+                        Check 'ダブルタップ (Ctrl): もう一度ダブルタップすると閉じる' ($againMs -ge 0)
+                        [void](Wait-Pumping { $false } 500)
+
+                        # 小窓の外をクリックすると閉じる
+                        Invoke-DoubleTap 0x11
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
+                        [void](Wait-Pumping { $false } 300)
+                        [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                        $W::LeftClick()
+                        $outMs = Wait-Pumping { -not $W::IsWindowVisible($popup) } 1500
+                        Check 'ダブルタップ (Ctrl): 小窓の外をクリックすると閉じる' ($outMs -ge 0)
+                        Check 'ダブルタップ (Ctrl): 閉じた後も入力先が前面' ($W::GetForegroundWindow() -eq $target.Handle)
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        [void](Wait-Pumping { $false } 500)
+
+                        # 小窓の中のダブルクリックで入力すると閉じる (項目を選ぶだけの操作では閉じない: グループに入る・モードを切り替えるなど)
+                        Reset-Target
+                        Invoke-DoubleTap 0x11
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
+                        $pt = Get-ItemCenter $popup 1
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::DoubleClick()
+                        $clickMs = Wait-Pumping { $box.Text -ceq ('前:' + $items[1]) } 3000
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        $clickCloseMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check 'ダブルタップ (Ctrl): 小窓の中のダブルクリックで入力でき、入力すると閉じる' ($clickMs -ge 0 -and $clickCloseMs -ge 0) ("text=[" + $box.Text + "] visible=" + $W::IsWindowVisible($popup))
+                        [void](Wait-Pumping { $false } 500)
+
+                        # 2 回目を押し続けても出る。押している間の Tab は Ctrl+Tab として届く
+                        Invoke-DoubleTap 0x11 -Hold
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
+                        $W::KeyDown([byte]0x09); $W::KeyUp([byte]0x09)
+                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文' } 1000)
+                        Check 'ダブルタップ (Ctrl): 2 回目を押したままの Tab (Ctrl+Tab) でもモードが切り替わる' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
+                        $W::KeyUp([byte]0x11)
+                        [void](Wait-Pumping { $false } 300)
+                        Check 'ダブルタップ (Ctrl): 押し続けてから離しても出たまま' ($W::IsWindowVisible($popup))
+                        Send-Key 0x1B 1   # 定型文の一番上なので閉じる
+                        $escTopMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check 'ダブルタップ (Ctrl): 定型文の一番上で Esc を押すと閉じる' ($escTopMs -ge 0)
+                        [void](Wait-Pumping { $false } 500)
+
+                        # Ctrl+C を 2 回では出ない
+                        foreach ($i in 1, 2) {
+                            $W::KeyDown([byte]0x11); $W::KeyDown([byte]0x43); $W::KeyUp([byte]0x43); $W::KeyUp([byte]0x11)
+                            [void](Wait-Pumping { $false } 80)
+                        }
+                        [void](Wait-Pumping { $false } 500)
+                        Check 'ダブルタップ (Ctrl): Ctrl+C を 2 回押しても小窓は出ない' (-not $W::IsWindowVisible($popup))
+                        # 1 回押すだけでは出ない
+                        $W::KeyDown([byte]0x11); [void](Wait-Pumping { $false } 60); $W::KeyUp([byte]0x11)
+                        [void](Wait-Pumping { $false } 600)
+                        Check 'ダブルタップ (Ctrl): 1 回押すだけでは小窓は出ない' (-not $W::IsWindowVisible($popup))
+                        # ホットキーでも今までどおり出る (並行して使える)
+                        $W::KeyDown($script:keyVk)
+                        $hkMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
+                        $W::KeyUp($script:keyVk)
+                        $hkHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check 'ダブルタップ (Ctrl): ホットキーでも並行して出せ、離すと消える' ($hkMs -ge 0 -and $hkHideMs -ge 0)
+
+                        # ホットキーを「なし」にする: そのキーは Copipe が受け取らず、ダブルタップだけで出す
+                        $oldVk = $script:keyVk
+                        Restart-Copipe $K::None $K::ShiftKey
+                        $popup = $script:copipeRef.Popup
+                        Check 'ホットキー なし: 起動できる (登録の失敗を知らせない)' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
+                        Check 'ホットキー なし: 前のホットキーは Copipe が登録していない (他のアプリに届く)' ($W::CanRegisterHotkey($owner, [uint32]0, [uint32]$oldVk))
+                        $W::KeyDown([byte]$oldVk); [void](Wait-Pumping { $false } 400)
+                        $shownByOld = $W::IsWindowVisible($popup)
+                        $W::KeyUp([byte]$oldVk)
+                        Check 'ホットキー なし: 前のホットキーを押しても小窓は出ない' (-not $shownByOld)
+                        [void](Wait-Pumping { $false } 500)
+                        Invoke-DoubleTap 0x10
+                        $shiftMs = Wait-Until { $W::IsWindowVisible($popup) } 1500
+                        Send-Key 0x1B 1
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        Check 'ホットキー なし: Shift のダブルタップで小窓が出る' ($shiftMs -ge 0)
+                        $copipe = $script:copipeRef
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        }
                     }
                 } finally {
                     $target.Close()
@@ -2415,6 +3095,8 @@ try {
             } elseif (Test-Path -LiteralPath $phrasesPath) {
                 Remove-Item -LiteralPath $phrasesPath -Force
             }
+            # 戻し終えたので、印を消す
+            Remove-Item -LiteralPath $pendingMarker -Force -ErrorAction SilentlyContinue
         }
     }
 } finally {

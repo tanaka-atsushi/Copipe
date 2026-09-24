@@ -191,8 +191,52 @@ namespace Copipe.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool IsWindow(IntPtr hWnd);
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetClassNameW")]
-        internal static extern int GetClassNameForTrace(IntPtr hWnd, StringBuilder name, int max);
+        // ---- Raw Input (修飾キーのダブルタップを見分けるため、キーの押す・離すを読むだけ) --------
+        // キーボードフックと違い、キー入力を横取りも遅延もさせない
+
+        internal const int WM_INPUT = 0x00FF;
+        internal const uint RIDEV_INPUTSINK = 0x00000100;   // 前面でなくても受け取る
+        internal const uint RIDEV_REMOVE = 0x00000001;
+        internal const uint RID_INPUT = 0x10000003;
+        internal const uint RIM_TYPEMOUSE = 0;
+        internal const uint RIM_TYPEKEYBOARD = 1;
+        internal const ushort RI_KEY_BREAK = 0x0001;         // 離した
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct RAWINPUTDEVICE
+        {
+            public ushort usUsagePage;
+            public ushort usUsage;
+            public uint dwFlags;
+            public IntPtr hwndTarget;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct RAWINPUTHEADER
+        {
+            public uint dwType;
+            public uint dwSize;
+            public IntPtr hDevice;
+            public IntPtr wParam;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct RAWKEYBOARD
+        {
+            public ushort MakeCode;
+            public ushort Flags;
+            public ushort Reserved;
+            public ushort VKey;
+            public uint Message;
+            public uint ExtraInformation;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devices, uint count, uint size);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern uint GetRawInputData(IntPtr hRawInput, uint command, IntPtr data, ref uint size, uint headerSize);
 
         /// <summary>
         /// システム DPI 対応を宣言する。ウインドウを 1 つも作る前に呼ぶこと。

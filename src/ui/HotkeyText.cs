@@ -43,12 +43,13 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// ホットキーとして使えるキーか。RegisterHotKey は修飾キー単独を登録できない。
-        /// 離したことを判定できないキーも、押し続けて使う Copipe では使えない。
+        /// ホットキーとして使えるキーか。修飾キー (Ctrl・Shift・Alt) との組み合わせは使えない
+        /// (修飾キーを押したままだと、小窓で使う Tab が Alt+Tab になるなど、Windows と取り合いになるため)。
+        /// 修飾キー単独・離したことを判定できないキー・数字キーも使えない。
         /// </summary>
         public static bool IsValid(Keys keys)
         {
-            if (CannotDetectRelease(keys) || IsDigitKey(keys))
+            if (CannotDetectRelease(keys) || IsDigitKey(keys) || (keys & Keys.Modifiers) != Keys.None)
             {
                 return false;
             }
@@ -77,12 +78,11 @@ namespace Copipe.UI
 
         /// <summary>
         /// モードキー (小窓を出している間に押して、履歴と定型文を切り替えるキー) として使えるか。
-        /// ホットキーと同じ条件に加えて、修飾キーは付けない
-        /// (ホットキーを押したまま押すので、ホットキーの修飾キーは自動で付く)。
+        /// ホットキーと同じ条件 (修飾キーは付けない)。
         /// </summary>
         public static bool IsValidModeKey(Keys keys)
         {
-            return (keys & Keys.Modifiers) == Keys.None && IsValid(keys);
+            return IsValid(keys);
         }
 
         /// <summary>
@@ -94,18 +94,72 @@ namespace Copipe.UI
             return (hotkey & Keys.KeyCode) == (modeKey & Keys.KeyCode);
         }
 
+        /// <summary>左右のある修飾キー (LControlKey・RMenu など) を、左右の無いキー (ControlKey・Menu) にそろえる。それ以外はキーだけにする。</summary>
+        public static Keys NormalizeModifier(Keys keys)
+        {
+            Keys code = keys & Keys.KeyCode;
+            switch (code)
+            {
+                case Keys.LControlKey:
+                case Keys.RControlKey:
+                    return Keys.ControlKey;
+                case Keys.LShiftKey:
+                case Keys.RShiftKey:
+                    return Keys.ShiftKey;
+                case Keys.LMenu:
+                case Keys.RMenu:
+                    return Keys.Menu;
+                default:
+                    return code;
+            }
+        }
+
+        /// <summary>ダブルタップに使えるキーか (Ctrl・Shift・Alt。左右どちらでもよい)。</summary>
+        public static bool IsValidDoubleTap(Keys keys)
+        {
+            Keys code = NormalizeModifier(keys);
+            return code == Keys.ControlKey || code == Keys.ShiftKey || code == Keys.Menu;
+        }
+
+        /// <summary>ダブルタップのキーの表示名 (Ctrl・Shift・Alt)。使えないキーなら空文字列。設定ファイルにもこの名前で書く。</summary>
+        public static string DoubleTapDisplay(Keys keys)
+        {
+            switch (NormalizeModifier(keys))
+            {
+                case Keys.ControlKey:
+                    return "Ctrl";
+                case Keys.ShiftKey:
+                    return "Shift";
+                case Keys.Menu:
+                    return "Alt";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>設定ファイルのダブルタップの値 (Ctrl・Shift・Alt・None) を読む。読めなければ false。</summary>
+        public static bool TryParseDoubleTap(string text, out Keys keys)
+        {
+            keys = Keys.None;
+            string value = text == null ? string.Empty : text.Trim();
+            foreach (Keys candidate in new[] { Keys.ControlKey, Keys.ShiftKey, Keys.Menu })
+            {
+                if (string.Equals(value, DoubleTapDisplay(candidate), StringComparison.OrdinalIgnoreCase))
+                {
+                    keys = candidate;
+                    return true;
+                }
+            }
+            return string.Equals(value, NoneSetting, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>設定ファイルで「使わない」を表す値。</summary>
+        public const string NoneSetting = "None";
+
         /// <summary>画面に出す名前。日本語キーボード固有のキーは日本語で出す (例: 無変換)。</summary>
         public static string Display(Keys keys)
         {
             return Modifiers(keys) + KeyName(keys & Keys.KeyCode);
-        }
-
-        /// <summary>
-        /// まだホットキーにできないキー (Ctrl だけなど) を押している途中の表示。例: "Ctrl+…"
-        /// </summary>
-        public static string DisplayPending(Keys keys)
-        {
-            return Modifiers(keys) + "…";
         }
 
         /// <summary>

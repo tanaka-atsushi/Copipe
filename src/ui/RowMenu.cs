@@ -15,6 +15,10 @@ namespace Copipe.UI
     internal static class RowMenu
     {
         private const uint MF_STRING = 0x0000;
+        private const uint MF_SEPARATOR = 0x0800;
+
+        /// <summary>Show に渡す項目のうち、区切り線にするもの。</summary>
+        public const string Separator = "-";
         private const uint TPM_RIGHTBUTTON = 0x0002;
         private const uint TPM_RETURNCMD = 0x0100;
         private const uint TPM_NONOTIFY = 0x0080;
@@ -56,7 +60,14 @@ namespace Copipe.UI
                 for (int i = 0; i < items.Count; i++)
                 {
                     // 0 は「選ばなかった」なので、ID は 1 から
-                    AppendMenu(menu, MF_STRING, new UIntPtr((uint)(i + 1)), items[i]);
+                    if (items[i] == Separator)
+                    {
+                        AppendMenu(menu, MF_SEPARATOR, UIntPtr.Zero, null);
+                    }
+                    else
+                    {
+                        AppendMenu(menu, MF_STRING, new UIntPtr((uint)(i + 1)), items[i]);
+                    }
                 }
                 IsOpen = true;
                 int chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,

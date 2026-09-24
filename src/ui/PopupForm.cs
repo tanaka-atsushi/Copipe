@@ -29,6 +29,14 @@ namespace Copipe.UI
         private Point _cursor;
         private bool _empty = true;
 
+        // 一覧の上部にあるピン止めの行数 (履歴モードだけ。定型文モードでは 0)
+        private int _pinnedCount;
+        // 最後に 📌 をクリックした時刻。直後のダブルクリック (2 回目のクリック) を入力として扱わないため
+        private DateTime _pinClickedAt = DateTime.MinValue;
+
+        /// <summary>ピン止めの行の右端にある 📌 の幅 (96 DPI のとき)。ここをクリックするとピン止めを外す。</summary>
+        private const int BasePinIconWidth = 24;
+
         // ドラッグ中の状態。_hover はマウスの下にある先 (落とせるかは問わない)、
         // _dropTarget は実際に落とせる先 (落とせなければ Nowhere)
         private readonly Timer _springTimer;
@@ -69,11 +77,13 @@ namespace Copipe.UI
             _list.MouseClick += OnListMouseClick;
             _list.MouseDoubleClick += OnListMouseDoubleClick;
             _list.MouseUp += OnListMouseUp;
+            _list.MouseMove += OnListMouseMove;
             _list.DraggableRowAt = DraggableRowAt;
             _list.DragBegan += OnDragBegan;
             _list.DragMoved += OnDragMoved;
             _list.DragDropped += OnDragDropped;
             _list.DragAborted += delegate { EndDrag(DropTarget.Nowhere); };
+            _list.WheelTurned += OnWheel;
             Controls.Add(_list);
 
             _springTimer = new Timer();
@@ -88,6 +98,14 @@ namespace Copipe.UI
             header.BackColor = BackColor;
 
             _title = new BreadcrumbLabel();
+            _title.SegmentClicked += delegate(int level)
+            {
+                Action<int> handler = LevelClicked;
+                if (handler != null && !_list.IsDragging)
+                {
+                    handler(level);
+                }
+            };
             _title.Dock = DockStyle.Left;
             _title.AutoSize = true;
             _title.UseMnemonic = false;
@@ -147,6 +165,24 @@ namespace Copipe.UI
         /// 受け取る側がそのグループ (階層) を開けば、そのままドラッグを続けられる。
         /// </summary>
         public event Action<DropTarget> DragOpenRequested;
+
+        /// <summary>見出しの階層名がクリックされたとき。引数は階層 (0 が一番上)。今いる階層では出さない。</summary>
+        public event Action<int> LevelClicked;
+
+        /// <summary>
+        /// 小窓の上でホイールを 1 ノッチ回したとき。引数は上へなら +1、下へなら -1。
+        /// 高精度ホイールの細かい量は、1 ノッチ分 (120) たまってから知らせる。
+        /// </summary>
+        public event Action<int> WheelNotched;
+
+        /// <summary>ピン止めの行の 📌 がクリックされたとき。引数は行の位置。</summary>
+        public event Action<int> PinIconClicked;
+
+        /// <summary>一覧の上部にあるピン止めの行数。数字キーの番号は、この後の行から 1 が付く。</summary>
+        public int PinnedCount
+        {
+            get { return _pinnedCount; }
+        }
 
         /// <summary>
         /// ドラッグが終わったとき。引数は落とした先。落とせない先で離した・取り消した・小窓を消したときは
@@ -211,6 +247,26 @@ namespace Copipe.UI
             _hint.Text = hint;
         }
 
+        /// <summary>
+        /// 一覧を、履歴の並びにする。pinned (ピン止め) を上部に番号なしで出し、その後に items を出す。
+        /// どちらも無いときは emptyMessage を灰色で出す。
+        /// </summary>
+        public void SetHistory(IList<string> pinned, IList<string> items, string emptyMessage)
+        {
+            List<PopupRow> rows = new List<PopupRow>();
+            foreach (string text in pinned)
+            {
+                PopupRow row = new PopupRow(PopupRowKind.Item, text);
+                row.IsPinned = true;
+                rows.Add(row);
+            }
+            foreach (string text in items)
+            {
+                rows.Add(new PopupRow(PopupRowKind.Item, text));
+            }
+            SetRows(rows, emptyMessage);
+        }
+
         /// <summary>一覧を、入力できる項目 (履歴) の並びにする。項目が無いときは emptyMessage を灰色で出す。</summary>
         public void SetItems(IList<string> items, string emptyMessage)
         {
@@ -232,6 +288,11 @@ namespace Copipe.UI
         public void SetRows(IList<PopupRow> rows, string emptyMessage)
         {
             _empty = (rows == null || rows.Count == 0);
+            _pinnedCount = 0;
+            while (!_empty && _pinnedCount < rows.Count && rows[_pinnedCount].IsPinned)
+            {
+                _pinnedCount++;
+            }
 
             _list.BeginUpdate();
             try
@@ -293,6 +354,7 @@ namespace Copipe.UI
 
         public void HidePopup()
         {
+            _wheelRemainder = 0;
             CancelDrag();
             Hide();
         }
@@ -348,6 +410,11 @@ namespace Copipe.UI
                 _list.SuppressClick = false;
                 return;
             }
+            // 📌 のクリックは「貼り付けの操作」の設定によらず、1 回でピン止めを外す (入力はしない)
+            if (e.Button == MouseButtons.Left && TryClickPinIcon(e.Location))
+            {
+                return;
+            }
             if (InsertOnSingleClick)
             {
                 Activate(e);
@@ -361,10 +428,90 @@ namespace Copipe.UI
                 _list.SuppressClick = false;
                 return;
             }
+            // 📌 のクリックに続く 2 回目のクリック。行は外れて普通の履歴になっているが、入力しない
+            if ((DateTime.UtcNow - _pinClickedAt).TotalMilliseconds <= SystemInformation.DoubleClickTime)
+            {
+                return;
+            }
             if (!InsertOnSingleClick)
             {
                 Activate(e);
             }
+        }
+
+        /// <summary>その位置がピン止めの行の 📌 の上なら、その行の位置。そうでなければ -1。</summary>
+        private int PinIconRowAt(Point location)
+        {
+            int index = RowIndexAt(location);
+            if (index < 0)
+            {
+                return -1;
+            }
+            PopupRow row = _list.Items[index] as PopupRow;
+            if (row == null || !row.IsPinned)
+            {
+                return -1;
+            }
+            return location.X >= _list.GetItemRectangle(index).Right - ScaleByDpi(BasePinIconWidth) ? index : -1;
+        }
+
+        private bool TryClickPinIcon(Point location)
+        {
+            int index = PinIconRowAt(location);
+            if (index < 0)
+            {
+                return false;
+            }
+            _pinClickedAt = DateTime.UtcNow;
+            Action<int> handler = PinIconClicked;
+            if (handler != null)
+            {
+                handler(index);
+            }
+            return true;
+        }
+
+        // ホイールのたまった量 (1 ノッチ = 120 に満たない分)
+        private int _wheelRemainder;
+
+        /// <summary>
+        /// 見出しなど一覧以外の上で回したホイール。子のラベルが処理しないホイールは、Windows が親 (この小窓) に回す。
+        /// </summary>
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            OnWheel(e.Delta);
+        }
+
+        private void OnWheel(int delta)
+        {
+            const int Notch = 120;
+            // 向きが変わったら、たまった量は捨てる
+            if ((delta > 0) != (_wheelRemainder > 0))
+            {
+                _wheelRemainder = 0;
+            }
+            _wheelRemainder += delta;
+            Action<int> handler = WheelNotched;
+            while (Math.Abs(_wheelRemainder) >= Notch)
+            {
+                int step = _wheelRemainder > 0 ? 1 : -1;
+                _wheelRemainder -= step * Notch;
+                if (handler != null)
+                {
+                    handler(step);
+                }
+            }
+        }
+
+        private void OnListMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_list.IsDragging)
+            {
+                return;
+            }
+            // 📌 の上では指の形にして、押せることを示す
+            _list.Cursor = PinIconRowAt(e.Location) >= 0 ? Cursors.Hand : Cursors.Default;
         }
 
         private void OnListMouseUp(object sender, MouseEventArgs e)
@@ -627,14 +774,31 @@ namespace Copipe.UI
             // 先頭 10 件には、選ぶための数字キー (1〜9、0) を付ける。11 件目以降は番号の欄を空けて、
             // 本文の書き出しの位置をそろえる
             int numberWidth = TextRenderer.MeasureText(e.Graphics, "0. ", e.Font, Size.Empty, flags).Width;
-            string number = ItemNumber.Label(e.Index);
+            // ピン止めの行は番号なし。普通の履歴はピン止めの後から 1 を付ける
+            string number = row.IsPinned ? null : ItemNumber.Label(e.Index - _pinnedCount);
             if (number != null)
             {
                 Rectangle numberBounds = new Rectangle(e.Bounds.Left, e.Bounds.Top, numberWidth, e.Bounds.Height);
                 TextRenderer.DrawText(e.Graphics, number + ".", e.Font, numberBounds, color, flags);
             }
 
-            Rectangle textBounds = Rectangle.FromLTRB(e.Bounds.Left + numberWidth, e.Bounds.Top, e.Bounds.Right, e.Bounds.Bottom);
+            int pinWidth = row.IsPinned ? ScaleByDpi(BasePinIconWidth) : 0;
+            Rectangle textBounds = Rectangle.FromLTRB(e.Bounds.Left + numberWidth, e.Bounds.Top, e.Bounds.Right - pinWidth, e.Bounds.Bottom);
+            if (row.IsPinned)
+            {
+                // 右端に 📌 (クリックでピン止めを外す)
+                Rectangle pinBounds = Rectangle.FromLTRB(e.Bounds.Right - pinWidth, e.Bounds.Top, e.Bounds.Right, e.Bounds.Bottom);
+                TextRenderer.DrawText(e.Graphics, PopupRow.PinMark, e.Font, pinBounds, selected ? color : SystemColors.GrayText,
+                                      flags | TextFormatFlags.HorizontalCenter);
+                if (e.Index == _pinnedCount - 1 && _pinnedCount < _list.Items.Count)
+                {
+                    // ピン止めと普通の履歴の区切り線
+                    using (Pen pen = new Pen(SystemColors.ControlDark))
+                    {
+                        e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+                    }
+                }
+            }
             string line;
             switch (row.Kind)
             {

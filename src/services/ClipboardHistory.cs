@@ -4,12 +4,14 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Text;
 
 namespace Copipe.Services
 {
     /// <summary>
     /// コピーしたテキストの履歴。新しい順に持ち、保持数を超えた分は古いものから捨てる。
     /// 同じ内容をまたコピーしたときは、増やさずに先頭へ移動する (CopyQ などと同じ)。
+    /// ピン止めした項目は別に持ち (Pinned)、保持数に数えず、消去もしない。
     /// </summary>
     public sealed class ClipboardHistory
     {
@@ -19,7 +21,13 @@ namespace Copipe.Services
         /// </summary>
         public const int MaxTextLength = 100000;
 
+        /// <summary>
+        /// Copipe が残す履歴の件数 (ピン止めは数えない)。小窓で振れる番号 (1〜9、0) と同じ 10 件に固定する。
+        /// </summary>
+        public const int MaxItems = 10;
+
         private readonly List<string> _items = new List<string>();
+        private readonly List<string> _pinned = new List<string>();
         private int _capacity;
 
         public ClipboardHistory(int capacity)
@@ -57,10 +65,86 @@ namespace Copipe.Services
             }
         }
 
-        /// <summary>新しい順。</summary>
+        /// <summary>普通の履歴 (ピン止めしていないもの)。新しい順。</summary>
         public ReadOnlyCollection<string> Items
         {
             get { return _items.AsReadOnly(); }
+        }
+
+        /// <summary>ピン止めした項目。新しくピン止めしたものが先頭。</summary>
+        public ReadOnlyCollection<string> Pinned
+        {
+            get { return _pinned.AsReadOnly(); }
+        }
+
+        /// <summary>普通の履歴かピン止めに、同じ内容があるか。</summary>
+        public bool Contains(string text)
+        {
+            return _items.Contains(text) || _pinned.Contains(text);
+        }
+
+        /// <summary>普通の履歴の項目をピン止めする (ピン止めの先頭に入る)。ピン止めしたなら true。</summary>
+        public bool Pin(string text)
+        {
+            if (!_items.Remove(text))
+            {
+                return false;
+            }
+            _pinned.Insert(0, text);
+            return true;
+        }
+
+        /// <summary>
+        /// 履歴に無い内容 (定型文など) もピン止めする。ピン止めの先頭に入れ、普通の履歴にあればそこから移す。
+        /// ピン止め済みなら先頭へ移す。変わったなら true。
+        /// </summary>
+        public bool PinText(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length > MaxTextLength)
+            {
+                return false;
+            }
+            if (_pinned.Count > 0 && _pinned[0] == text)
+            {
+                return false;
+            }
+            _pinned.Remove(text);
+            _items.Remove(text);
+            _pinned.Insert(0, text);
+            return true;
+        }
+
+        /// <summary>
+        /// 並べ替える。ピン止めの内容ならピン止めの中で、普通の履歴なら普通の履歴の中で、
+        /// 抜き出して toIndex (その中での位置) に差し込む。動いたなら true。
+        /// </summary>
+        public bool Move(string text, int toIndex)
+        {
+            if (text == null)
+            {
+                return false;
+            }
+            List<string> list = _pinned.Contains(text) ? _pinned : _items;
+            int from = list.IndexOf(text);
+            if (from < 0 || toIndex < 0 || toIndex >= list.Count || toIndex == from)
+            {
+                return false;
+            }
+            list.RemoveAt(from);
+            list.Insert(toIndex, text);
+            return true;
+        }
+
+        /// <summary>ピン止めを外す。普通の履歴の先頭に戻り、保持数を超えたら古いものから捨てる。外したなら true。</summary>
+        public bool Unpin(string text)
+        {
+            if (!_pinned.Remove(text))
+            {
+                return false;
+            }
+            _items.Insert(0, text);
+            Trim();
+            return true;
         }
 
         /// <summary>履歴に加える。加えた (または先頭へ移動した) なら true。</summary>
@@ -68,6 +152,11 @@ namespace Copipe.Services
         {
             if (string.IsNullOrEmpty(text) || text.Length > MaxTextLength)
             {
+                return false;
+            }
+            if (_pinned.Contains(text))
+            {
+                // ピン止めした内容。普通の履歴には増やさず、ピン止めの位置も変えない
                 return false;
             }
 
@@ -87,6 +176,7 @@ namespace Copipe.Services
             return true;
         }
 
+        /// <summary>普通の履歴を消す。ピン止めは残す。</summary>
         public void Clear()
         {
             _items.Clear();
@@ -103,23 +193,40 @@ namespace Copipe.Services
                     return history;
                 }
 
-                using (FileStream stream = File.OpenRead(path))
+                // メモ帳などで BOM 付きで保存されても読めるよう、文字列として読んでから渡す
+                // (DataContractJsonSerializer は先頭の BOM を読めない。定型文で実測)
+                string json = File.ReadAllText(path, Encoding.UTF8);
+                using (MemoryStream stream = new MemoryStream(new UTF8Encoding(false).GetBytes(json)))
                 {
                     DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(HistoryFile));
                     HistoryFile file = serializer.ReadObject(stream) as HistoryFile;
-                    if (file != null && file.Items != null)
+                    if (file != null)
                     {
-                        foreach (string item in file.Items)
+                        // ピン止めを先に読む。普通の履歴と重なった内容はピン止めを優先する
+                        if (file.Pinned != null)
                         {
-                            if (history._items.Count >= capacity)
+                            foreach (string item in file.Pinned)
                             {
-                                break;
+                                if (IsStorable(item) && !history._pinned.Contains(item))
+                                {
+                                    history._pinned.Add(item);
+                                }
                             }
-                            if (string.IsNullOrEmpty(item) || item.Length > MaxTextLength || history._items.Contains(item))
+                        }
+                        if (file.Items != null)
+                        {
+                            foreach (string item in file.Items)
                             {
-                                continue;
+                                if (history._items.Count >= capacity)
+                                {
+                                    break;
+                                }
+                                if (!IsStorable(item) || history.Contains(item))
+                                {
+                                    continue;
+                                }
+                                history._items.Add(item);
                             }
-                            history._items.Add(item);
                         }
                     }
                 }
@@ -128,6 +235,7 @@ namespace Copipe.Services
             {
                 // 壊れたファイル・読み取り権限が無いなど。履歴より起動を優先する
                 history._items.Clear();
+                history._pinned.Clear();
             }
             return history;
         }
@@ -143,6 +251,8 @@ namespace Copipe.Services
 
             HistoryFile file = new HistoryFile();
             file.Items = _items.ToArray();
+            // ピン止めが無ければ書かない (前の形式と同じ中身になる)
+            file.Pinned = _pinned.Count > 0 ? _pinned.ToArray() : null;
 
             // 書いている途中で電源が切れてもファイルが壊れないよう、一時ファイルに書いてから置き換える
             string temp = path + ".tmp";
@@ -161,6 +271,11 @@ namespace Copipe.Services
             }
         }
 
+        private static bool IsStorable(string text)
+        {
+            return !string.IsNullOrEmpty(text) && text.Length <= MaxTextLength;
+        }
+
         private void Trim()
         {
             while (_items.Count > _capacity)
@@ -175,6 +290,10 @@ namespace Copipe.Services
         {
             [DataMember]
             public string[] Items { get; set; }
+
+            /// <summary>ピン止めした項目 (先頭が一番上)。前の形式のファイルには無い。</summary>
+            [DataMember(EmitDefaultValue = false)]
+            public string[] Pinned { get; set; }
         }
     }
 }

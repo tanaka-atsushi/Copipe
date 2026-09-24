@@ -18,10 +18,12 @@ namespace Copipe.Services
         private const int FirstId = 100;
         private const int ModeKeyId = 200;
         private const int EscapeId = 201;
+        // ダブルタップのキーを押したまま (Ctrl+1 など) でも受け取るための登録は、ID にこれを足す
+        private const int HeldOffset = 1000;
 
         private bool _enabled;
         private bool _escapeEnabled;
-        private uint _mod;
+        private uint _heldMod;
 
         public PopupKeys()
         {
@@ -40,30 +42,56 @@ namespace Copipe.Services
         public event Action EscapePressed;
 
         /// <summary>
-        /// 数字キーとモードキーを登録する。modifiers には、押し続けているホットキーの修飾キーを渡す
-        /// (Ctrl+Space を押したままなら、数字は Ctrl+1 として届くため)。
-        /// 他のアプリが使っているキーは登録できないので、そのキーだけ効かない。
+        /// 数字キーとモードキーを登録する (修飾キーなし)。
+        /// ダブルタップで小窓を出したときは、そのキー (heldModifier: ControlKey・ShiftKey・Menu) を押したままなので、
+        /// 数字は Ctrl+1 などとして届く。そのキー付きでも登録する。
+        /// 他のアプリや Windows が使っているキー (Alt+Tab など) は登録できないので、そのキーだけ効かない。
         /// modeKey が Keys.None なら、モードキーは登録しない。
         /// </summary>
-        public void Enable(Keys modifiers, Keys modeKey)
+        public void Enable(Keys modeKey, Keys heldModifier)
         {
             Disable();
-
-            uint mod = NativeMethods.MOD_NOREPEAT;
-            if ((modifiers & Keys.Control) == Keys.Control) { mod |= NativeMethods.MOD_CONTROL; }
-            if ((modifiers & Keys.Shift) == Keys.Shift) { mod |= NativeMethods.MOD_SHIFT; }
-            if ((modifiers & Keys.Alt) == Keys.Alt) { mod |= NativeMethods.MOD_ALT; }
+            _enabled = true;
+            _heldMod = ModifierFlag(heldModifier);
 
             for (int i = 0; i < ItemNumber.AllKeys.Count; i++)
             {
-                NativeMethods.RegisterHotKey(Handle, FirstId + i, mod, (uint)ItemNumber.AllKeys[i]);
+                Register(FirstId + i, (uint)ItemNumber.AllKeys[i]);
             }
             if ((modeKey & Keys.KeyCode) != Keys.None)
             {
-                NativeMethods.RegisterHotKey(Handle, ModeKeyId, mod, (uint)(modeKey & Keys.KeyCode));
+                Register(ModeKeyId, (uint)(modeKey & Keys.KeyCode));
             }
-            _mod = mod;
-            _enabled = true;
+        }
+
+        private static uint ModifierFlag(Keys heldModifier)
+        {
+            switch (HotkeyText.NormalizeModifier(heldModifier))
+            {
+                case Keys.ControlKey:
+                    return NativeMethods.MOD_CONTROL;
+                case Keys.ShiftKey:
+                    return NativeMethods.MOD_SHIFT;
+                case Keys.Menu:
+                    return NativeMethods.MOD_ALT;
+                default:
+                    return 0;
+            }
+        }
+
+        private void Register(int id, uint vk)
+        {
+            NativeMethods.RegisterHotKey(Handle, id, NativeMethods.MOD_NOREPEAT, vk);
+            if (_heldMod != 0)
+            {
+                NativeMethods.RegisterHotKey(Handle, id + HeldOffset, NativeMethods.MOD_NOREPEAT | _heldMod, vk);
+            }
+        }
+
+        private void Unregister(int id)
+        {
+            NativeMethods.UnregisterHotKey(Handle, id);
+            NativeMethods.UnregisterHotKey(Handle, id + HeldOffset);
         }
 
         /// <summary>
@@ -78,11 +106,11 @@ namespace Copipe.Services
             }
             if (enabled)
             {
-                NativeMethods.RegisterHotKey(Handle, EscapeId, _mod, (uint)Keys.Escape);
+                Register(EscapeId, (uint)Keys.Escape);
             }
             else
             {
-                NativeMethods.UnregisterHotKey(Handle, EscapeId);
+                Unregister(EscapeId);
             }
             _escapeEnabled = enabled;
         }
@@ -96,10 +124,10 @@ namespace Copipe.Services
             }
             for (int i = 0; i < ItemNumber.AllKeys.Count; i++)
             {
-                NativeMethods.UnregisterHotKey(Handle, FirstId + i);
+                Unregister(FirstId + i);
             }
-            NativeMethods.UnregisterHotKey(Handle, ModeKeyId);
-            NativeMethods.UnregisterHotKey(Handle, EscapeId);
+            Unregister(ModeKeyId);
+            Unregister(EscapeId);
             _escapeEnabled = false;
             _enabled = false;
         }
@@ -109,6 +137,11 @@ namespace Copipe.Services
             if (m.Msg == NativeMethods.WM_HOTKEY)
             {
                 int id = m.WParam.ToInt32();
+                if (id >= HeldOffset)
+                {
+                    // ダブルタップのキーを押したまま押された。修飾キーなしと同じに扱う
+                    id -= HeldOffset;
+                }
                 if (id == ModeKeyId)
                 {
                     Action mode = ModePressed;
