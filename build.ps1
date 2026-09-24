@@ -48,6 +48,11 @@ $refs = @(
     'System.Xml.dll'                     # 定型文を字下げして書く JSON ライター (XmlDictionaryWriter) の基底クラス
 )
 
+# --- アイコン -------------------------------------------------------------
+# Claude Design で作った 16〜256 の大きさ入りの ico
+$iconFile = Join-Path $root 'assets\icon\copipe.ico'
+if (-not (Test-Path -LiteralPath $iconFile)) { throw "アイコンが見つかりません: $iconFile" }
+
 # $args は PowerShell の自動変数なので別名を使う
 $cscArgs = @(
     '/nologo'
@@ -58,6 +63,9 @@ $cscArgs = @(
     '/warnaserror-'
     '/warn:4'
     "/out:$outExe"
+    # アイコン: exe 自体のもの (エクスプローラー・タスクバー) と、トレイ用に読むための埋め込み
+    "/win32icon:$iconFile"
+    "/resource:$iconFile,Copipe.copipe.ico"
 )
 if ($DebugBuild) { $cscArgs += '/debug:full'; $cscArgs += '/define:DEBUG' } else { $cscArgs += '/optimize+' }
 $cscArgs += ($refs | ForEach-Object { "/reference:$_" })

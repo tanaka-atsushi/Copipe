@@ -61,6 +61,8 @@ namespace Copipe
         private readonly ContextMenuStrip _trayMenu;
         private readonly ToolStripMenuItem _settingsItem;
         private readonly NotifyIcon _trayIcon;
+        // トレイのアイコンの画像。NotifyIcon は閉じても画像を解放しないので、自分で解放する
+        private readonly Icon _trayImage;
         private readonly DialogOwner _dialogOwner = new DialogOwner();
         // ダブルタップで出したままの小窓の、別のアプリへの切り替えを調べる
         private readonly Timer _stickyTimer = new Timer();
@@ -86,9 +88,12 @@ namespace Copipe
         // ホットキーを押したときに前面だったアプリ (入力先)。ダイアログを閉じた後にここへ前面を戻す
         private IntPtr _targetWindow;
         private bool _saveWarned;
+        // 初めての起動か (設定ファイルがまだ無い)。起動したら最初に設定画面を出す
+        private readonly bool _firstRun;
 
         public CopipeApp()
         {
+            _firstRun = !File.Exists(Settings.DefaultPath);
             _settings = Settings.Load(Settings.DefaultPath);
             _history = ClipboardHistory.Load(ClipboardHistory.DefaultPath, ClipboardHistory.MaxItems);
 
@@ -144,7 +149,9 @@ namespace Copipe
             _trayMenu.Items.Add("終了", null, OnExitClick);
 
             _trayIcon = new NotifyIcon();
-            _trayIcon.Icon = SystemIcons.Application;
+            // トレイの大きさ (SmallIconSize。拡大率 100% で 16、150% で 24 など) のものを、縮めずにそのまま読む
+            _trayImage = AppIcon.Load(SystemInformation.SmallIconSize);
+            _trayIcon.Icon = _trayImage;
             _trayIcon.ContextMenuStrip = _trayMenu;
 
             UpdateLabels();
@@ -201,7 +208,25 @@ namespace Copipe
             CaptureClipboard(false);
 
             _trayIcon.Visible = true;
+            if (_firstRun)
+            {
+                // メッセージループが回り始めてから出す (Start は Application.Run の前に呼ばれる)
+                _popup.BeginInvoke((Action)ShowFirstRunSettings);
+            }
             return true;
+        }
+
+        /// <summary>
+        /// 初めての起動のとき、最初に設定画面を出す (ホットキーなどを知ってもらい、選んでもらうため)。
+        /// 取り消しても既定の設定で設定ファイルを作り、次からは出さない。
+        /// </summary>
+        private void ShowFirstRunSettings()
+        {
+            OnSettingsClick(this, EventArgs.Empty);
+            if (!File.Exists(Settings.DefaultPath))
+            {
+                SaveSettings();
+            }
         }
 
         private void OnClipboardChanged(object sender, EventArgs e)
@@ -1392,6 +1417,8 @@ namespace Copipe
                 _mouseClicks.Dispose();
                 _retryTimer.Dispose();
                 _trayIcon.Dispose();
+                // Dispose は終了時に 2 回呼ばれることがある。Icon は 2 回解放しても例外にならない
+                _trayImage.Dispose();
                 _trayMenu.Dispose();
                 _ownerHideTimer.Dispose();
                 _stickyTimer.Dispose();

@@ -53,6 +53,13 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
 # (戻さずに始めると、検証用の中身を「利用者のもの」として退避してしまう)
 & (Join-Path $root 'tools\Restore-CopipeData.ps1') -ExePath $exe
 
+# exe に入っているアイコンの数 (エクスプローラーやタスクバーに出るもの)
+Add-Type -Namespace CopipeVerify -Name Shell -MemberDefinition @'
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+private static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+public static int IconCount(string file) { return (int)ExtractIconEx(file, -1, null, null, 0); }
+'@
+
 # ハーネス用の Win32 API
 Add-Type -Namespace CopipeVerify -Name Native -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true)]
@@ -460,6 +467,23 @@ Section '検証 1: 表示位置の計算 (PopupPlacement)' {
     }
     Check ("走査 $total 点: 作業領域からはみ出さない") ($outside -eq 0) "はみ出し $outside 件"
     Check ("走査 $total 点: 小窓がカーソルに重ならない") ($covers -eq 0) "重なり $covers 件"
+}
+
+# ==============================================================================
+Section '検証 1b: アプリとトレイのアイコン (AppIcon)' {
+# ==============================================================================
+    $asm = [Copipe.UI.ItemNumber].Assembly
+    Check 'アイコン: exe 自体にアイコンが付いている (エクスプローラー・タスクバー・Alt+Tab 用)' ([CopipeVerify.Shell]::IconCount($exe) -ge 1) "count=$([CopipeVerify.Shell]::IconCount($exe))"
+    Check 'アイコン: exe に copipe.ico が埋め込まれている (トレイ用)' ($asm.GetManifestResourceNames() -contains 'Copipe.copipe.ico') "names=$($asm.GetManifestResourceNames() -join ',')"
+    $AI = $asm.GetType('Copipe.UI.AppIcon', $true)
+    $load = $AI.GetMethod('Load', [Reflection.BindingFlags]'Static, Public, NonPublic')
+    # トレイの大きさ (拡大率 100% で 16、125% で 20、150% で 24、200% で 32) のものが ico に入っていて、そのまま読める
+    foreach ($s in 16, 20, 24, 32) {
+        $size = (New-Object System.Drawing.Size $s, $s).psobject.BaseObject
+        $icon = $load.Invoke($null, [object[]]@($size))
+        Check "アイコン: $s px のものをそのまま読める (縮めてぼやけない)" ($null -ne $icon -and $icon.Width -eq $s -and $icon.Height -eq $s) "got=$($icon.Width)x$($icon.Height)"
+        if ($icon) { $icon.Dispose() }
+    }
 }
 
 # ==============================================================================
@@ -1639,6 +1663,53 @@ try {
             Check '(準備) 登録できて擬似入力も届くホットキーが見つかる' ($null -ne $mainHotkey)
             if ($null -eq $mainHotkey) { return }
             if ($runHistory) {   # ---- ここから履歴の E2E (起動・表示位置・二重起動・設定したホットキー) ----
+            # ---- 初回起動: 設定ファイルが無ければ、最初に設定画面を出す (マウス・キーは使わない) ----
+            # Copipe の設定画面 (タイトル「設定」) を探す
+            function Find-SettingsDialog([int]$ProcessId) {
+                foreach ($h in $W::TopWindows($ProcessId)) {
+                    if ($W::IsWindowVisible($h) -and $W::GetText($h) -ceq '設定') { return $h }
+                }
+                return [IntPtr]::Zero
+            }
+            # 小窓に WM_CLOSE を送って終わらせ、終了コードを返す (終わらなければ $null)
+            function Close-Copipe($Process) {
+                [void]$W::PostMessage((Find-Popup $Process.Id), 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
+                if ($Process.WaitForExit(5000)) { return $Process.ExitCode }
+                $Process.Kill()
+                return $null
+            }
+            if ($mainHotkey -ne [Copipe.Services.Settings]::DefaultHotkey) {
+                Info "初回起動の検証は省略 (既定のホットキー $([Copipe.UI.HotkeyText]::Display([Copipe.Services.Settings]::DefaultHotkey)) が使えないため)"
+            } else {
+                [System.IO.File]::Delete($settingsPath)
+                $firstRun = Start-Process -FilePath $exe -PassThru
+                $null = $firstRun.Handle
+                $firstDialog = [IntPtr]::Zero
+                $limit = (Get-Date).AddSeconds(5)
+                while ($firstDialog -eq [IntPtr]::Zero -and (Get-Date) -lt $limit -and -not $firstRun.HasExited) {
+                    Start-Sleep -Milliseconds 100
+                    $firstDialog = Find-SettingsDialog $firstRun.Id
+                }
+                Check '初回起動: 設定ファイルが無ければ、最初に設定画面が出る' ($firstDialog -ne [IntPtr]::Zero) "exited=$($firstRun.HasExited)"
+                if ($firstDialog -ne [IntPtr]::Zero) {
+                    # 取り消して閉じる
+                    [void]$W::PostMessage($firstDialog, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
+                    $created = Wait-Until { [System.IO.File]::Exists($settingsPath) } 3000
+                    Check '初回起動: 設定画面を取り消しても、既定の設定で設定ファイルができる (次からは出ない)' ($created -ge 0 -and [Copipe.Services.Settings]::Load($settingsPath).Hotkey -eq [Copipe.Services.Settings]::DefaultHotkey)
+                }
+                $firstExit = Close-Copipe $firstRun
+                Check '初回起動: 終了すると正常に終わる (終了コード 0。エラーのダイアログを出さない)' ($firstExit -eq 0) "exit=$firstExit"
+
+                $nextRun = Start-Process -FilePath $exe -PassThru
+                $null = $nextRun.Handle
+                $limit = (Get-Date).AddSeconds(5)
+                while ((Find-Popup $nextRun.Id) -eq [IntPtr]::Zero -and (Get-Date) -lt $limit -and -not $nextRun.HasExited) { Start-Sleep -Milliseconds 50 }
+                Start-Sleep -Milliseconds 1500
+                Check '初回起動: 2 回目からは設定画面を出さない' ((Find-SettingsDialog $nextRun.Id) -eq [IntPtr]::Zero)
+                $nextExit = Close-Copipe $nextRun
+                Check '2 回目の起動: 終了すると正常に終わる (終了コード 0)' ($nextExit -eq 0) "exit=$nextExit"
+            }
+
             Use-Hotkey $mainHotkey
             $app = Start-Process -FilePath $exe -PassThru
             $null = $app.Handle   # 終了コードを後で読むため (Windows PowerShell の Process の癖)

@@ -181,6 +181,9 @@ Windows 標準の `csc.exe` (.NET Framework 4.8) だけでビルドするため�
 
 トレイアイコンを右クリック →「設定...」。
 
+**初めて起動したとき** (設定ファイルがまだ無いとき) は、最初に設定画面が出る。OK でもキャンセルでも、
+閉じると設定ファイルができ (キャンセルなら既定の設定)、次からは出ない。
+
 - **ホットキー**: 欄を選んで、押し続けたいキーを押す (F1・Pause・無変換など)。**Ctrl・Shift・Alt・Windows キーとの組み合わせは使えない**。
   Ctrl などを押したままキーを押しても、キーだけを取り込む。修飾キーを押したままだと、小窓で使う Tab が Alt+Tab に
   なるなど Windows と取り合いになり、Windows が使っている組み合わせ (Win+Space など) は設定画面に届きもしないため
@@ -516,6 +519,7 @@ build.ps1                        csc.exe によるビルド
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
 tools/Restore-CopipeData.ps1     途中で止まった検証が書き換えたままの設定・履歴・定型文を元に戻す
 tools/verify.ps1                 検証ハーネス
+assets/icon/                     アイコン (Claude Design で作成。copipe.ico を exe とトレイに使う。svg・png は元の素材)
 src/
   Program.cs                     エントリポイント (DPI 対応の宣言、例外ハンドラー)
   CopipeApp.cs                   常駐部分: トレイメニュー、履歴を貯める、押す→一覧表示 / 離す→非表示、設定の反映
@@ -547,6 +551,7 @@ src/
     BreadcrumbLabel.cs           見出しの階層名 (定型文 > 社外 > …)。落とす先にもなる
     PopupPlacement.cs            表示位置の計算 (純粋関数)
     PreviewText.cs               一覧の 1 行の文字列 (純粋関数)
+    AppIcon.cs                   埋め込んだ copipe.ico から、トレイの大きさのアイコンを読む
     SettingsDialog.cs            設定画面 (ホットキー・ダブルタップ・モードキーの取り込み、貼り付けの操作)
     HotkeyText.cs                キーの表示名・保存形式・使えるキーかの判定 (純粋関数)
     ItemNumber.cs                一覧の番号 (1〜9、0) と数字キーの対応 (純粋関数)
