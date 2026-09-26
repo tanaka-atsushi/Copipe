@@ -24,8 +24,10 @@ namespace Copipe
                     if (!app.Start())
                     {
                         MessageBox.Show(
-                            "ホットキー " + app.HotkeyName + " を登録できませんでした。\n\n" +
-                            "Copipe がすでに起動しているか、他のアプリまたは Windows が使用中です。",
+                            Lang.T("ホットキー " + app.HotkeyName + " を登録できませんでした。\n\n" +
+                                   "Copipe がすでに起動しているか、他のアプリまたは Windows が使用中です。",
+                                   "Could not register the hotkey " + app.HotkeyName + ".\n\n" +
+                                   "Copipe is already running, or the key is in use by another app or Windows."),
                             "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return 1;
                     }
@@ -37,7 +39,7 @@ namespace Copipe
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "起動できませんでした。\n\n" + ex.ToString(),
+                    Lang.T("起動できませんでした。\n\n", "Could not start.\n\n") + ex.ToString(),
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
@@ -47,8 +49,8 @@ namespace Copipe
         {
             // 常駐アプリなので、予期しない例外でも内容を知らせたうえで動作を続ける
             MessageBox.Show(
-                "予期しないエラーが発生しました。\n\n" + e.Exception.Message +
-                "\n\n詳細:\n" + e.Exception.ToString(),
+                Lang.T("予期しないエラーが発生しました。\n\n", "An unexpected error occurred.\n\n") + e.Exception.Message +
+                Lang.T("\n\n詳細:\n", "\n\nDetails:\n") + e.Exception.ToString(),
                 "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }

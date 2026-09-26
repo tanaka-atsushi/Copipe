@@ -273,17 +273,17 @@ namespace Copipe.UI
             switch (code)
             {
                 case Keys.IMENonconvert:
-                    return "無変換";
+                    return Lang.T("無変換", "Nonconvert");
                 case Keys.IMEConvert:
-                    return "変換";
+                    return Lang.T("変換", "Convert");
                 case Keys.KanaMode:
                 case ImeKatakanaHiragana:
-                    return "カタカナ ひらがな";
+                    return Lang.T("カタカナ ひらがな", "Katakana/Hiragana");
                 case ImeAlphanumeric:
-                    return "英数";
+                    return Lang.T("英数", "Eisu");
                 case ImeZenkakuWhenOff:
                 case ImeZenkakuWhenOn:
-                    return "半角/全角";
+                    return Lang.T("半角/全角", "Hankaku/Zenkaku");
             }
 
             string name = ConvertKeyCode(code);
@@ -292,7 +292,7 @@ namespace Copipe.UI
                 return name;
             }
             // Keys に名前が無いキー。何も出ないと選んだキーが分からないので番号で示す
-            return string.Format(CultureInfo.InvariantCulture, "キー (0x{0:X2})", (int)code);
+            return string.Format(CultureInfo.InvariantCulture, Lang.T("キー (0x{0:X2})", "Key (0x{0:X2})"), (int)code);
         }
 
         /// <summary>Keys の名前 (無い場合は空文字列)。</summary>

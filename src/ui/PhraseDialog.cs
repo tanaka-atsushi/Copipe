@@ -30,7 +30,7 @@ namespace Copipe.UI
 
             int y = Scaled(14);
             Label where = new Label();
-            where.Text = "場所: " + location;
+            where.Text = Lang.T("場所: ", "Location: ") + location;
             where.AutoSize = false;
             where.UseMnemonic = false;
             where.ForeColor = SystemColors.GrayText;
@@ -40,7 +40,7 @@ namespace Copipe.UI
 
             if (isGroup)
             {
-                AddLabel("グループ名", y);
+                AddLabel(Lang.T("グループ名", "Group name"), y);
                 y += Scaled(22);
                 _nameBox = new TextBox();
                 _nameBox.Name = "nameBox";
@@ -52,7 +52,7 @@ namespace Copipe.UI
             }
             else
             {
-                AddLabel("表示名 (省略すると、本文の最初の行を一覧に出します)", y);
+                AddLabel(Lang.T("表示名 (省略すると、本文の最初の行を一覧に出します)", "Display name (optional; the first line of the text if empty)"), y);
                 y += Scaled(22);
                 _titleBox = new TextBox();
                 _titleBox.Name = "titleBox";
@@ -61,7 +61,7 @@ namespace Copipe.UI
                 Controls.Add(_titleBox);
                 y += Scaled(38);
 
-                AddLabel("本文 (入力する文字。改行もそのまま入ります)", y);
+                AddLabel(Lang.T("本文 (入力する文字。改行もそのまま入ります)", "Text (inserted as is, including line breaks)"), y);
                 y += Scaled(22);
                 _textBox = new TextBox();
                 _textBox.Name = "textBox";
@@ -77,7 +77,8 @@ namespace Copipe.UI
                 y += Scaled(166);
 
                 Label note = new Label();
-                note.Text = "本文の欄では Enter で改行、Ctrl+Enter で確定します。Esc で取り消します。";
+                note.Text = Lang.T("本文の欄では Enter で改行、Ctrl+Enter で確定します。Esc で取り消します。",
+                                   "In the text box, Enter adds a line break and Ctrl+Enter saves. Esc cancels.");
                 note.AutoSize = false;
                 note.UseMnemonic = false;
                 note.ForeColor = SystemColors.GrayText;
@@ -95,7 +96,7 @@ namespace Copipe.UI
 
             Button cancel = new Button();
             cancel.Name = "cancelButton";
-            cancel.Text = "キャンセル";
+            cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
             cancel.Bounds = new Rectangle(Scaled(360), y, Scaled(84), Scaled(30));
             Controls.Add(cancel);

@@ -12,7 +12,19 @@ namespace Copipe.UI
     /// </summary>
     internal sealed class SettingsDialog : Form
     {
-        private const string GuideNote = "キーの欄を選んでキーを押すと変わります。Enter で確定、Esc で取り消します。";
+        private static string GuideNote
+        {
+            get
+            {
+                return Lang.T("キーの欄を選んでキーを押すと変わります。Enter で確定、Esc で取り消します。",
+                                                           "Select a key box and press a key to change it. Enter saves, Esc cancels.");
+            }
+        }
+
+        private static string ConfirmNote
+        {
+            get { return Lang.T("このキーでよければ Enter か OK で確定します。", "Press Enter or OK to use this key."); }
+        }
         private static readonly Color ErrorColor = Color.FromArgb(0xC0, 0x30, 0x00);
 
         private readonly Button _hotkeyBox;
@@ -22,6 +34,7 @@ namespace Copipe.UI
         private readonly Button _modeKeyBox;
         private readonly Label _note;
         private readonly RadioButton _singleClick;
+        private readonly ComboBox _language;
         private readonly Button _ok;
         private Keys _selected;
         private Keys _selectedDoubleTap;
@@ -29,13 +42,13 @@ namespace Copipe.UI
         private bool _pending;
 
         public SettingsDialog(Keys currentHotkey, Keys currentDoubleTap, Keys currentModeKey,
-                              InsertClick currentInsertClick)
+                              InsertClick currentInsertClick, UiLanguage currentLanguage)
         {
             _selected = currentHotkey;
             _selectedDoubleTap = HotkeyText.NormalizeModifier(currentDoubleTap);
             _selectedModeKey = currentModeKey;
 
-            Text = "設定";
+            Text = Lang.T("設定", "Settings");
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterScreen;
             MinimizeBox = false;
@@ -47,10 +60,10 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(408));
+            ClientSize = new Size(Scaled(380), Scaled(444));
 
             Label hotkeyLabel = new Label();
-            hotkeyLabel.Text = "ホットキー (押し続けている間、小窓が出ます)";
+            hotkeyLabel.Text = Lang.T("ホットキー (押し続けている間、小窓が出ます)", "Hotkey (shows the popup while held)");
             hotkeyLabel.AutoSize = true;
             hotkeyLabel.Location = new Point(Scaled(16), Scaled(14));
             Controls.Add(hotkeyLabel);
@@ -73,7 +86,7 @@ namespace Copipe.UI
             };
 
             Label doubleTapLabel = new Label();
-            doubleTapLabel.Text = "ダブルタップ (Ctrl などを 2 回押し、押し続ける間)";
+            doubleTapLabel.Text = Lang.T("ダブルタップ (Ctrl などを 2 回押し、押し続ける間)", "Double-tap (press Ctrl etc. twice and hold)");
             doubleTapLabel.AutoSize = true;
             doubleTapLabel.Location = new Point(Scaled(16), Scaled(100));
             Controls.Add(doubleTapLabel);
@@ -96,7 +109,7 @@ namespace Copipe.UI
             };
 
             Label modeKeyLabel = new Label();
-            modeKeyLabel.Text = "モードキー (小窓で履歴と定型文を切り替える)";
+            modeKeyLabel.Text = Lang.T("モードキー (小窓で履歴と定型文を切り替える)", "Mode key (switches history / snippets in the popup)");
             modeKeyLabel.AutoSize = true;
             modeKeyLabel.Location = new Point(Scaled(16), Scaled(176));
             Controls.Add(modeKeyLabel);
@@ -119,19 +132,19 @@ namespace Copipe.UI
 
 
             Label clickLabel = new Label();
-            clickLabel.Text = "貼り付けの操作";
+            clickLabel.Text = Lang.T("貼り付けの操作", "Paste with");
             clickLabel.AutoSize = true;
             clickLabel.Location = new Point(Scaled(16), Scaled(310));
             Controls.Add(clickLabel);
 
             RadioButton doubleClick = new RadioButton();
-            doubleClick.Text = "ダブルクリック";
+            doubleClick.Text = Lang.T("ダブルクリック", "Double-click");
             doubleClick.AutoSize = true;
             doubleClick.Location = new Point(Scaled(120), Scaled(308));
             Controls.Add(doubleClick);
 
             _singleClick = new RadioButton();
-            _singleClick.Text = "シングルクリック";
+            _singleClick.Text = Lang.T("シングルクリック", "Single-click");
             _singleClick.AutoSize = true;
             _singleClick.Location = new Point(Scaled(236), Scaled(308));
             Controls.Add(_singleClick);
@@ -139,16 +152,31 @@ namespace Copipe.UI
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
             _singleClick.Checked = (currentInsertClick == InsertClick.Single);
 
+            // 欄の名前はいつも Language、言語の名前はその言語で出す (読めない言語になっても戻せるように)
+            Label languageLabel = new Label();
+            languageLabel.Text = "Language";
+            languageLabel.AutoSize = true;
+            languageLabel.Location = new Point(Scaled(16), Scaled(348));
+            Controls.Add(languageLabel);
+
+            _language = new ComboBox();
+            _language.Name = "languageBox";
+            _language.DropDownStyle = ComboBoxStyle.DropDownList;
+            _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
+            _language.SelectedIndex = (int)currentLanguage;
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(344), Scaled(244), Scaled(24));
+            Controls.Add(_language);
+
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(358), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(394), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
-            cancel.Text = "キャンセル";
+            cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(358), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(394), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -179,6 +207,12 @@ namespace Copipe.UI
         public InsertClick SelectedInsertClick
         {
             get { return _singleClick.Checked ? InsertClick.Single : InsertClick.Double; }
+        }
+
+        /// <summary>OK で閉じたときに選ばれた言語。</summary>
+        public UiLanguage SelectedLanguage
+        {
+            get { return (UiLanguage)_language.SelectedIndex; }
         }
 
         protected override void OnShown(EventArgs e)
@@ -260,7 +294,7 @@ namespace Copipe.UI
 
         private void CaptureHotkey(Keys keys)
         {
-            CaptureKey(keys, "ホットキー", _hotkeyBox, delegate(Keys code) { _selected = code; });
+            CaptureKey(keys, Lang.T("ホットキー", "the hotkey"), _hotkeyBox, delegate(Keys code) { _selected = code; });
         }
 
         /// <summary>
@@ -277,12 +311,14 @@ namespace Copipe.UI
                 _doubleTapBox.Text = DoubleTapText(code);
                 if (code == Keys.Menu)
                 {
-                    ShowNote("注意: Alt は、アプリによっては押して離すとメニューバーにフォーカスが移ります。" +
-                             "よければ Enter か OK で確定します。", true);
+                    ShowNote(Lang.T("注意: Alt は、アプリによっては押して離すとメニューバーにフォーカスが移ります。" +
+                                    "よければ Enter か OK で確定します。",
+                                    "Note: in some apps, pressing and releasing Alt moves focus to the menu bar. " +
+                                    "Press Enter or OK to confirm."), true);
                 }
                 else
                 {
-                    ShowNote("このキーでよければ Enter か OK で確定します。", false);
+                    ShowNote(ConfirmNote, false);
                 }
                 UpdateState();
                 return;
@@ -291,13 +327,13 @@ namespace Copipe.UI
             // 使えないキーは、_pending のままにして OK を押させない
             _pending = true;
             _doubleTapBox.Text = HotkeyText.Display(keys & Keys.KeyCode);
-            ShowNote("ダブルタップには Ctrl・Shift・Alt が使えます。どれかを押してください。", true);
+            ShowNote(Lang.T("ダブルタップには Ctrl・Shift・Alt が使えます。どれかを押してください。", "Double-tap can use Ctrl, Shift or Alt. Please press one of them."), true);
             UpdateState();
         }
 
         private void CaptureModeKey(Keys keys)
         {
-            CaptureKey(keys, "モードキー", _modeKeyBox, delegate(Keys code) { _selectedModeKey = code; });
+            CaptureKey(keys, Lang.T("モードキー", "the mode key"), _modeKeyBox, delegate(Keys code) { _selectedModeKey = code; });
         }
 
         /// <summary>
@@ -314,7 +350,7 @@ namespace Copipe.UI
                 // 先に選んだことにしてから確かめる (ホットキーとモードキーの重なりを、新しいキーで判定するため)
                 select(code);
                 box.Text = HotkeyText.Display(code);
-                ShowNote("このキーでよければ Enter か OK で確定します。", false);
+                ShowNote(ConfirmNote, false);
                 UpdateState();
                 return;
             }
@@ -331,13 +367,15 @@ namespace Copipe.UI
             if (HotkeyText.IsDigitKey(code))
             {
                 // 数字キーは、小窓の一覧から選ぶために使う
-                ShowNote("数字キーは一覧から項目を選ぶために使うので、" + what + "にはできません。別のキーを押してください。", true);
+                ShowNote(Lang.T("数字キーは一覧から項目を選ぶために使うので、" + what + "にはできません。別のキーを押してください。",
+                                "Number keys select items in the list and cannot be " + what + ". Please press another key."), true);
             }
             else
             {
                 // 半角/全角・英数・カタカナ ひらがな。押して離しても「押されたまま」に見えるので、
                 // 小窓が出たまま消えなくなる
-                ShowNote("このキーは、離したことを判定できないため使えません。別のキーを押してください。", true);
+                ShowNote(Lang.T("このキーは、離したことを判定できないため使えません。別のキーを押してください。",
+                                "This key cannot be used because its release cannot be detected. Please press another key."), true);
             }
             UpdateState();
         }
@@ -363,16 +401,21 @@ namespace Copipe.UI
             }
             if (noTrigger)
             {
-                ShowNote("ホットキーかダブルタップのどちらかを設定してください (両方「なし」にはできません)。", true);
+                ShowNote(Lang.T("ホットキーかダブルタップのどちらかを設定してください (両方「なし」にはできません)。",
+                                "Set either a hotkey or a double-tap (both cannot be None)."), true);
             }
             else if (conflict)
             {
-                ShowNote("ホットキーとモードキーに同じキーは使えません。どちらかを別のキーにしてください。", true);
+                ShowNote(Lang.T("ホットキーとモードキーに同じキーは使えません。どちらかを別のキーにしてください。",
+                                "The hotkey and the mode key cannot be the same. Please change one of them."), true);
             }
         }
 
         /// <summary>欄に出す「使わない」の表示。</summary>
-        private const string NoneText = "（なし）";
+        private static string NoneText
+        {
+            get { return Lang.T("（なし）", "(none)"); }
+        }
 
         private static string HotkeyDisplay(Keys keys)
         {
@@ -388,7 +431,7 @@ namespace Copipe.UI
         private Button NewClearButton(Rectangle bounds)
         {
             Button button = new Button();
-            button.Text = "なし";
+            button.Text = Lang.T("なし", "None");
             button.Bounds = bounds;
             Controls.Add(button);
             return button;

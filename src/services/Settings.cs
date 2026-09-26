@@ -34,6 +34,7 @@ namespace Copipe.Services
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
         private const string DoubleTapName = "DoubleTap";
+        private const string LanguageName = "Language";
 
         public Settings()
         {
@@ -41,6 +42,7 @@ namespace Copipe.Services
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
             DoubleTap = Keys.None;
+            Language = UiLanguage.Auto;
         }
 
         public Keys Hotkey { get; set; }
@@ -60,6 +62,9 @@ namespace Copipe.Services
         /// 2 回目を押し続けている間だけ小窓を出す。ホットキーと並行して使える。
         /// </summary>
         public Keys DoubleTap { get; set; }
+
+        /// <summary>画面の言葉 (Windows に合わせる / 日本語 / 英語)。</summary>
+        public UiLanguage Language { get; set; }
 
         /// <summary>%LOCALAPPDATA%\Copipe\settings.ini</summary>
         public static string DefaultPath
@@ -128,6 +133,17 @@ namespace Copipe.Services
                             settings.ModeKey = keys;
                         }
                     }
+                    else if (string.Equals(name, LanguageName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
+                        foreach (UiLanguage language in new[] { UiLanguage.Auto, UiLanguage.Japanese, UiLanguage.English })
+                        {
+                            if (string.Equals(value, language.ToString(), StringComparison.OrdinalIgnoreCase))
+                            {
+                                settings.Language = language;
+                            }
+                        }
+                    }
                     else if (string.Equals(name, InsertClickName, StringComparison.OrdinalIgnoreCase))
                     {
                         // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
@@ -165,19 +181,27 @@ namespace Copipe.Services
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# Copipe の設定 (メモ帳で編集できます)");
-            sb.AppendLine("# Hotkey: 押している間だけ小窓を出すキー。修飾キー (Ctrl など) は付けられない。使わないときは None。例: F1、Pause、IMENonconvert (無変換)");
+            sb.AppendLine(Lang.T("# Copipe の設定 (メモ帳で編集できます)", "# Copipe settings (you can edit this file in Notepad)"));
+            sb.AppendLine(Lang.T("# Hotkey: 押している間だけ小窓を出すキー。修飾キー (Ctrl など) は付けられない。使わないときは None。例: F1、Pause、IMENonconvert (無変換)",
+                                 "# Hotkey: key that shows the popup while held. No modifiers (Ctrl etc.). None to disable. e.g. F1, Pause"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", HotkeyName, Hotkey == Keys.None ? HotkeyText.NoneSetting : HotkeyText.ToSetting(Hotkey)));
-            sb.AppendLine("# DoubleTap: 2 回押して、2 回目を押し続けている間だけ小窓を出す修飾キー。Ctrl・Shift・Alt か None (使わない)");
+            sb.AppendLine(Lang.T("# DoubleTap: 2 回押して、2 回目を押し続けている間だけ小窓を出す修飾キー。Ctrl・Shift・Alt か None (使わない)",
+                                 "# DoubleTap: modifier that shows the popup when pressed twice. Ctrl, Shift, Alt or None (disabled)"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", DoubleTapName, DoubleTap == Keys.None ? HotkeyText.NoneSetting : HotkeyText.DoubleTapDisplay(DoubleTap)));
-            sb.AppendLine("# InsertClick: 履歴の項目を貼り付ける操作。Double (ダブルクリック) か Single (シングルクリック)");
+            sb.AppendLine(Lang.T("# InsertClick: 履歴の項目を貼り付ける操作。Double (ダブルクリック) か Single (シングルクリック)",
+                                 "# InsertClick: click to paste an item. Double or Single"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", InsertClickName, InsertClick));
-            sb.AppendLine("# ModeKey: 小窓を出している間に押して、クリップボード履歴と定型文を切り替えるキー。例: Tab、F2");
+            sb.AppendLine(Lang.T("# ModeKey: 小窓を出している間に押して、クリップボード履歴と定型文を切り替えるキー。例: Tab、F2",
+                                 "# ModeKey: key that switches between clipboard history and snippets in the popup. e.g. Tab, F2"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", ModeKeyName, HotkeyText.ToSetting(ModeKey)));
+            sb.AppendLine(Lang.T("# Language: 画面の言葉。Auto (Windows の表示言語に合わせる)、Japanese、English",
+                                 "# Language: display language. Auto (follow Windows), Japanese or English"));
+            sb.AppendLine(string.Format(
+                CultureInfo.InvariantCulture, "{0}={1}", LanguageName, Language));
 
             // 日本語のコメントが化けないよう BOM 付きの UTF-8 で書く
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));

@@ -130,7 +130,7 @@ namespace Copipe.UI
 
         /// <summary>
         /// 行を選ぶ操作 (クリックまたはダブルクリック) がされたとき。引数は行の位置 (0 始まり)。
-        /// 空きの枠や「履歴はありません」の行では出さない。何をするか (入力する・グループに入る) は受け取る側が決める。
+        /// 空きの枠や案内の行では出さない。何をするか (入力する・グループに入る) は受け取る側が決める。
         /// </summary>
         public event Action<int> RowActivated;
 
@@ -249,9 +249,9 @@ namespace Copipe.UI
 
         /// <summary>
         /// 一覧を、履歴の並びにする。pinned (ピン止め) を上部に番号なしで出し、その後に items を出す。
-        /// どちらも無いときは emptyMessage を灰色で出す。
+        /// items が slotCount 件に満たない分は「（空き）」の行で埋める (定型文と同じく、いつも同じ行数)。
         /// </summary>
-        public void SetHistory(IList<string> pinned, IList<string> items, string emptyMessage)
+        public void SetHistory(IList<string> pinned, IList<string> items, int slotCount)
         {
             List<PopupRow> rows = new List<PopupRow>();
             foreach (string text in pinned)
@@ -264,7 +264,11 @@ namespace Copipe.UI
             {
                 rows.Add(new PopupRow(PopupRowKind.Item, text));
             }
-            SetRows(rows, emptyMessage);
+            for (int i = items.Count; i < slotCount; i++)
+            {
+                rows.Add(new PopupRow(PopupRowKind.Empty, null));
+            }
+            SetRows(rows, string.Empty);
         }
 
         /// <summary>一覧を、入力できる項目 (履歴) の並びにする。項目が無いときは emptyMessage を灰色で出す。</summary>
@@ -673,7 +677,7 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// その位置にある行 (0 始まり)。行が無い・「履歴はありません」の案内なら -1。
+        /// その位置にある行 (0 始まり)。行が無い・案内の行なら -1。
         /// 最後の項目より下の空いたところは、最後の項目とみなさない。
         /// </summary>
         private int RowIndexAt(Point location)
@@ -732,7 +736,7 @@ namespace Copipe.UI
             PopupRow row = _list.Items[e.Index] as PopupRow;
             if (row == null)
             {
-                // 「履歴はありません」などの案内
+                // 行が無いときの案内
                 TextRenderer.DrawText(e.Graphics, _list.Items[e.Index].ToString(), e.Font, e.Bounds, SystemColors.GrayText, flags);
                 return;
             }

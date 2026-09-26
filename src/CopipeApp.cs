@@ -23,9 +23,14 @@ namespace Copipe
         /// <summary>NotifyIcon.Text の上限 (.NET Framework の制限)。</summary>
         private const int TrayTextLimit = 63;
 
-        private const string HistoryTitle = "クリップボード履歴";
-        private const string PhraseTitle = "定型文";
-        private const string HistoryEmptyMessage = "（履歴はありません）";
+        private static string HistoryTitle
+        {
+            get { return Lang.T("クリップボード履歴", "Clipboard history"); }
+        }
+        private static string PhraseTitle
+        {
+            get { return Lang.T("定型文", "Snippets"); }
+        }
         private const string PathSeparator = " > ";
 
         private const int StickyCheckMs = 50;
@@ -60,6 +65,9 @@ namespace Copipe
         private readonly Timer _retryTimer;
         private readonly ContextMenuStrip _trayMenu;
         private readonly ToolStripMenuItem _settingsItem;
+        private readonly ToolStripMenuItem _clearItem;
+        private readonly ToolStripMenuItem _aboutItem;
+        private readonly ToolStripMenuItem _exitItem;
         private readonly NotifyIcon _trayIcon;
         // トレイのアイコンの画像。NotifyIcon は閉じても画像を解放しないので、自分で解放する
         private readonly Icon _trayImage;
@@ -95,6 +103,7 @@ namespace Copipe
         {
             _firstRun = !File.Exists(Settings.DefaultPath);
             _settings = Settings.Load(Settings.DefaultPath);
+            Lang.Apply(_settings.Language);
             _history = ClipboardHistory.Load(ClipboardHistory.DefaultPath, ClipboardHistory.MaxItems);
 
             _popup = new PopupForm();
@@ -141,12 +150,17 @@ namespace Copipe
             _stickyTimer.Interval = StickyCheckMs;
             _stickyTimer.Tick += OnStickyTimerTick;
 
-            _settingsItem = new ToolStripMenuItem("設定...", null, OnSettingsClick);
+            // 文字は UpdateLabels で入れる (言語を変えたときも入れ直す)
+            _settingsItem = new ToolStripMenuItem(string.Empty, null, OnSettingsClick);
+            _clearItem = new ToolStripMenuItem(string.Empty, null, OnClearHistoryClick);
+            _aboutItem = new ToolStripMenuItem(string.Empty, null, OnAboutClick);
+            _exitItem = new ToolStripMenuItem(string.Empty, null, OnExitClick);
             _trayMenu = new ContextMenuStrip();
             _trayMenu.Items.Add(_settingsItem);
-            _trayMenu.Items.Add("履歴を消去", null, OnClearHistoryClick);
+            _trayMenu.Items.Add(_clearItem);
             _trayMenu.Items.Add(new ToolStripSeparator());
-            _trayMenu.Items.Add("終了", null, OnExitClick);
+            _trayMenu.Items.Add(_aboutItem);
+            _trayMenu.Items.Add(_exitItem);
 
             _trayIcon = new NotifyIcon();
             // トレイの大きさ (SmallIconSize。拡大率 100% で 16、150% で 24 など) のものを、縮めずにそのまま読む
@@ -171,11 +185,11 @@ namespace Copipe
                 List<string> parts = new List<string>();
                 if (_settings.Hotkey != Keys.None)
                 {
-                    parts.Add("ホットキー: " + HotkeyName);
+                    parts.Add(Lang.T("ホットキー: ", "Hotkey: ") + HotkeyName);
                 }
                 if (_settings.DoubleTap != Keys.None)
                 {
-                    parts.Add("ダブルタップ: " + HotkeyText.DoubleTapDisplay(_settings.DoubleTap));
+                    parts.Add(Lang.T("ダブルタップ: ", "Double-tap: ") + HotkeyText.DoubleTapDisplay(_settings.DoubleTap));
                 }
                 return string.Join(" / ", parts.ToArray());
             }
@@ -191,16 +205,20 @@ namespace Copipe
             if (!_doubleTap.SetKey(_settings.DoubleTap))
             {
                 MessageBox.Show(
-                    "ダブルタップ (" + HotkeyText.DoubleTapDisplay(_settings.DoubleTap) + ") のキー入力を受け取れませんでした。" +
-                    "ダブルタップでは小窓を出せません。\n\nCopipe をいったん終了して、もう一度お試しください。",
+                    Lang.T("ダブルタップ (" + HotkeyText.DoubleTapDisplay(_settings.DoubleTap) + ") のキー入力を受け取れませんでした。" +
+                           "ダブルタップでは小窓を出せません。\n\nCopipe をいったん終了して、もう一度お試しください。",
+                           "Could not receive key input for double-tap (" + HotkeyText.DoubleTapDisplay(_settings.DoubleTap) + "). " +
+                           "Double-tap will not show the popup.\n\nPlease exit Copipe and try again."),
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 
             if (!_monitor.Start())
             {
                 MessageBox.Show(
-                    "クリップボードの変化を受け取れませんでした。履歴は貯まりません。\n\n" +
-                    "Copipe をいったん終了して、もう一度お試しください。",
+                    Lang.T("クリップボードの変化を受け取れませんでした。履歴は貯まりません。\n\n" +
+                           "Copipe をいったん終了して、もう一度お試しください。",
+                           "Could not watch the clipboard. History will not be recorded.\n\n" +
+                           "Please exit Copipe and try again."),
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 
@@ -321,8 +339,9 @@ namespace Copipe
 
             // 通知を取りこぼしていた場合の保険として、押した時点の内容も拾う
             ClipboardKind kind = CaptureClipboard(false);
-            // 開くときはいつもクリップボード履歴から
+            // 開くときはいつもクリップボード履歴から。定型文も一番上の階層から
             _mode = PopupMode.History;
+            _phrasePath.Clear();
             ShowMode();
             _popup.ShowAt(Cursor.Position);
 
@@ -476,13 +495,12 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 定型文モードに入る。いつも一番上の階層から。
+        /// 定型文モードに入る。小窓を出している間は、前に定型文モードでいた階層から (開き直すと一番上から)。
         /// phrases.json を手で書き換えても再起動せずに反映されるよう、変わっていれば読み直す。
         /// </summary>
         private void EnterPhraseMode()
         {
             _mode = PopupMode.Phrases;
-            _phrasePath.Clear();
 
             DateTime written = DateTime.MinValue;
             try
@@ -501,6 +519,8 @@ namespace Copipe
             {
                 _phrases = PhraseBook.Load(PhraseBook.DefaultPath);
                 _phrasesWritten = written;
+                // 読み直すと前のグループは使えないので、一番上から
+                _phrasePath.Clear();
             }
         }
 
@@ -860,7 +880,7 @@ namespace Copipe
         /// <summary>履歴の一覧を小窓に入れる (ピン止めを上部に)。</summary>
         private void ShowHistory()
         {
-            _popup.SetHistory(_history.Pinned, _history.Items, HistoryEmptyMessage);
+            _popup.SetHistory(_history.Pinned, _history.Items, ClipboardHistory.MaxItems);
         }
 
         // ---- 履歴のピン止め --------------------------------------------------------------
@@ -874,7 +894,7 @@ namespace Copipe
                 return;
             }
             bool pinned = index < _popup.PinnedCount;
-            int chosen = RowMenu.Show(_popup.Handle, screen, new[] { pinned ? "ピン止めを外す" : "ピン止め" });
+            int chosen = RowMenu.Show(_popup.Handle, screen, new[] { pinned ? Lang.T("ピン止めを外す", "Unpin") : Lang.T("ピン止め", "Pin") });
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
@@ -934,27 +954,27 @@ namespace Copipe
             List<Action> actions = new List<Action>();
             if (node == null)
             {
-                labels.Add("定型文を登録...");
+                labels.Add(Lang.T("定型文を登録...", "New snippet..."));
                 actions.Add(delegate { EditPhrase(group, index); });
-                labels.Add("グループを作成...");
+                labels.Add(Lang.T("グループを作成...", "New group..."));
                 actions.Add(delegate { EditGroup(group, index); });
             }
             else if (node.IsGroup)
             {
-                labels.Add("名前を変更...");
+                labels.Add(Lang.T("名前を変更...", "Rename..."));
                 actions.Add(delegate { EditGroup(group, index); });
-                labels.Add("削除");
+                labels.Add(Lang.T("削除", "Delete"));
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
             else
             {
-                labels.Add("履歴にピン止め");
+                labels.Add(Lang.T("履歴にピン止め", "Pin to history"));
                 actions.Add(delegate { PinPhrase(node); });
                 labels.Add(RowMenu.Separator);
                 actions.Add(null);
-                labels.Add("編集...");
+                labels.Add(Lang.T("編集...", "Edit..."));
                 actions.Add(delegate { EditPhrase(group, index); });
-                labels.Add("削除");
+                labels.Add(Lang.T("削除", "Delete"));
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
 
@@ -991,7 +1011,7 @@ namespace Copipe
             RunPhraseDialog(delegate
             {
                 using (PhraseDialog dialog = PhraseDialog.ForPhrase(
-                    isNew ? "定型文を登録" : "定型文を編集", SlotLocation(index),
+                    isNew ? Lang.T("定型文を登録", "New snippet") : Lang.T("定型文を編集", "Edit snippet"), SlotLocation(index),
                     isNew ? string.Empty : node.Title, isNew ? string.Empty : node.Text))
                 {
                     if (dialog.ShowDialog(_dialogOwner) != DialogResult.OK)
@@ -1020,7 +1040,7 @@ namespace Copipe
             RunPhraseDialog(delegate
             {
                 using (PhraseDialog dialog = PhraseDialog.ForGroup(
-                    isNew ? "グループを作成" : "グループの名前を変更", SlotLocation(index),
+                    isNew ? Lang.T("グループを作成", "New group") : Lang.T("グループの名前を変更", "Rename group"), SlotLocation(index),
                     isNew ? string.Empty : node.Name))
                 {
                     if (dialog.ShowDialog(_dialogOwner) != DialogResult.OK)
@@ -1057,12 +1077,14 @@ namespace Copipe
                     int phrases = 0;
                     int groups = 0;
                     CountContents(node, ref phrases, ref groups);
-                    message = "グループ「" + name + "」を削除します。\n中の定型文 " + phrases + " 件とグループ " + groups +
-                              " 件も削除されます。\n\nよろしいですか。";
+                    message = Lang.T("グループ「" + name + "」を削除します。\n中の定型文 " + phrases + " 件とグループ " + groups +
+                                     " 件も削除されます。\n\nよろしいですか。",
+                                     "Delete the group \"" + name + "\"?\nThe " + phrases + " snippet(s) and " + groups +
+                                     " group(s) inside it will also be deleted.");
                 }
                 else
                 {
-                    message = "定型文「" + name + "」を削除します。\n\nよろしいですか。";
+                    message = Lang.T("定型文「" + name + "」を削除します。\n\nよろしいですか。", "Delete the snippet \"" + name + "\"?");
                 }
                 if (MessageBox.Show(_dialogOwner, message, "Copipe", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
                                     MessageBoxDefaultButton.Button2) != DialogResult.Yes)
@@ -1184,7 +1206,7 @@ namespace Copipe
         /// <summary>ダイアログに出す、枠の場所 (例: 定型文 > 社外 の 3 番)。</summary>
         private string SlotLocation(int index)
         {
-            return PhrasePathText() + " の " + ItemNumber.Label(index) + " 番";
+            return Lang.T(PhrasePathText() + " の " + ItemNumber.Label(index) + " 番", PhrasePathText() + ", slot " + ItemNumber.Label(index));
         }
 
         private string PhrasePathText()
@@ -1208,7 +1230,8 @@ namespace Copipe
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "定型文を保存できませんでした。Copipe を終了すると、今の変更は消えます。\n\n" +
+                    Lang.T("定型文を保存できませんでした。Copipe を終了すると、今の変更は消えます。\n\n",
+                           "Could not save snippets. Your changes will be lost when Copipe exits.\n\n") +
                     PhraseBook.DefaultPath + "\n\n" + ex.Message,
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
@@ -1239,8 +1262,9 @@ namespace Copipe
                     Keys chosenDoubleTap;
                     Keys chosenModeKey;
                     InsertClick chosenClick;
+                    UiLanguage chosenLanguage;
                     using (SettingsDialog dialog = new SettingsDialog(
-                        _settings.Hotkey, _settings.DoubleTap, _settings.ModeKey, _settings.InsertClick))
+                        _settings.Hotkey, _settings.DoubleTap, _settings.ModeKey, _settings.InsertClick, _settings.Language))
                     {
                         if (dialog.ShowDialog() != DialogResult.OK)
                         {
@@ -1251,6 +1275,7 @@ namespace Copipe
                         chosenDoubleTap = dialog.SelectedDoubleTap;
                         chosenModeKey = dialog.SelectedModeKey;
                         chosenClick = dialog.SelectedInsertClick;
+                        chosenLanguage = dialog.SelectedLanguage;
                     }
 
                     if (chosenHotkey == _settings.Hotkey || _hotkey.TryRegister(chosenHotkey))
@@ -1259,14 +1284,16 @@ namespace Copipe
                         {
                             RestoreHotkey();
                         }
-                        ApplySettings(chosenHotkey, chosenDoubleTap, chosenModeKey, chosenClick);
+                        ApplySettings(chosenHotkey, chosenDoubleTap, chosenModeKey, chosenClick, chosenLanguage);
                         finished = true;
                     }
                     else
                     {
                         MessageBox.Show(
-                            HotkeyText.Display(chosenHotkey) + " は、他のアプリまたは Windows が使用中のため設定できませんでした。\n\n" +
-                            "別のキーを選んでください。",
+                            Lang.T(HotkeyText.Display(chosenHotkey) + " は、他のアプリまたは Windows が使用中のため設定できませんでした。\n\n" +
+                                   "別のキーを選んでください。",
+                                   HotkeyText.Display(chosenHotkey) + " is in use by another app or Windows and cannot be set.\n\n" +
+                                   "Please choose another key."),
                             "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     }
                 }
@@ -1278,16 +1305,17 @@ namespace Copipe
                 if (!_doubleTap.SetKey(_settings.DoubleTap))
                 {
                     MessageBox.Show(
-                        "ダブルタップのキー入力を受け取れませんでした。ダブルタップでは小窓を出せません。",
+                        Lang.T("ダブルタップのキー入力を受け取れませんでした。ダブルタップでは小窓を出せません。",
+                               "Could not receive key input for double-tap. Double-tap will not show the popup."),
                         "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
         }
 
-        private void ApplySettings(Keys hotkey, Keys doubleTap, Keys modeKey, InsertClick insertClick)
+        private void ApplySettings(Keys hotkey, Keys doubleTap, Keys modeKey, InsertClick insertClick, UiLanguage language)
         {
             bool changed = (hotkey != _settings.Hotkey) || (doubleTap != _settings.DoubleTap) || (modeKey != _settings.ModeKey) ||
-                           (insertClick != _settings.InsertClick);
+                           (insertClick != _settings.InsertClick) || (language != _settings.Language);
             if (!changed)
             {
                 return;
@@ -1297,6 +1325,8 @@ namespace Copipe
             _settings.DoubleTap = doubleTap;
             _settings.ModeKey = modeKey;
             _settings.InsertClick = insertClick;
+            _settings.Language = language;
+            Lang.Apply(language);
             _popup.InsertOnSingleClick = (insertClick == InsertClick.Single);
             SaveSettings();
             UpdateLabels();
@@ -1311,15 +1341,39 @@ namespace Copipe
             }
 
             MessageBox.Show(
-                "ホットキー " + HotkeyName + " を登録できませんでした。\n\n" +
-                "他のアプリまたは Windows が使用中です。Copipe をいったん終了して、もう一度お試しください。",
+                Lang.T("ホットキー " + HotkeyName + " を登録できませんでした。\n\n" +
+                       "他のアプリまたは Windows が使用中です。Copipe をいったん終了して、もう一度お試しください。",
+                       "Could not register the hotkey " + HotkeyName + ".\n\n" +
+                       "It is in use by another app or Windows. Please exit Copipe and try again."),
                 "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void OnAboutClick(object sender, EventArgs e)
+        {
+            if (_dialogOpen)
+            {
+                return;
+            }
+            // 出している間は、小窓を出さない (設定画面と同じ扱い)
+            _dialogOpen = true;
+            try
+            {
+                using (AboutDialog dialog = new AboutDialog())
+                {
+                    dialog.ShowDialog();
+                }
+            }
+            finally
+            {
+                _dialogOpen = false;
+            }
         }
 
         private void OnClearHistoryClick(object sender, EventArgs e)
         {
             if (MessageBox.Show(
-                    "履歴をすべて消去します。よろしいですか。\n\nピン止めした項目は残ります。",
+                    Lang.T("履歴をすべて消去します。よろしいですか。\n\nピン止めした項目は残ります。",
+                           "Clear all history?\n\nPinned items will be kept."),
                     "Copipe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 return;
@@ -1342,7 +1396,8 @@ namespace Copipe
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "設定を保存できませんでした。次に起動したときは元の設定に戻ります。\n\n" +
+                    Lang.T("設定を保存できませんでした。次に起動したときは元の設定に戻ります。\n\n",
+                           "Could not save settings. The previous settings will be used next time.\n\n") +
                     Settings.DefaultPath + "\n\n" + ex.Message,
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
@@ -1363,7 +1418,8 @@ namespace Copipe
                 }
                 _saveWarned = true;
                 MessageBox.Show(
-                    "履歴を保存できませんでした。Copipe を終了すると履歴は消えます。\n\n" +
+                    Lang.T("履歴を保存できませんでした。Copipe を終了すると履歴は消えます。\n\n",
+                           "Could not save history. History will be lost when Copipe exits.\n\n") +
                     ClipboardHistory.DefaultPath + "\n\n" + ex.Message,
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
@@ -1372,9 +1428,12 @@ namespace Copipe
         private void UpdateLabels()
         {
             string triggers = TriggerText;
-            _settingsItem.Text = "設定... (" + triggers + ")";
+            _settingsItem.Text = Lang.T("設定... (", "Settings... (") + triggers + ")";
+            _clearItem.Text = Lang.T("履歴を消去", "Clear history");
+            _aboutItem.Text = Lang.T("Copipe について...", "About Copipe...");
+            _exitItem.Text = Lang.T("終了", "Exit");
 
-            string tip = "Copipe（" + triggers + "）";
+            string tip = Lang.T("Copipe（" + triggers + "）", "Copipe (" + triggers + ")");
             if (tip.Length > TrayTextLimit)
             {
                 tip = tip.Substring(0, TrayTextLimit);

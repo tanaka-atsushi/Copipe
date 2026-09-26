@@ -14,7 +14,10 @@ namespace Copipe.UI
     /// <summary>小窓の一覧の 1 行。</summary>
     internal sealed class PopupRow
     {
-        public const string EmptyText = "（空き）";
+        public static string EmptyText
+        {
+            get { return Lang.T("（空き）", "(empty)"); }
+        }
         public const string GroupMark = "📁 ";
         public const string PinMark = "📌";
 
