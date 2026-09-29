@@ -7,14 +7,13 @@ using System.Windows.Forms;
 
 namespace Copipe.UI
 {
-    /// <summary>Copipe について。バージョンと、Buy Me a Coffee のカンパの QR コードとリンクを出す。</summary>
+    /// <summary>Copipe について。バージョンと、Buy Me a Coffee のカンパの QR コードを出す (クリックでも開く)。</summary>
     internal sealed class AboutDialog : Form
     {
         public const string CoffeeUrl = "https://buymeacoffee.com/bigcomi";
         private const string QrResourceName = "Copipe.bmc-qr.png";
 
         private readonly Image _qr;
-        private readonly Font _nameFont;
 
         public AboutDialog()
         {
@@ -25,32 +24,25 @@ namespace Copipe.UI
             MaximizeBox = false;
             ShowInTaskbar = false;
             TopMost = true;
-            ClientSize = new Size(Scaled(320), Scaled(400));
-
-            Label name = new Label();
-            name.Text = "Copipe";
-            _nameFont = new Font(Font.FontFamily, Font.Size * 1.6f, FontStyle.Bold);
-            name.Font = _nameFont;
-            name.AutoSize = true;
-            name.Location = new Point(Scaled(16), Scaled(14));
-            Controls.Add(name);
+            ClientSize = new Size(Scaled(300), Scaled(288));
 
             Label version = new Label();
             version.Name = "versionLabel";
             version.Text = Lang.T("バージョン ", "Version ") + Version;
-            version.AutoSize = true;
-            version.Location = new Point(Scaled(18), Scaled(48));
+            version.TextAlign = ContentAlignment.MiddleCenter;
+            version.Bounds = new Rectangle(Scaled(8), Scaled(20), Scaled(284), Scaled(20));
             Controls.Add(version);
 
             Label coffee = new Label();
-            coffee.Text = Lang.T("役に立ったら、コーヒー 1 杯分の応援をいただけるとうれしいです。",
+            coffee.Text = Lang.T("役に立ったら缶コーヒー１本おごってください。",
                                  "If Copipe helps you, you can buy me a coffee.");
-            coffee.Bounds = new Rectangle(Scaled(16), Scaled(78), Scaled(288), Scaled(36));
+            coffee.TextAlign = ContentAlignment.MiddleCenter;
+            coffee.Bounds = new Rectangle(Scaled(8), Scaled(44), Scaled(284), Scaled(20));
             Controls.Add(coffee);
 
             PictureBox qr = new PictureBox();
             qr.SizeMode = PictureBoxSizeMode.Zoom;
-            qr.Bounds = new Rectangle(Scaled(70), Scaled(116), Scaled(180), Scaled(180));
+            qr.Bounds = new Rectangle(Scaled(60), Scaled(84), Scaled(180), Scaled(180));
             qr.Cursor = Cursors.Hand;
             qr.Click += delegate { OpenCoffee(); };
             using (Stream stream = typeof(AboutDialog).Assembly.GetManifestResourceStream(QrResourceName))
@@ -67,21 +59,15 @@ namespace Copipe.UI
             }
             Controls.Add(qr);
 
-            LinkLabel link = new LinkLabel();
-            link.Name = "coffeeLink";
-            link.Text = CoffeeUrl;
-            link.AutoSize = true;
-            link.Location = new Point(Scaled(16), Scaled(308));
-            link.LinkClicked += delegate { OpenCoffee(); };
-            Controls.Add(link);
-
-            Button ok = new Button();
-            ok.Text = "OK";
-            ok.DialogResult = DialogResult.OK;
-            ok.Bounds = new Rectangle(Scaled(220), Scaled(354), Scaled(84), Scaled(30));
-            Controls.Add(ok);
-            AcceptButton = ok;
-            CancelButton = ok;
+            // OK ボタンは置かないので、Esc / Enter で閉じられるようにする
+            KeyPreview = true;
+            KeyDown += delegate (object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.Escape || e.KeyCode == Keys.Enter)
+                {
+                    Close();
+                }
+            };
         }
 
         /// <summary>AssemblyInfo.cs の AssemblyInformationalVersion (例: 1.0.0)。</summary>
@@ -102,7 +88,7 @@ namespace Copipe.UI
             }
             catch (Exception)
             {
-                // 既定のブラウザーが無いなど。リンクの文字は出ているので、手で開いてもらう
+                // 既定のブラウザーが無いなど。QR をスマホで読んでもらう
             }
         }
 
@@ -119,7 +105,6 @@ namespace Copipe.UI
                 {
                     _qr.Dispose();
                 }
-                _nameFont.Dispose();
             }
             base.Dispose(disposing);
         }
