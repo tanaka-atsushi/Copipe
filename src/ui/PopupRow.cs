@@ -27,6 +27,7 @@ namespace Copipe.UI
         }
         public const string FolderMark = "📁 ";
         public const string FileMark = "📄 ";
+        public const string TextMark = "✍ ";
         public const string PinMark = "📌";
 
         public PopupRow(PopupRowKind kind, string text)
@@ -43,6 +44,10 @@ namespace Copipe.UI
             else
             {
                 DisplayText = Text;
+                if (kind == PopupRowKind.Item)
+                {
+                    Mark = TextMark;
+                }
             }
         }
 
