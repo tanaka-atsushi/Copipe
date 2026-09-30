@@ -129,11 +129,12 @@ namespace Copipe.Services
                 FillSlots(group, data.Slots, depth);
                 return group;
             }
-            if (string.Equals(data.Kind, PhraseKind, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(data.Text))
+            if (string.Equals(data.Kind, PhraseKind, StringComparison.OrdinalIgnoreCase) &&
+                (!string.IsNullOrEmpty(data.Text) || !string.IsNullOrEmpty(data.Path)))
             {
-                return PhraseNode.CreatePhrase(data.Title, data.Text);
+                return PhraseNode.CreatePhrase(data.Title, data.Text, data.Path);
             }
-            // 読めない種類・本文の無い定型文は空きにする
+            // 読めない種類・本文もパスも無い定型文は空きにする
             return null;
         }
 
@@ -158,7 +159,8 @@ namespace Copipe.Services
                 {
                     data.Kind = PhraseKind;
                     data.Title = node.Name.Length > 0 ? node.Name : null;
-                    data.Text = node.Text;
+                    data.Text = node.Text.Length > 0 ? node.Text : null;
+                    data.Path = node.Path.Length > 0 ? node.Path : null;
                 }
                 list.Add(data);
             }
@@ -186,6 +188,9 @@ namespace Copipe.Services
 
             [DataMember(Order = 4, EmitDefaultValue = false)]
             public List<SlotData> Slots { get; set; }
+
+            [DataMember(Order = 5, EmitDefaultValue = false)]
+            public string Path { get; set; }
         }
     }
 }

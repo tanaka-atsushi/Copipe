@@ -810,10 +810,10 @@ namespace Copipe.UI
                     line = PopupRow.EmptyText;
                     break;
                 case PopupRowKind.Group:
-                    line = PopupRow.GroupMark + PreviewText.Line(row.Text, PreviewText.LineMaxChars);
+                    line = PopupRow.GroupLabel(PreviewText.Line(row.Text, PreviewText.LineMaxChars));
                     break;
                 default:
-                    line = PreviewText.Line(row.Text, PreviewText.LineMaxChars);
+                    line = (row.Mark ?? string.Empty) + PreviewText.Line(row.DisplayText, PreviewText.LineMaxChars);
                     break;
             }
             TextRenderer.DrawText(e.Graphics, line, e.Font, textBounds, textColor, flags);

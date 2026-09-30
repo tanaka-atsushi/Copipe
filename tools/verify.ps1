@@ -2392,7 +2392,7 @@ try {
                         Send-Key 0x09 1
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check '定型文: 書き換えた phrases.json を読み直して、一番上の階層を出す' ((Test-Title $labels '定型文') -and $items.Count -eq 10 -and $items[0] -ceq '定型文検証 一番上' -and $items[1] -ceq '📁 社外' -and $items[2] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
+                        Check '定型文: 書き換えた phrases.json を読み直して、一番上の階層を出す' ((Test-Title $labels '定型文') -and $items.Count -eq 10 -and $items[0] -ceq '定型文検証 一番上' -and $items[1] -ceq '├ 社外' -and $items[2] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
                         Check '定型文: 定型文モードの間は Esc を Copipe が受け取る' (-not $W::CanRegisterHotkey($owner, [uint32]0, $escVk))
                         Send-Key 0x1B 1
                         Check '定型文: 一番上で Esc を押しても、一番上のまま (小窓も出たまま)' ((Test-Title (Get-PopupLabels) '定型文') -and $W::IsWindowVisible($popup)) "labels=[$(Get-PopupLabels)]"
@@ -2400,7 +2400,7 @@ try {
                         Send-Key 0x32 1   # 2: グループ「社外」
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check '定型文: グループの番号を押すと、その中に入る (見出しに階層が出る)' ((Test-Title $labels '定型文 > 社外') -and $items.Count -eq 10 -and $items[2] -ceq '締め' -and $items[3] -ceq '📁 挨拶' -and $items[0] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
+                        Check '定型文: グループの番号を押すと、その中に入る (見出しに階層が出る)' ((Test-Title $labels '定型文 > 社外') -and $items.Count -eq 10 -and $items[2] -ceq '締め' -and $items[3] -ceq '├ 挨拶' -and $items[0] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
                         Check '定型文: グループに入っても、入力はしない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Send-Key 0x34 1   # 4: グループ「挨拶」
                         $labels = Get-PopupLabels
@@ -2859,7 +2859,7 @@ try {
                         $W::LeftClick()
                         [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文 > 外側' } 1000)
                         $items = Get-PopupItems $popup
-                        Check 'パンくず: 途中の階層名をクリックすると、その階層へ移る' ((Test-Title (Get-PopupLabels) '定型文 > 外側') -and $items[0] -ceq '📁 内側') ("labels=[$(Get-PopupLabels)] items=" + (Format-Items $items))
+                        Check 'パンくず: 途中の階層名をクリックすると、その階層へ移る' ((Test-Title (Get-PopupLabels) '定型文 > 外側') -and $items[0] -ceq '├ 内側') ("labels=[$(Get-PopupLabels)] items=" + (Format-Items $items))
                         Send-Key 0x31 1   # また内側へ
                         $pt = Get-SegmentPoint 0
                         [void]$W::SetCursorPos($pt.X, $pt.Y)

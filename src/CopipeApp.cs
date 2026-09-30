@@ -392,6 +392,12 @@ namespace Copipe
                     return;
                 }
                 _popup.SelectItem(index);
+                string launchPath, launchLabel;
+                if (ClipboardHistory.TryGetLaunchPath(text, out launchPath, out launchLabel))
+                {
+                    LaunchPath(launchPath);
+                    return;
+                }
                 InsertAndMaybeClose(text);
                 return;
             }
@@ -410,7 +416,41 @@ namespace Copipe
                 return;
             }
             _popup.SelectItem(index);
+            if (node.Path.Length > 0)
+            {
+                // 開いたものは履歴にも入れる (次から履歴モードで開ける)
+                if (_history.Add(ClipboardHistory.LaunchEntry(node.Path, node.Label)))
+                {
+                    SaveHistory();
+                }
+                LaunchPath(node.Path);
+                return;
+            }
+            // 入力した文字も履歴に入れる (パスと同じ)
+            if (_history.Add(node.Text))
+            {
+                SaveHistory();
+            }
             InsertAndMaybeClose(node.Text);
+        }
+
+        /// <summary>ファイル・フォルダーを、関連付けられたアプリで開く。ダブルタップで出した小窓は、開いたら閉じる。</summary>
+        private void LaunchPath(string path)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    Lang.T("開けませんでした: ", "Could not open: ") + path + "\r\n" + ex.Message,
+                    "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            if (_trigger == PopupTrigger.DoubleTap)
+            {
+                ClosePopup();
+            }
         }
 
         /// <summary>
@@ -565,7 +605,13 @@ namespace Copipe
                 }
                 else
                 {
-                    rows.Add(new PopupRow(node.IsGroup ? PopupRowKind.Group : PopupRowKind.Item, node.Label));
+                    PopupRow row = new PopupRow(node.IsGroup ? PopupRowKind.Group : PopupRowKind.Item, node.Label);
+                    if (!node.IsGroup && node.Path.Length > 0)
+                    {
+                        // ponytail: 表示のたびに存在確認。つながらないネットワーク先だと遅れる。遅ければ登録時に種類を保存する
+                        row.Mark = Directory.Exists(node.Path) ? PopupRow.FolderMark : PopupRow.FileMark;
+                    }
+                    rows.Add(row);
                 }
             }
             _popup.SetRows(rows, string.Empty);
@@ -968,10 +1014,13 @@ namespace Copipe
             }
             else
             {
-                labels.Add(Lang.T("履歴にピン止め", "Pin to history"));
-                actions.Add(delegate { PinPhrase(node); });
-                labels.Add(RowMenu.Separator);
-                actions.Add(null);
+                if (node.Text.Length > 0 || node.Path.Length > 0)
+                {
+                    labels.Add(Lang.T("履歴にピン止め", "Pin to history"));
+                    actions.Add(delegate { PinPhrase(node); });
+                    labels.Add(RowMenu.Separator);
+                    actions.Add(null);
+                }
                 labels.Add(Lang.T("編集...", "Edit..."));
                 actions.Add(delegate { EditPhrase(group, index); });
                 labels.Add(Lang.T("削除", "Delete"));
@@ -992,10 +1041,12 @@ namespace Copipe
             }
         }
 
-        /// <summary>定型文の本文を、クリップボード履歴のピン止めの先頭に入れる。小窓は定型文モードのまま。</summary>
+        /// <summary>定型文の本文 (開く項目ならパス) を、クリップボード履歴のピン止めの先頭に入れる。小窓は定型文モードのまま。</summary>
         private void PinPhrase(PhraseNode node)
         {
-            if (_history.PinText(node.Text))
+            // 開く項目は、履歴に入れるときと同じ形 (開く印付き) でピン止めする
+            string entry = node.Path.Length > 0 ? ClipboardHistory.LaunchEntry(node.Path, node.Label) : node.Text;
+            if (_history.PinText(entry))
             {
                 SaveHistory();
             }
@@ -1012,7 +1063,8 @@ namespace Copipe
             {
                 using (PhraseDialog dialog = PhraseDialog.ForPhrase(
                     isNew ? Lang.T("定型文を登録", "New snippet") : Lang.T("定型文を編集", "Edit snippet"), SlotLocation(index),
-                    isNew ? string.Empty : node.Title, isNew ? string.Empty : node.Text))
+                    isNew ? string.Empty : node.Title, isNew ? string.Empty : node.Text,
+                    isNew ? string.Empty : node.Path))
                 {
                     if (dialog.ShowDialog(_dialogOwner) != DialogResult.OK)
                     {
@@ -1020,12 +1072,13 @@ namespace Copipe
                     }
                     if (isNew)
                     {
-                        group.Slots[index] = PhraseNode.CreatePhrase(dialog.PhraseTitle, dialog.PhraseText);
+                        group.Slots[index] = PhraseNode.CreatePhrase(dialog.PhraseTitle, dialog.PhraseText, dialog.PhrasePath);
                     }
                     else
                     {
                         node.Name = dialog.PhraseTitle;
                         node.Text = dialog.PhraseText;
+                        node.Path = dialog.PhrasePath;
                     }
                     SavePhrases();
                 }

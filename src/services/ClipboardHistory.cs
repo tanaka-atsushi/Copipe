@@ -26,6 +26,39 @@ namespace Copipe.Services
         /// </summary>
         public const int MaxItems = 10;
 
+        /// <summary>
+        /// 履歴に入れたファイル・フォルダーの印。履歴は文字列だけを持つので、
+        /// 「開く項目」は先頭にこの制御文字 (コピーした文字には通常現れない) を付けたパスとして持つ。
+        /// </summary>
+        private const char LaunchMark = '\u0001';
+
+        /// <summary>開く項目の中で、パスと一覧に出す名前を分ける文字。</summary>
+        private const char LabelMark = '\u0002';
+
+        /// <summary>
+        /// ファイル・フォルダーを開く履歴の項目にする。label は一覧に出す名前
+        /// (定型文モードの表示と同じ。空ならパスをそのまま出す)。
+        /// </summary>
+        public static string LaunchEntry(string path, string label)
+        {
+            return LaunchMark + path + (string.IsNullOrEmpty(label) ? string.Empty : LabelMark + label);
+        }
+
+        /// <summary>text が開く項目なら、パスと一覧に出す名前 (無ければパス) を取り出して true。</summary>
+        public static bool TryGetLaunchPath(string text, out string path, out string label)
+        {
+            if (!string.IsNullOrEmpty(text) && text[0] == LaunchMark)
+            {
+                int cut = text.IndexOf(LabelMark);
+                path = cut < 0 ? text.Substring(1) : text.Substring(1, cut - 1);
+                label = cut < 0 ? path : text.Substring(cut + 1);
+                return true;
+            }
+            path = null;
+            label = null;
+            return false;
+        }
+
         private readonly List<string> _items = new List<string>();
         private readonly List<string> _pinned = new List<string>();
         private int _capacity;

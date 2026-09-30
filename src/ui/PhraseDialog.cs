@@ -6,17 +6,18 @@ using Copipe.Services;
 namespace Copipe.UI
 {
     /// <summary>
-    /// 定型文の登録・編集 (表示名と本文) と、グループの作成・名前の変更 (名前) のダイアログ。
-    /// 部品の Name (titleBox・textBox・nameBox・okButton・cancelButton) は、どの部品かを示す目印。
+    /// 定型文の登録・編集 (表示名・本文・起動するパス) と、グループの作成・名前の変更 (名前) のダイアログ。
+    /// 部品の Name (titleBox・textBox・pathBox・nameBox・okButton・cancelButton) は、どの部品かを示す目印。
     /// </summary>
     internal sealed class PhraseDialog : Form
     {
         private readonly TextBox _titleBox;
         private readonly TextBox _textBox;
+        private readonly TextBox _pathBox;
         private readonly TextBox _nameBox;
         private readonly Button _ok;
 
-        private PhraseDialog(string caption, string location, bool isGroup, string first, string second)
+        private PhraseDialog(string caption, string location, bool isGroup, string first, string second, string path)
         {
             Text = caption;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -71,10 +72,44 @@ namespace Copipe.UI
                 _textBox.WordWrap = true;
                 _textBox.MaxLength = ClipboardHistory.MaxTextLength;
                 _textBox.Text = second ?? string.Empty;
-                _textBox.Bounds = new Rectangle(Scaled(16), y, Scaled(428), Scaled(160));
+                _textBox.Bounds = new Rectangle(Scaled(16), y, Scaled(428), Scaled(110));
                 _textBox.TextChanged += delegate { UpdateState(); };
                 Controls.Add(_textBox);
-                y += Scaled(166);
+                y += Scaled(116);
+
+                AddLabel(Lang.T("ファイル・フォルダー (省略可。指定すると、選んだとき本文の代わりにこれを開きます)",
+                                "File or folder (optional; opened instead of typing the text)"), y);
+                y += Scaled(22);
+                _pathBox = new TextBox();
+                _pathBox.Name = "pathBox";
+                _pathBox.Text = path ?? string.Empty;
+                _pathBox.Bounds = new Rectangle(Scaled(16), y, Scaled(248), Scaled(26));
+                _pathBox.TextChanged += delegate { UpdateState(); };
+                Controls.Add(_pathBox);
+
+                // ファイル・フォルダーを、ダイアログのどこに落としてもパス欄に入る
+                // (TextBox は AllowDrop が無いと落とせず、親にも伝わらないので、両方に付ける)
+                AllowDrop = true;
+                _pathBox.AllowDrop = true;
+                DragEnter += OnPathDragEnter;
+                DragDrop += OnPathDragDrop;
+                _pathBox.DragEnter += OnPathDragEnter;
+                _pathBox.DragDrop += OnPathDragDrop;
+
+                Button file = new Button();
+                file.Name = "browseFileButton";
+                file.Text = Lang.T("ファイル...", "File...");
+                file.Bounds = new Rectangle(Scaled(270), y - Scaled(1), Scaled(84), Scaled(28));
+                file.Click += delegate { BrowseFile(); };
+                Controls.Add(file);
+
+                Button folder = new Button();
+                folder.Name = "browseFolderButton";
+                folder.Text = Lang.T("フォルダー...", "Folder...");
+                folder.Bounds = new Rectangle(Scaled(360), y - Scaled(1), Scaled(84), Scaled(28));
+                folder.Click += delegate { BrowseFolder(); };
+                Controls.Add(folder);
+                y += Scaled(40);
 
                 Label note = new Label();
                 note.Text = Lang.T("本文の欄では Enter で改行、Ctrl+Enter で確定します。Esc で取り消します。",
@@ -114,15 +149,21 @@ namespace Copipe.UI
         }
 
         /// <summary>定型文の登録・編集のダイアログ。</summary>
-        public static PhraseDialog ForPhrase(string caption, string location, string title, string text)
+        public static PhraseDialog ForPhrase(string caption, string location, string title, string text, string path)
         {
-            return new PhraseDialog(caption, location, false, title, text);
+            return new PhraseDialog(caption, location, false, title, text, path);
         }
 
         /// <summary>グループの作成・名前の変更のダイアログ。</summary>
         public static PhraseDialog ForGroup(string caption, string location, string name)
         {
-            return new PhraseDialog(caption, location, true, name, null);
+            return new PhraseDialog(caption, location, true, name, null, null);
+        }
+
+        /// <summary>起動するファイル・フォルダーのパス (前後の空白は除く。無ければ空)。</summary>
+        public string PhrasePath
+        {
+            get { return _pathBox == null ? string.Empty : _pathBox.Text.Trim(); }
         }
 
         /// <summary>定型文の表示名 (前後の空白は除く)。</summary>
@@ -188,10 +229,57 @@ namespace Copipe.UI
 
         private void UpdateState()
         {
-            // 空白だけの本文・名前では登録させない (一覧に何も出ない行ができてしまう)
+            // 空白だけの本文・名前では登録させない (一覧に何も出ない行ができてしまう)。
+            // 定型文は、パスがあれば本文が空でもよい
             _ok.Enabled = _textBox != null
-                ? _textBox.Text.Trim().Length > 0
+                ? _textBox.Text.Trim().Length > 0 || _pathBox.Text.Trim().Length > 0
                 : _nameBox.Text.Trim().Length > 0;
+        }
+
+        private static string DroppedPath(DragEventArgs e)
+        {
+            string[] paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            return paths != null && paths.Length > 0 ? paths[0] : null;
+        }
+
+        private void OnPathDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = DroppedPath(e) != null ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+
+        /// <summary>複数を落としたときは最初の 1 つだけを入れる (1 つの定型文で開けるのは 1 つ)。</summary>
+        private void OnPathDragDrop(object sender, DragEventArgs e)
+        {
+            string path = DroppedPath(e);
+            if (path != null)
+            {
+                _pathBox.Text = path;
+            }
+        }
+
+        private void BrowseFile()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.CheckFileExists = true;
+                dialog.Title = Lang.T("起動するファイルを選ぶ", "Choose a file to open");
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    _pathBox.Text = dialog.FileName;
+                }
+            }
+        }
+
+        private void BrowseFolder()
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = Lang.T("起動するフォルダーを選ぶ", "Choose a folder to open");
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    _pathBox.Text = dialog.SelectedPath;
+                }
+            }
         }
 
         private int Scaled(int value)

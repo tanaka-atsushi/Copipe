@@ -1,3 +1,5 @@
+using Copipe.Services;
+
 namespace Copipe.UI
 {
     /// <summary>小窓の一覧の行の種類。</summary>
@@ -18,14 +20,35 @@ namespace Copipe.UI
         {
             get { return Lang.T("（空き）", "(empty)"); }
         }
-        public const string GroupMark = "📁 ";
+        /// <summary>グループの表示 (名前の前にツリーの枝 ├ を付ける)。</summary>
+        public static string GroupLabel(string name)
+        {
+            return "├ " + name;
+        }
+        public const string FolderMark = "📁 ";
+        public const string FileMark = "📄 ";
         public const string PinMark = "📌";
 
         public PopupRow(PopupRowKind kind, string text)
         {
             Kind = kind;
             Text = text ?? string.Empty;
+            // 履歴の「開く項目」は、印を外したパスを見せ、ファイル・フォルダーの絵文字を付ける
+            string path, label;
+            if (kind == PopupRowKind.Item && ClipboardHistory.TryGetLaunchPath(Text, out path, out label))
+            {
+                DisplayText = label;
+                Mark = System.IO.Directory.Exists(path) ? FolderMark : FileMark;
+            }
+            else
+            {
+                DisplayText = Text;
+            }
         }
+
+        /// <summary>一覧に見せる文字 (Text から履歴の「開く項目」の印を外したもの)。</summary>
+
+        public string DisplayText { get; private set; }
 
         public PopupRowKind Kind { get; private set; }
 
@@ -34,6 +57,9 @@ namespace Copipe.UI
 
         /// <summary>ピン止めした履歴の項目か (一覧の上部に番号なしで出し、右端に 📌 を付ける)。</summary>
         public bool IsPinned { get; set; }
+
+        /// <summary>項目の名前の前に付ける印 (ファイル・フォルダーを開く定型文の 📄・📁)。無ければ空。</summary>
+        public string Mark { get; set; }
 
         /// <summary>
         /// 一覧に見せる文字列。ListBox はこれを項目の文字列として持つので、
@@ -44,11 +70,11 @@ namespace Copipe.UI
             switch (Kind)
             {
                 case PopupRowKind.Group:
-                    return GroupMark + Text;
+                    return GroupLabel(Text);
                 case PopupRowKind.Empty:
                     return EmptyText;
                 default:
-                    return IsPinned ? PinMark + " " + Text : Text;
+                    return IsPinned ? PinMark + " " + DisplayText : (Mark ?? string.Empty) + DisplayText;
             }
         }
     }
