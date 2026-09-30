@@ -846,22 +846,24 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// 選択を step (上なら -1、下なら +1) 行動かす。空きの枠は飛ばし、端では止まる。
+        /// 選択を step (上なら -1、下なら +1) 行動かす。空きの枠は飛ばし、端まで来たら反対側へ回る。
         /// 何も選んでいないときは、下なら最初の行、上なら最後の行を選ぶ。
         /// </summary>
         public void MoveSelection(int step)
         {
-            if (_empty)
+            int count = _list.Items.Count;
+            if (_empty || count == 0)
             {
                 return;
             }
             int start = _list.SelectedIndex;
             if (start < 0)
             {
-                start = step > 0 ? -1 : _list.Items.Count;
+                start = step > 0 ? -1 : count;
             }
-            for (int i = start + step; i >= 0 && i < _list.Items.Count; i += step)
+            for (int n = 1; n <= count; n++)
             {
+                int i = ((start + step * n) % count + count) % count;
                 PopupRow row = _list.Items[i] as PopupRow;
                 if (row != null && row.Kind != PopupRowKind.Empty)
                 {

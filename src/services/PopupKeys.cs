@@ -69,7 +69,8 @@ namespace Copipe.Services
             }
             for (int i = 0; i < ArrowKeys.Length; i++)
             {
-                Register(ArrowId + i, (uint)ArrowKeys[i]);
+                // ↑↓は押し続けると連続で動く。それ以外 (Enter など) は 1 回だけ
+                Register(ArrowId + i, (uint)ArrowKeys[i], ArrowKeys[i] == Keys.Up || ArrowKeys[i] == Keys.Down);
             }
         }
 
@@ -88,12 +89,13 @@ namespace Copipe.Services
             }
         }
 
-        private void Register(int id, uint vk)
+        private void Register(int id, uint vk, bool repeat = false)
         {
-            NativeMethods.RegisterHotKey(Handle, id, NativeMethods.MOD_NOREPEAT, vk);
+            uint norepeat = repeat ? 0 : NativeMethods.MOD_NOREPEAT;
+            NativeMethods.RegisterHotKey(Handle, id, norepeat, vk);
             if (_heldMod != 0)
             {
-                NativeMethods.RegisterHotKey(Handle, id + HeldOffset, NativeMethods.MOD_NOREPEAT | _heldMod, vk);
+                NativeMethods.RegisterHotKey(Handle, id + HeldOffset, norepeat | _heldMod, vk);
             }
         }
 
