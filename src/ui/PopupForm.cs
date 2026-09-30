@@ -126,6 +126,70 @@ namespace Copipe.UI
             Controls.Add(header);
 
             Size = new Size(ScaleByDpi(BaseWidth), HeightForItems(1));
+
+            AcceptExternalDrops(this);
+        }
+
+        /// <summary>
+        /// 他のアプリから空きの枠の行 (0 始まり) に、ファイル・フォルダー (path) か文字列 (text) を落とされたとき。
+        /// path と text はどちらか一方だけが入る。空きの枠以外・それ以外のものは無視して、ここには来ない。
+        /// </summary>
+        public event Action<int, string, string> ExternalDropped;
+
+        /// <summary>他のアプリからのドロップを受け付けるか (定型文モードの間だけ true にする)。</summary>
+        public bool AllowExternalDrop { get; set; }
+
+        // AllowDrop の無い部品の上では落とせず親にも伝わらないので、全部品に付ける
+        private void AcceptExternalDrops(Control control)
+        {
+            control.AllowDrop = true;
+            control.DragEnter += OnExternalDragOver;
+            control.DragOver += OnExternalDragOver;
+            control.DragDrop += OnExternalDragDrop;
+            foreach (Control child in control.Controls)
+            {
+                AcceptExternalDrops(child);
+            }
+        }
+
+        private static string DroppedPath(IDataObject data)
+        {
+            string[] paths = data.GetData(DataFormats.FileDrop) as string[];
+            return paths != null && paths.Length > 0 ? paths[0] : null;
+        }
+
+        private static string DroppedText(IDataObject data)
+        {
+            string text = data.GetData(DataFormats.UnicodeText) as string;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+
+        /// <summary>落とせる行 (空きの枠) の位置。その位置が空きの枠でなければ -1。</summary>
+        private int EmptyRowAtScreen(int x, int y)
+        {
+            int index = RowIndexAt(_list.PointToClient(new Point(x, y)));
+            PopupRow row = index < 0 ? null : _list.Items[index] as PopupRow;
+            return (row != null && row.Kind == PopupRowKind.Empty) ? index : -1;
+        }
+
+        private void OnExternalDragOver(object sender, DragEventArgs e)
+        {
+            bool ok = AllowExternalDrop && (DroppedPath(e.Data) != null || DroppedText(e.Data) != null) &&
+                      EmptyRowAtScreen(e.X, e.Y) >= 0;
+            e.Effect = ok ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+
+        private void OnExternalDragDrop(object sender, DragEventArgs e)
+        {
+            // ファイルは文字列の形でも入っていることがあるので、ファイルを先に見る
+            string path = DroppedPath(e.Data);
+            string text = path == null ? DroppedText(e.Data) : null;
+            int row = EmptyRowAtScreen(e.X, e.Y);
+            Action<int, string, string> handler = ExternalDropped;
+            if (AllowExternalDrop && handler != null && row >= 0 && (path != null || text != null))
+            {
+                handler(row, path, text);
+            }
         }
 
         /// <summary>
@@ -529,6 +593,8 @@ namespace Copipe.UI
             {
                 return;
             }
+            // どの行のメニューか分かるよう、メニューを出す前に選択状態にする
+            _list.SelectedIndex = index;
             Action<int, Point> handler = RowContextRequested;
             if (handler != null)
             {

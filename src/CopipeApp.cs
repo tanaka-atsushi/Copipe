@@ -119,6 +119,7 @@ namespace Copipe
             _popup.PinIconClicked += OnPinIconClicked;
             _popup.WheelNotched += OnWheelNotched;
             _popup.RowDragEnded += OnRowDragEnded;
+            _popup.ExternalDropped += OnExternalDropped;
             _popup.DropValidator = CanDrop;
             _popup.InsertOnSingleClick = (_settings.InsertClick == InsertClick.Single);
             _inserter = new TextInserter(_popup.Handle);
@@ -636,6 +637,7 @@ namespace Copipe
                 _popupKeys.SetEscapeEnabled(_trigger == PopupTrigger.DoubleTap);
                 // 履歴もドラッグで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中)
                 _popup.AllowDrag = true;
+                _popup.AllowExternalDrop = false;
                 _popup.SetHeader(HistoryTitle, modeKeyName + ": " + PhraseTitle);
                 ShowHistory();
                 return;
@@ -643,6 +645,7 @@ namespace Copipe
 
             _popupKeys.SetEscapeEnabled(true);
             _popup.AllowDrag = true;
+            _popup.AllowExternalDrop = true;
             // 見出しは今いる階層 (例: 定型文 > 社外 > 挨拶)。階層名はドラッグした項目を落とす先にもなる
             List<string> path = new List<string>();
             path.Add(PhraseTitle);
@@ -1110,8 +1113,23 @@ namespace Copipe
             RestoreTargetWindow();
         }
 
-        /// <summary>定型文の登録 (空きの枠) か編集 (定型文の枠)。</summary>
-        private void EditPhrase(PhraseNode group, int index)
+        /// <summary>
+        /// 他のアプリから空きの枠 (index) に落とされたファイル・フォルダー (path) か文字列 (text) を登録するダイアログを出す。
+        /// </summary>
+        private void OnExternalDropped(int index, string path, string text)
+        {
+            PhraseNode group = CurrentPhraseGroup;
+            if (_dialogOpen || _mode != PopupMode.Phrases || index < 0 || index >= group.Slots.Length ||
+                group.Slots[index] != null)
+            {
+                return;
+            }
+            // ドラッグ元のアプリを待たせないよう、ドロップの処理から抜けてからダイアログを出す
+            _popup.BeginInvoke((Action)delegate { EditPhrase(group, index, text, path); });
+        }
+
+        /// <summary>定型文の登録 (空きの枠) か編集 (定型文の枠)。登録では、本文とパスの初期値を渡せる。</summary>
+        private void EditPhrase(PhraseNode group, int index, string newText = null, string newPath = null)
         {
             PhraseNode node = group.Slots[index];
             bool isNew = (node == null);
@@ -1119,8 +1137,8 @@ namespace Copipe
             {
                 using (PhraseDialog dialog = PhraseDialog.ForPhrase(
                     isNew ? Lang.T("定型文を登録", "New snippet") : Lang.T("定型文を編集", "Edit snippet"), SlotLocation(index),
-                    isNew ? string.Empty : node.Title, isNew ? string.Empty : node.Text,
-                    isNew ? string.Empty : node.Path))
+                    isNew ? string.Empty : node.Title, isNew ? (newText ?? string.Empty) : node.Text,
+                    isNew ? (newPath ?? string.Empty) : node.Path))
                 {
                     if (dialog.ShowDialog(_dialogOwner) != DialogResult.OK)
                     {
