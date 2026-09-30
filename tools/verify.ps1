@@ -1216,21 +1216,21 @@ try {
         Check 'ファイルが無ければ、一番上に空の枠が 10 個' ($book.Root.IsGroup -and $book.Root.Slots.Count -eq 10 -and @($book.Root.Slots | Where-Object { $null -ne $_ }).Count -eq 0)
 
         # 表示名: 定型文は表示名、無ければ本文の最初の空でない行。グループは名前
-        Check '表示名: 表示名があればそれ' ($PN::CreatePhrase('挨拶', "お世話に`r`nなっております").Label -ceq '挨拶')
-        Check '表示名: 表示名が空なら本文の最初の空でない行' ($PN::CreatePhrase('', "`r`n  `r`n  お世話に  `r`nなっております").Label -ceq 'お世話に')
+        Check '表示名: 表示名があればそれ' ($PN::CreatePhrase('挨拶', "お世話に`r`nなっております", '').Label -ceq '挨拶')
+        Check '表示名: 表示名が空なら本文の最初の空でない行' ($PN::CreatePhrase('', "`r`n  `r`n  お世話に  `r`nなっております", '').Label -ceq 'お世話に')
         Check '表示名: グループは名前' ($PN::CreateGroup('社外').Label -ceq '社外')
-        Check '種類: グループは IsGroup' ($PN::CreateGroup('社外').IsGroup -and -not $PN::CreatePhrase('', 'x').IsGroup)
+        Check '種類: グループは IsGroup' ($PN::CreateGroup('社外').IsGroup -and -not $PN::CreatePhrase('', 'x', '').IsGroup)
         Check 'グループを作ると空の枠が 10 個ある' ($PN::CreateGroup('社外').Slots.Count -eq 10)
 
         # 保存して読み戻す (入れ子のグループ、空きの枠、改行・タブ・記号を含む本文)
         $root = $book.Root
         $outer = $PN::CreateGroup('社外')
         $inner = $PN::CreateGroup('挨拶')
-        $inner.Slots[9] = $PN::CreatePhrase('', "いつもお世話になっております。`r`n`t株式会社 A&B")
+        $inner.Slots[9] = $PN::CreatePhrase('', "いつもお世話になっております。`r`n`t株式会社 A&B", '')
         $outer.Slots[0] = $inner
-        $outer.Slots[2] = $PN::CreatePhrase('締め', '取り急ぎご連絡まで。')
+        $outer.Slots[2] = $PN::CreatePhrase('締め', '取り急ぎご連絡まで。', '')
         $root.Slots[1] = $outer
-        $root.Slots[4] = $PN::CreatePhrase('', '"引用" \ 円記号')
+        $root.Slots[4] = $PN::CreatePhrase('', '"引用" \ 円記号', '')
         $book.Save($phrasePath)
         $again = $PB::Load($phrasePath)
         $r = $again.Root
@@ -1260,10 +1260,10 @@ try {
         function New-Tree {
             $t = @{}
             $t.Root = $PN::CreateGroup('')
-            $t.A = $PN::CreatePhrase('', 'A'); $t.B = $PN::CreatePhrase('', 'B'); $t.X = $PN::CreatePhrase('', 'x')
+            $t.A = $PN::CreatePhrase('', 'A', ''); $t.B = $PN::CreatePhrase('', 'B', ''); $t.X = $PN::CreatePhrase('', 'x', '')
             $t.G = $PN::CreateGroup('G'); $t.H = $PN::CreateGroup('H'); $t.Full = $PN::CreateGroup('満杯')
             $t.G.Slots[0] = $t.X; $t.G.Slots[1] = $t.H
-            for ($i = 0; $i -lt 10; $i++) { $t.Full.Slots[$i] = $PN::CreatePhrase('', "f$i") }
+            for ($i = 0; $i -lt 10; $i++) { $t.Full.Slots[$i] = $PN::CreatePhrase('', "f$i", '') }
             $t.Root.Slots[0] = $t.A; $t.Root.Slots[1] = $t.G; $t.Root.Slots[3] = $t.B; $t.Root.Slots[4] = $t.Full
             return $t
         }
@@ -1547,11 +1547,16 @@ try {
 
         # 小窓の一覧 (ListBox) の項目を、外から読む (読めなければ空の配列)。
         # PowerShell は 1 要素の配列を返すと中身の文字列に展開してしまうので、, を付けて配列のまま返す
-        function Get-PopupItems([IntPtr]$Popup) {
+        # 文字列の項目の先頭の ✍ は外して返す (-Raw なら付けたまま)
+        function Get-PopupItems([IntPtr]$Popup, [switch]$Raw) {
             foreach ($child in $W::Children($Popup)) {
                 if ($W::GetClass($child) -like '*LISTBOX*') {
                     $items = $W::ListItems($child)
                     if ($null -eq $items) { return ,@() }
+                    if (-not $Raw) {
+                        $mark = '✍ '   # PopupRow.TextMark (internal なので読めない)
+                        $items = @($items | ForEach-Object { if ($_.StartsWith($mark, [StringComparison]::Ordinal)) { $_.Substring($mark.Length) } else { $_ } })
+                    }
                     return ,$items
                 }
             }
@@ -1597,6 +1602,8 @@ try {
                 # 一覧は新しい順なので、いまコピーした内容 (全文) が先頭にあるはず
                 $items = Get-PopupItems $Popup
                 Check "${Label}: 一覧の先頭に、いまコピーした内容がある" ($items.Count -ge 1 -and $items[0] -ceq $Text) ("items=" + (Format-Items $items))
+                $raw = Get-PopupItems $Popup -Raw
+                Check "${Label}: 文字列の項目は先頭に ✍ が付く" ($raw.Count -ge 1 -and $raw[0] -ceq ('✍ ' + $Text)) ("items=" + (Format-Items $raw))
                 Check "${Label}: フォアグラウンドのウインドウが変わらない" ($W::GetForegroundWindow() -eq $fg) "before=$fg after=$($W::GetForegroundWindow())"
 
                 $r = $W::GetRect($Popup)
@@ -2217,34 +2224,31 @@ try {
                             return $false
                         }
                         if ($runHistory) {   # 履歴の E2E: 矢印キー・Enter・強調表示
-                        # 2 行にして 2 行目の末尾から ↑ を押す (1 行だけだと ↑ でカーソルが動かない)
+                        # 2 行にして 2 行目の末尾から ↑ を押す (入力先に届いていれば、カーソルが 1 行目へ動いてわかる)
                         $box.Text = "前:`r`n後:"
                         $box.SelectionStart = $box.Text.Length
                         [void](Wait-Pumping { $false } 100)
+                        $caretBefore = $box.SelectionStart
                         [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
                         Invoke-HotkeyPress
                         [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
                         Check '強調表示: 小窓を出した時点で、どの項目も選ばれていない' ((Get-Selected) -eq -1) "selected=$(Get-Selected)"
-                        Send-Key 0x26 1
-                        $caret = $box.SelectionStart
+                        Send-Key 0x26 1   # ↑
+                        Check '矢印キー: 何も選んでいないときの ↑ は、最後の項目を選ぶ' ((Get-Selected) -eq 9) "selected=$(Get-Selected)"
+                        Check '矢印キー: ↑ は入力先に届かない (カーソルが動かない)' ($box.SelectionStart -eq $caretBefore) ("caret=" + $box.SelectionStart)
+                        Send-Key 0x28 1   # ↓
+                        Check '矢印キー: 最後の項目で ↓ を押すと、最初の項目に戻る' ((Get-Selected) -eq 0) "selected=$(Get-Selected)"
+                        Send-Key 0x28 1
+                        Check '矢印キー: ↓ で次の項目を選ぶ' ((Get-Selected) -eq 1) "selected=$(Get-Selected)"
+                        Send-Key 0x0D 1   # Enter
+                        $enterMs = Wait-Pumping { $box.Text -ceq "前:`r`n後:数字キー検証 10" } 3000
+                        Check 'Enter: 選んでいる項目を入力する (入力先の改行にはならない)' ($enterMs -ge 0) ("text=[" + $box.Text + "]")
                         Send-Key 0x33 1   # 3
-                        $numMs = Wait-Pumping { $box.Text -ceq "前:数字キー検証 09`r`n後:" } 3000
+                        $numMs = Wait-Pumping { $box.Text -ceq "前:`r`n後:数字キー検証 10数字キー検証 09" } 3000
+                        Check '数字キー: 選んでいる項目があっても、数字キーの項目が入力される' ($numMs -ge 0) ("text=[" + $box.Text + "]")
                         Check '強調表示: 数字キーで入力した項目 (3 件目) が選ばれた状態 (強調表示) になる' ((Get-Selected) -eq 2) "selected=$(Get-Selected)"
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
-                        Check '矢印キー: 小窓を出している間も、↑ は入力先に届く (カーソルが 1 行目へ動く)' ($caret -le 2) ("caret=" + $caret)
-                        Check '矢印キー: ↑ で動いたカーソルの位置に、数字キーの項目が入力される' ($numMs -ge 0) ("text=[" + $box.Text + "]")
-
-                        Reset-Target
-                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                        Invoke-HotkeyPress
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
-                        Send-Key 0x0D 1
-                        [void](Wait-Pumping { $false } 800)
-                        $enterText = $box.Text
-                        Invoke-HotkeyRelease
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
-                        Check 'Enter: 小窓を出している間に押しても、項目は入力しない (入力先の改行になる)' ($enterText -ceq "前:`r`n") ("text=[" + $enterText + "]")
 
                         }
                         # 小窓の上の見出し (Label) の文字を読む
@@ -2895,8 +2899,17 @@ try {
                             }
                             return $null
                         }
+                        # 前の検証で入力した定型文も履歴に入っているので、履歴を新しい順に「数字キー検証 11」〜「数字キー検証 02」の 10 件にして起動し直す
+                        Stop-Copipe $copipe
+                        $pinItems = @(11..2 | ForEach-Object { '"数字キー検証 {0:D2}"' -f $_ }) -join ','
+                        [System.IO.File]::WriteAllText($historyPath, '{"Items":[' + $pinItems + '],"Pinned":[]}', (New-Object System.Text.UTF8Encoding $false))
+                        $copipe = Start-Copipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                         Reset-Target
-                        # 今の履歴は、新しい順に「数字キー検証 11」〜「数字キー検証 02」の 10 件
                         $menu = Open-RowMenu 2
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
                         Check 'ピン止め: 履歴の行を右クリックすると「ピン止め」が出る' ($names -ceq 'ピン止め') "names=[$names]"
@@ -2921,6 +2934,17 @@ try {
                         $menu = Open-RowMenu 0
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
                         Check 'ピン止め: ピン止めした行を右クリックすると「ピン止めを外す」が出る' ($names -ceq 'ピン止めを外す') "names=[$names]"
+                        # 小窓はフォーカスを奪わないので、メニューには直接キーが届かない。Esc・モードキーは Copipe が受け取って閉じる
+                        Send-Key 0x1B 1   # Esc
+                        $escMs = Wait-Pumping { $null -eq (Find-RowMenu) } 1500
+                        Check '右クリック: Esc でメニューを閉じる (小窓は出たまま)' ($escMs -ge 0 -and $W::IsWindowVisible($popup))
+                        $pt = Get-ItemCenter $popup 0
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::RightClick()
+                        [void](Wait-Pumping { $null -ne (Find-RowMenu) } 1500)
+                        Send-Key 0x09 1   # Tab (モードキー)
+                        $modeMs = Wait-Pumping { $null -eq (Find-RowMenu) -and (Test-Title (Get-PopupLabels) '定型文') } 1500
+                        Check '右クリック: モードキーでメニューを閉じて、定型文モードに切り替わる' ($modeMs -ge 0) "labels=[$(Get-PopupLabels)]"
                         Close-History
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
 
