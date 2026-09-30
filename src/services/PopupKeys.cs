@@ -18,6 +18,8 @@ namespace Copipe.Services
         private const int FirstId = 100;
         private const int ModeKeyId = 200;
         private const int EscapeId = 201;
+        private static readonly Keys[] ArrowKeys = { Keys.Up, Keys.Down, Keys.Left, Keys.Right, Keys.Return };
+        private const int ArrowId = 210; // ArrowId + ArrowKeys の位置
         // ダブルタップのキーを押したまま (Ctrl+1 など) でも受け取るための登録は、ID にこれを足す
         private const int HeldOffset = 1000;
 
@@ -41,6 +43,9 @@ namespace Copipe.Services
         /// <summary>Esc が押されたとき (SetEscapeEnabled(true) にしている間だけ)。</summary>
         public event Action EscapePressed;
 
+        /// <summary>矢印キー (Up・Down・Left・Right) と Enter (Return) が押されたとき。</summary>
+        public event Action<Keys> ArrowPressed;
+
         /// <summary>
         /// 数字キーとモードキーを登録する (修飾キーなし)。
         /// ダブルタップで小窓を出したときは、そのキー (heldModifier: ControlKey・ShiftKey・Menu) を押したままなので、
@@ -61,6 +66,10 @@ namespace Copipe.Services
             if ((modeKey & Keys.KeyCode) != Keys.None)
             {
                 Register(ModeKeyId, (uint)(modeKey & Keys.KeyCode));
+            }
+            for (int i = 0; i < ArrowKeys.Length; i++)
+            {
+                Register(ArrowId + i, (uint)ArrowKeys[i]);
             }
         }
 
@@ -128,6 +137,10 @@ namespace Copipe.Services
             }
             Unregister(ModeKeyId);
             Unregister(EscapeId);
+            for (int i = 0; i < ArrowKeys.Length; i++)
+            {
+                Unregister(ArrowId + i);
+            }
             _escapeEnabled = false;
             _enabled = false;
         }
@@ -157,6 +170,16 @@ namespace Copipe.Services
                     if (escape != null)
                     {
                         escape();
+                    }
+                    return;
+                }
+                int arrow = id - ArrowId;
+                if (arrow >= 0 && arrow < ArrowKeys.Length)
+                {
+                    Action<Keys> arrowHandler = ArrowPressed;
+                    if (arrowHandler != null)
+                    {
+                        arrowHandler(ArrowKeys[arrow]);
                     }
                     return;
                 }

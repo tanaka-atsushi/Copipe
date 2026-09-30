@@ -126,6 +126,7 @@ namespace Copipe
             _popupKeys.NumberPressed += OnNumberKeyPressed;
             _popupKeys.ModePressed += OnModeKeyPressed;
             _popupKeys.EscapePressed += OnEscapePressed;
+            _popupKeys.ArrowPressed += OnArrowPressed;
 
             _hotkey = new HoldHotkey();
             _hotkey.Pressed += OnHotkeyPressed;
@@ -464,6 +465,61 @@ namespace Copipe
             {
                 ClosePopup();
             }
+        }
+
+        /// <summary>
+        /// 矢印キー。↑↓は選択を動かす。定型文モードでは、→は選んでいるグループの中へ、←は 1 つ上の階層へ。
+        /// 上の階層へ戻ったときは、出てきたグループを選んでおく。
+        /// </summary>
+        private void OnArrowPressed(Keys key)
+        {
+            if (RowMenu.IsOpen || _popup.IsDragging)
+            {
+                return;
+            }
+            switch (key)
+            {
+                case Keys.Up:
+                    _popup.MoveSelection(-1);
+                    break;
+                case Keys.Down:
+                    _popup.MoveSelection(1);
+                    break;
+                case Keys.Right:
+                    EnterSelectedGroup();
+                    break;
+                case Keys.Return:
+                    // グループなら中へ、文字列なら入力、ファイル・フォルダーなら開く
+                    if (!EnterSelectedGroup() && _popup.SelectedIndex >= 0)
+                    {
+                        ActivateRow(_popup.SelectedIndex);
+                    }
+                    break;
+                case Keys.Left:
+                    if (_mode == PopupMode.Phrases && _phrasePath.Count > 0)
+                    {
+                        PhraseNode left = _phrasePath[_phrasePath.Count - 1];
+                        _phrasePath.RemoveAt(_phrasePath.Count - 1);
+                        ShowMode();
+                        _popup.SelectItem(Array.IndexOf(CurrentPhraseGroup.Slots, left));
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>定型文モードで、選んでいる行がグループなら中に入り、最初の項目を選ぶ。入ったら true。</summary>
+        private bool EnterSelectedGroup()
+        {
+            int selected = _popup.SelectedIndex;
+            PhraseNode[] slots = CurrentPhraseGroup.Slots;
+            if (_mode != PopupMode.Phrases || selected < 0 || selected >= slots.Length ||
+                slots[selected] == null || !slots[selected].IsGroup)
+            {
+                return false;
+            }
+            ActivateRow(selected);
+            _popup.MoveSelection(1);
+            return true;
         }
 
         /// <summary>Esc で、定型文の 1 つ上の階層に戻る。一番上では何もしない。</summary>

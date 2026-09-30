@@ -839,6 +839,38 @@ namespace Copipe.UI
             }
         }
 
+        /// <summary>今選んでいる (強調表示している) 行の位置。無ければ -1。</summary>
+        public int SelectedIndex
+        {
+            get { return _empty ? -1 : _list.SelectedIndex; }
+        }
+
+        /// <summary>
+        /// 選択を step (上なら -1、下なら +1) 行動かす。空きの枠は飛ばし、端では止まる。
+        /// 何も選んでいないときは、下なら最初の行、上なら最後の行を選ぶ。
+        /// </summary>
+        public void MoveSelection(int step)
+        {
+            if (_empty)
+            {
+                return;
+            }
+            int start = _list.SelectedIndex;
+            if (start < 0)
+            {
+                start = step > 0 ? -1 : _list.Items.Count;
+            }
+            for (int i = start + step; i >= 0 && i < _list.Items.Count; i += step)
+            {
+                PopupRow row = _list.Items[i] as PopupRow;
+                if (row != null && row.Kind != PopupRowKind.Empty)
+                {
+                    _list.SelectedIndex = i;
+                    return;
+                }
+            }
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing && _title != null && _title.Font != null)
