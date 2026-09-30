@@ -576,10 +576,12 @@ namespace Copipe
         /// <summary>モードキーで、クリップボード履歴と定型文を切り替える。小窓は出したままにする。</summary>
         private void OnModeKeyPressed()
         {
-            if (RowMenu.IsOpen || _popup.IsDragging)
+            if (_popup.IsDragging)
             {
                 return;
             }
+            // 右クリックのメニューを出しているときは、メニューを閉じてから切り替える
+            RowMenu.Close();
             if (_mode == PopupMode.History)
             {
                 EnterPhraseMode();
@@ -999,7 +1001,7 @@ namespace Copipe
                 return;
             }
             bool pinned = index < _popup.PinnedCount;
-            int chosen = RowMenu.Show(_popup.Handle, screen, new[] { pinned ? Lang.T("ピン止めを外す", "Unpin") : Lang.T("ピン止め", "Pin") });
+            int chosen = ShowRowMenu(screen, new[] { pinned ? Lang.T("ピン止めを外す", "Unpin") : Lang.T("ピン止め", "Pin") });
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
@@ -1033,6 +1035,23 @@ namespace Copipe
             if (_popup.Visible && _mode == PopupMode.History)
             {
                 ShowHistory();
+            }
+        }
+
+        /// <summary>
+        /// 右クリックのメニューを出す。小窓はフォーカスを奪わないので、メニューにはキーが届かない。
+        /// メニューを出している間は Esc をホットキーで受け取り、メニューを閉じる (OnEscapePressed)。
+        /// </summary>
+        private int ShowRowMenu(Point screen, IList<string> labels)
+        {
+            _popupKeys.SetEscapeEnabled(true);
+            try
+            {
+                return RowMenu.Show(_popup.Handle, screen, labels);
+            }
+            finally
+            {
+                _popupKeys.SetEscapeEnabled(_mode == PopupMode.Phrases || _trigger == PopupTrigger.DoubleTap);
             }
         }
 
@@ -1086,7 +1105,7 @@ namespace Copipe
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
 
-            int chosen = RowMenu.Show(_popup.Handle, screen, labels);
+            int chosen = ShowRowMenu(screen, labels);
             if (chosen >= 0 && chosen < actions.Count && actions[chosen] != null)
             {
                 // 右クリックの処理から抜けてからダイアログを出す

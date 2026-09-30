@@ -15,6 +15,7 @@ namespace Copipe.UI
         private const int WM_MOUSEMOVE = 0x0200;
         private const int WM_LBUTTONDOWN = 0x0201;
         private const int WM_LBUTTONUP = 0x0202;
+        private const int WM_MBUTTONDBLCLK = 0x0209;
         private const int WM_CAPTURECHANGED = 0x0215;
         private const int WM_MOUSEWHEEL = 0x020A;
         private const int MK_LBUTTON = 0x0001;
@@ -76,6 +77,11 @@ namespace Copipe.UI
 
         protected override void WndProc(ref Message m)
         {
+            // 右クリックメニューを外のクリックで閉じたときの、そのクリックは無視する (選択も、クリックも、ドラッグも)
+            if (m.Msg >= WM_LBUTTONDOWN && m.Msg <= WM_MBUTTONDBLCLK && RowMenu.IsSwallowingClick)
+            {
+                return;
+            }
             switch (m.Msg)
             {
                 case WM_MOUSEWHEEL:
