@@ -2336,7 +2336,8 @@ try {
                             [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                         }
                         # 一覧の Index 行目を、小窓の外のドロップ先までドラッグして落とす。落とされたもの (無ければ $null) を返す
-                        function Invoke-DragOut([int]$Index) {
+                        # 何も落ちないはずのとき (グループ) は、-TimeoutMs を短くして待ち時間を減らす
+                        function Invoke-DragOut([int]$Index, [int]$TimeoutMs = 1500) {
                             $script:dropped = $null
                             $script:droppedEffects = $null
                             $script:droppedAnsi = $null
@@ -2346,7 +2347,7 @@ try {
                             [void](Wait-Pumping { $false } 200)
                             $script:dropUnder = ($W::RootWindowAt($to.X, $to.Y) -eq $dropTarget.Handle)
                             $W::LeftUp()
-                            [void](Wait-Pumping { $null -ne $script:dropped } 1500)
+                            [void](Wait-Pumping { $null -ne $script:dropped } $TimeoutMs)
                             return $script:dropped
                         }
                         if ($runPhrases) {   # ---- ここから定型文の E2E ----
@@ -2902,7 +2903,7 @@ try {
                         $dropped = Invoke-DragOut 1
                         Check '外へドラッグ: ファイルのパスの定型文は、ファイルそのものとして落とせる' ($dropped -ceq "FILE:$dragOutFile") "dropped=[$dropped]"
                         Check '外へドラッグ: ファイルはコピーとして渡す (移動はさせない)' ($script:droppedEffects -eq [System.Windows.Forms.DragDropEffects]::Copy) "effects=$script:droppedEffects"
-                        $dropped = Invoke-DragOut 2
+                        $dropped = Invoke-DragOut 2 -TimeoutMs 300
                         Check '外へドラッグ: グループは外へ出せない (何も落ちない)' ($null -eq $dropped) "dropped=[$dropped]"
                         Check '外へドラッグ: 外へ落としても、定型文は変わらない' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $before)
                         Check '外へドラッグ: 外へ落としても、入力先には何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")

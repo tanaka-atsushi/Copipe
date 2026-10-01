@@ -916,8 +916,8 @@ namespace Copipe
             if (_historyDragText != null)
             {
                 return ClipboardHistory.TryGetLaunchPath(_historyDragText, out path, out label)
-                    ? DragData(path, null)
-                    : DragData(null, _historyDragText);
+                    ? PathData(path)
+                    : TextData(_historyDragText);
             }
             if (_dragGroup == null)
             {
@@ -928,35 +928,33 @@ namespace Copipe
             {
                 return null;
             }
-            return node.Path.Length > 0 ? DragData(node.Path, null) : DragData(null, node.Text);
+            return node.Path.Length > 0 ? PathData(node.Path) : TextData(node.Text);
         }
 
-        private static IDataObject DragData(string path, string text)
+        private static IDataObject PathData(string path)
         {
-            // 開くパスに URL (https:、mailto: など、ファイルではない URI) を登録した項目は、文字として渡す。
+            // 開くパスに URI (https:、mailto: など) を登録した項目は、文字として渡す。
             // ファイルとして渡すと、ブラウザーはローカルのファイル (file:///https://…) として開こうとする
-            Uri uri;
-            if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out uri) && !uri.IsFile)
+            if (PopupRow.IsUri(path))
             {
-                text = path;
-                path = null;
+                return TextData(path);
             }
             DataObject data = new DataObject();
-            if (!string.IsNullOrEmpty(path))
-            {
-                data.SetData(DataFormats.FileDrop, new[] { path });
-            }
-            else if (!string.IsNullOrEmpty(text))
-            {
-                // ANSI のテキストしか読まないアプリにも落とせるよう、両方の形で渡す
-                // (クリップボードと違い、ドラッグ＆ドロップでは Windows が変換してくれない)
-                data.SetData(DataFormats.UnicodeText, text);
-                data.SetData(DataFormats.Text, text);
-            }
-            else
+            data.SetData(DataFormats.FileDrop, new[] { path });
+            return data;
+        }
+
+        private static IDataObject TextData(string text)
+        {
+            if (string.IsNullOrEmpty(text))
             {
                 return null;
             }
+            // ANSI のテキストしか読まないアプリにも落とせるよう、両方の形で渡す
+            // (クリップボードと違い、ドラッグ＆ドロップでは Windows が変換してくれない)
+            DataObject data = new DataObject();
+            data.SetData(DataFormats.UnicodeText, text);
+            data.SetData(DataFormats.Text, text);
             return data;
         }
 

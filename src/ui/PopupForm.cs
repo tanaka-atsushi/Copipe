@@ -682,8 +682,7 @@ namespace Copipe.UI
         /// </summary>
         private bool TryDragOut()
         {
-            Func<IDataObject> source = OutsideDragData;
-            IDataObject data = source == null ? null : source();
+            IDataObject data = OutsideDragData == null ? null : OutsideDragData();
             if (data == null)
             {
                 return false;
