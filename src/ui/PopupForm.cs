@@ -133,11 +133,15 @@ namespace Copipe.UI
         /// <summary>
         /// 他のアプリから空きの枠の行 (0 始まり) に、ファイル・フォルダー (path) か文字列 (text) を落とされたとき。
         /// path と text はどちらか一方だけが入る。空きの枠以外・それ以外のものは無視して、ここには来ない。
+        /// ExternalDropAnywhere なら小窓のどこに落としてもよく、行は 0 で届く。
         /// </summary>
         public event Action<int, string, string> ExternalDropped;
 
-        /// <summary>他のアプリからのドロップを受け付けるか (定型文モードの間だけ true にする)。</summary>
+        /// <summary>他のアプリからのドロップを受け付けるか。</summary>
         public bool AllowExternalDrop { get; set; }
+
+        /// <summary>空きの枠に限らず、小窓のどこに落としてもよいか (履歴モードでピン止めするとき)。</summary>
+        public bool ExternalDropAnywhere { get; set; }
 
         // AllowDrop の無い部品の上では落とせず親にも伝わらないので、全部品に付ける
         private void AcceptExternalDrops(Control control)
@@ -164,9 +168,13 @@ namespace Copipe.UI
             return string.IsNullOrWhiteSpace(text) ? null : text;
         }
 
-        /// <summary>落とせる行 (空きの枠) の位置。その位置が空きの枠でなければ -1。</summary>
+        /// <summary>落とせる行 (空きの枠) の位置。その位置が空きの枠でなければ -1。どこでもよいなら 0。</summary>
         private int EmptyRowAtScreen(int x, int y)
         {
+            if (ExternalDropAnywhere)
+            {
+                return 0;
+            }
             int index = RowIndexAt(_list.PointToClient(new Point(x, y)));
             PopupRow row = index < 0 ? null : _list.Items[index] as PopupRow;
             return (row != null && row.Kind == PopupRowKind.Empty) ? index : -1;
@@ -313,7 +321,7 @@ namespace Copipe.UI
 
         /// <summary>
         /// 一覧を、履歴の並びにする。pinned (ピン止め) を上部に番号なしで出し、その後に items を出す。
-        /// items が slotCount 件に満たない分は「（空き）」の行で埋める (定型文と同じく、いつも同じ行数)。
+        /// items が slotCount 件に満たない分は空きの行 (文字なし)で埋める (定型文と同じく、いつも同じ行数)。
         /// </summary>
         public void SetHistory(IList<string> pinned, IList<string> items, int slotCount)
         {
@@ -844,8 +852,8 @@ namespace Copipe.UI
             // 先頭 10 件には、選ぶための数字キー (1〜9、0) を付ける。11 件目以降は番号の欄を空けて、
             // 本文の書き出しの位置をそろえる
             int numberWidth = TextRenderer.MeasureText(e.Graphics, "0. ", e.Font, Size.Empty, flags).Width;
-            // ピン止めの行は番号なし。普通の履歴はピン止めの後から 1 を付ける
-            string number = row.IsPinned ? null : ItemNumber.Label(e.Index - _pinnedCount);
+            // ピン止めの行は a〜z。普通の履歴はピン止めの後から 1 を付ける
+            string number = row.IsPinned ? ItemNumber.PinLabel(e.Index) : ItemNumber.Label(e.Index - _pinnedCount);
             if (number != null)
             {
                 Rectangle numberBounds = new Rectangle(e.Bounds.Left, e.Bounds.Top, numberWidth, e.Bounds.Height);
@@ -873,7 +881,7 @@ namespace Copipe.UI
             switch (row.Kind)
             {
                 case PopupRowKind.Empty:
-                    line = PopupRow.EmptyText;
+                    line = string.Empty;
                     break;
                 case PopupRowKind.Group:
                     line = PopupRow.GroupLabel(PreviewText.Line(row.Text, PreviewText.LineMaxChars));

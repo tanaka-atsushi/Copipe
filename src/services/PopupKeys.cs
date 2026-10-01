@@ -20,11 +20,14 @@ namespace Copipe.Services
         private const int EscapeId = 201;
         private static readonly Keys[] ArrowKeys = { Keys.Up, Keys.Down, Keys.Left, Keys.Right, Keys.Return };
         private const int ArrowId = 210; // ArrowId + ArrowKeys の位置
+        private const int LetterId = 300; // LetterId + (A からの位置)。ピン止めを選ぶ a〜z
+        private const int LetterCount = 26;
         // ダブルタップのキーを押したまま (Ctrl+1 など) でも受け取るための登録は、ID にこれを足す
         private const int HeldOffset = 1000;
 
         private bool _enabled;
         private bool _escapeEnabled;
+        private bool _lettersEnabled;
         private uint _heldMod;
 
         public PopupKeys()
@@ -42,6 +45,9 @@ namespace Copipe.Services
 
         /// <summary>Esc が押されたとき (SetEscapeEnabled(true) にしている間だけ)。</summary>
         public event Action EscapePressed;
+
+        /// <summary>a〜z が押されたとき (SetLettersEnabled(true) にしている間だけ)。引数は 0 始まり (a なら 0)。</summary>
+        public event Action<int> LetterPressed;
 
         /// <summary>矢印キー (Up・Down・Left・Right) と Enter (Return) が押されたとき。</summary>
         public event Action<Keys> ArrowPressed;
@@ -126,6 +132,31 @@ namespace Copipe.Services
             _escapeEnabled = enabled;
         }
 
+        /// <summary>
+        /// a〜z も受け取るかを切り替える (履歴モードでピン止めを選ぶため)。
+        /// 定型文モードの間は受け取らず、入力中のアプリに届くようにする。Enable の後で呼ぶこと。
+        /// モードキーと同じ文字は、先に登録したモードキーが優先される (登録に失敗するだけ)。
+        /// </summary>
+        public void SetLettersEnabled(bool enabled)
+        {
+            if (!_enabled || enabled == _lettersEnabled)
+            {
+                return;
+            }
+            for (int i = 0; i < LetterCount; i++)
+            {
+                if (enabled)
+                {
+                    Register(LetterId + i, (uint)(Keys.A + i));
+                }
+                else
+                {
+                    Unregister(LetterId + i);
+                }
+            }
+            _lettersEnabled = enabled;
+        }
+
         /// <summary>登録を解除する。登録していなくても呼んでよい。</summary>
         public void Disable()
         {
@@ -139,6 +170,7 @@ namespace Copipe.Services
             }
             Unregister(ModeKeyId);
             Unregister(EscapeId);
+            SetLettersEnabled(false);
             for (int i = 0; i < ArrowKeys.Length; i++)
             {
                 Unregister(ArrowId + i);
@@ -172,6 +204,16 @@ namespace Copipe.Services
                     if (escape != null)
                     {
                         escape();
+                    }
+                    return;
+                }
+                int letter = id - LetterId;
+                if (letter >= 0 && letter < LetterCount)
+                {
+                    Action<int> letterHandler = LetterPressed;
+                    if (letterHandler != null)
+                    {
+                        letterHandler(letter);
                     }
                     return;
                 }

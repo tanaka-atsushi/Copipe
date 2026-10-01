@@ -9,17 +9,13 @@ namespace Copipe.UI
         Item,
         /// <summary>定型文のグループ。選ぶと中に入る。</summary>
         Group,
-        /// <summary>定型文の空きの枠。選んでも何もしない。</summary>
+        /// <summary>空きの枠。文字は出さず、選んでも何もしない。</summary>
         Empty
     }
 
     /// <summary>小窓の一覧の 1 行。</summary>
     internal sealed class PopupRow
     {
-        public static string EmptyText
-        {
-            get { return Lang.T("（空き）", "(empty)"); }
-        }
         /// <summary>グループの表示 (名前の前にツリーの枝 ├ を付ける)。</summary>
         public static string GroupLabel(string name)
         {
@@ -27,8 +23,33 @@ namespace Copipe.UI
         }
         public const string FolderMark = "📁 ";
         public const string FileMark = "📄 ";
+        public const string UrlMark = "🌐 ";
         public const string TextMark = "✍ ";
         public const string PinMark = "📌";
+
+        /// <summary>
+        /// text が URI (https:、mailto:、ms-settings: など) か。空白を含まず「英字 2 文字以上のスキーム:」で始まるもの。
+        /// C:\ のようなドライブ文字 (1 文字) は URI にしない。
+        /// </summary>
+        public static bool IsUri(string text)
+        {
+            // ponytail: 「TODO:直す」のような 1 語の文字列も URI と見なす。困ればスキームを既知のものに絞る
+            System.Uri uri;
+            return text != null
+                && System.Text.RegularExpressions.Regex.IsMatch(text, @"\A[A-Za-z][A-Za-z0-9+.\-]+:\S+\z")
+                && System.Uri.TryCreate(text, System.UriKind.Absolute, out uri);
+        }
+
+        /// <summary>開く先に合う印 (URI は 🌐、フォルダーは 📁、それ以外は 📄)。</summary>
+        public static string MarkForPath(string path)
+        {
+            if (IsUri(path))
+            {
+                return UrlMark;
+            }
+            // ponytail: 表示のたびに存在確認。つながらないネットワーク先だと遅れる。遅ければ登録時に種類を保存する
+            return System.IO.Directory.Exists(path) ? FolderMark : FileMark;
+        }
 
         public PopupRow(PopupRowKind kind, string text)
         {
@@ -39,7 +60,7 @@ namespace Copipe.UI
             if (kind == PopupRowKind.Item && ClipboardHistory.TryGetLaunchPath(Text, out path, out label))
             {
                 DisplayText = label;
-                Mark = System.IO.Directory.Exists(path) ? FolderMark : FileMark;
+                Mark = MarkForPath(path);
             }
             else
             {
@@ -77,7 +98,7 @@ namespace Copipe.UI
                 case PopupRowKind.Group:
                     return GroupLabel(Text);
                 case PopupRowKind.Empty:
-                    return EmptyText;
+                    return string.Empty;
                 default:
                     return IsPinned ? PinMark + " " + DisplayText : (Mark ?? string.Empty) + DisplayText;
             }

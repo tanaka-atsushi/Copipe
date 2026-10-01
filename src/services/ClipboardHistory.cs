@@ -26,6 +26,15 @@ namespace Copipe.Services
         /// </summary>
         public const int MaxItems = 10;
 
+        /// <summary>ピン止めできる件数。小窓で振れる文字 (a〜z) と同じ 26 件。</summary>
+        public const int MaxPinned = 26;
+
+        /// <summary>ピン止めが上限に達しているか。</summary>
+        public bool IsPinnedFull
+        {
+            get { return _pinned.Count >= MaxPinned; }
+        }
+
         /// <summary>
         /// 履歴に入れたファイル・フォルダーの印。履歴は文字列だけを持つので、
         /// 「開く項目」は先頭にこの制御文字 (コピーした文字には通常現れない) を付けたパスとして持つ。
@@ -119,7 +128,7 @@ namespace Copipe.Services
         /// <summary>普通の履歴の項目をピン止めする (ピン止めの先頭に入る)。ピン止めしたなら true。</summary>
         public bool Pin(string text)
         {
-            if (!_items.Remove(text))
+            if (IsPinnedFull || !_items.Remove(text))
             {
                 return false;
             }
@@ -138,6 +147,10 @@ namespace Copipe.Services
                 return false;
             }
             if (_pinned.Count > 0 && _pinned[0] == text)
+            {
+                return false;
+            }
+            if (IsPinnedFull && !_pinned.Contains(text))
             {
                 return false;
             }

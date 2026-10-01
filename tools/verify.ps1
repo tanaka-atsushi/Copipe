@@ -17,6 +17,7 @@
       - 設定ファイル (%LOCALAPPDATA%\Copipe\settings.ini) を書き換える (最後に元へ戻す)
       - E2E ではマウスカーソルを動かし、設定したホットキーを擬似入力し、
         表示中の小窓の中央を 1 回左クリックする (カーソル位置は最後に戻す)。
+      - E2E の間は、他のアプリのウインドウをすべて最小化する (最後に元へ戻す)。
         実行中はマウスとキーボードに触らないこと
 #>
 [CmdletBinding()]
@@ -529,6 +530,8 @@ Section '検証 2: 一覧に出す 1 行の文字列 (PreviewText)' {
     Check '番号: 10 件目は 0' ($IN::Label(9) -ceq '0')
     Check '番号: 11 件目以降は番号なし' ($null -eq $IN::Label(10) -and $null -eq $IN::Label(49))
     Check '番号: 範囲外 (-1) は番号なし' ($null -eq $IN::Label(-1))
+    Check 'ピン止めの文字: 1 件目は a、26 件目は z' ($IN::PinLabel(0) -ceq 'a' -and $IN::PinLabel(25) -ceq 'z')
+    Check 'ピン止めの文字: 27 件目以降と範囲外は無し' ($null -eq $IN::PinLabel(26) -and $null -eq $IN::PinLabel(-1))
     Check '数字キー: 上段の 1 は 1 件目' ($IN::IndexFromKey($K::D1) -eq 0)
     Check '数字キー: 上段の 9 は 9 件目' ($IN::IndexFromKey($K::D9) -eq 8)
     Check '数字キー: 上段の 0 は 10 件目' ($IN::IndexFromKey($K::D0) -eq 9)
@@ -1165,6 +1168,12 @@ try {
         Check '定型文のピン止め: 先頭と同じなら何も変わらない' ((-not $h.PinText('a')) -and ($h.Pinned -join ',') -ceq 'a,b,定型')
         Check '定型文のピン止め: 空の内容はピン止めしない' ((-not $h.PinText('')) -and (-not $h.PinText($null)) -and $h.Pinned.Count -eq 3)
         Check '定型文のピン止め: 長すぎる内容はピン止めしない (コピーと同じ上限)' ((-not $h.PinText(('x' * ($H::MaxTextLength + 1)))) -and $h.Pinned.Count -eq 3)
+        for ($i = $h.Pinned.Count; $i -lt 26; $i++) { [void]$h.PinText("満$i") }
+        [void]$h.Add('あふれ')
+        Check 'ピン止めの上限: 26 件で満杯' ($h.Pinned.Count -eq 26 -and $h.IsPinnedFull)
+        Check 'ピン止めの上限: 満杯なら履歴の項目をピン止めしない' ((-not $h.Pin('あふれ')) -and $h.Pinned.Count -eq 26 -and $h.Items.Contains('あふれ'))
+        Check 'ピン止めの上限: 満杯なら新しい内容をピン止めしない' ((-not $h.PinText('新しい')) -and $h.Pinned.Count -eq 26)
+        Check 'ピン止めの上限: 満杯でもピン止め済みの内容は先頭へ移せる' ($h.PinText('b') -and $h.Pinned[0] -ceq 'b' -and $h.Pinned.Count -eq 26)
 
         $h = New-Object Copipe.Services.ClipboardHistory 10
         foreach ($t in 'p1', 'p2', 'x', 'y') { [void]$h.Add($t) }
@@ -1683,6 +1692,11 @@ try {
         }
 
         $savedCursor = $W::GetCursor()
+        # 他のアプリ (Orca など) が途中で前面を取ると、擬似入力が検証用の窓に届かず失敗する (実測)。
+        # デスクトップだけが見える状態にしてから始め、最後に元へ戻す
+        $shell = New-Object -ComObject Shell.Application
+        $shell.MinimizeAll()
+        Start-Sleep -Milliseconds 800
         $app = $null
         $second = $null
         $helper = $null
@@ -1944,19 +1958,19 @@ try {
             Check '履歴: 起動できる' ($popup -ne [IntPtr]::Zero) "exited=$($app.HasExited)"
             if ($popup -ne [IntPtr]::Zero) {
                 $items = Read-History $copipe
-                Check '履歴: 何もコピーしていなければ、空きの枠が 10 個出る' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '（空き）' }).Count -eq 0) "got=[$($items -join '] [')]"
+                Check '履歴: 何もコピーしていなければ、空きの枠が 10 個出る' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '' }).Count -eq 0) "got=[$($items -join '] [')]"
 
                 foreach ($text in 'あ 1件目', "い 2件目`r`n2行目", 'う 3件目') {
                     Set-ClipboardText ($text)
                     Start-Sleep -Milliseconds 400
                 }
                 $items = Read-History $copipe
-                Check '履歴: コピーした順の逆 (新しい順) に並び、残りは空きの枠' ($items.Count -eq 10 -and $items[3] -ceq '（空き）' -and $items[0] -ceq 'う 3件目' -and $items[1] -ceq "い 2件目`r`n2行目" -and $items[2] -ceq 'あ 1件目') "got=[$($items -join '] [')]"
+                Check '履歴: コピーした順の逆 (新しい順) に並び、残りは空きの枠' ($items.Count -eq 10 -and $items[3] -ceq '' -and $items[0] -ceq 'う 3件目' -and $items[1] -ceq "い 2件目`r`n2行目" -and $items[2] -ceq 'あ 1件目') "got=[$($items -join '] [')]"
 
                 Set-ClipboardText ('あ 1件目')
                 Start-Sleep -Milliseconds 400
                 $items = Read-History $copipe
-                Check '履歴: 前にコピーした内容をまたコピーすると先頭へ移動する' ($items.Count -eq 10 -and $items[0] -ceq 'あ 1件目' -and $items[1] -ceq 'う 3件目' -and $items[3] -ceq '（空き）') "got=[$($items -join '] [')]"
+                Check '履歴: 前にコピーした内容をまたコピーすると先頭へ移動する' ($items.Count -eq 10 -and $items[0] -ceq 'あ 1件目' -and $items[1] -ceq 'う 3件目' -and $items[3] -ceq '') "got=[$($items -join '] [')]"
 
                 Stop-Copipe $copipe
                 $copipe = Start-Copipe
@@ -1965,7 +1979,7 @@ try {
                 Check '履歴: 起動し直せる' ($popup -ne [IntPtr]::Zero)
                 if ($popup -ne [IntPtr]::Zero) {
                     $items = Read-History $copipe
-                    Check '履歴: 終了して起動し直しても残っている' ($items.Count -eq 10 -and $items[0] -ceq 'あ 1件目' -and $items[3] -ceq '（空き）') "got=[$($items -join '] [')]"
+                    Check '履歴: 終了して起動し直しても残っている' ($items.Count -eq 10 -and $items[0] -ceq 'あ 1件目' -and $items[3] -ceq '') "got=[$($items -join '] [')]"
 
                 }
             }
@@ -2027,7 +2041,7 @@ try {
                     $shownMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
                     Check '入力: ホットキーで小窓が出る' ($shownMs -ge 0)
                     $before = Get-PopupItems $popup
-                    Check '入力: 一覧は新しい順' ($before.Count -eq 10 -and $before[3] -ceq '（空き）' -and $before[0] -ceq $insertItems[2] -and $before[1] -ceq $insertItems[1]) ("items=" + (Format-Items $before))
+                    Check '入力: 一覧は新しい順' ($before.Count -eq 10 -and $before[3] -ceq '' -and $before[0] -ceq $insertItems[2] -and $before[1] -ceq $insertItems[1]) ("items=" + (Format-Items $before))
 
                     # 一覧の 2 件目の真ん中をダブルクリックする
                     $listBox = [IntPtr]::Zero
@@ -2057,7 +2071,7 @@ try {
                     Check '入力: クリップボードには入力した内容が残る' ($script:clipAfterInsert -ceq $insertItems[1]) ("clipboard=[" + $script:clipAfterInsert + "]")
 
                     $again = Read-History $copipe
-                    Check '入力: 入力した項目は履歴の先頭に移動しない' ($again.Count -eq 10 -and $again[3] -ceq '（空き）' -and $again[0] -ceq $insertItems[2] -and $again[1] -ceq $insertItems[1]) ("items=" + (Format-Items $again))
+                    Check '入力: 入力した項目は履歴の先頭に移動しない' ($again.Count -eq 10 -and $again[3] -ceq '' -and $again[0] -ceq $insertItems[2] -and $again[1] -ceq $insertItems[1]) ("items=" + (Format-Items $again))
 
                     }
                     # 入力先のテキストを「前:」に戻し、テキストカーソルを末尾に置く
@@ -2099,7 +2113,7 @@ try {
                         # クリップボードには前の Copipe が貼り付けに使った内容が残っているが、
                         # 起動し直しても、それが履歴の先頭に戻ってこないこと
                         $restarted = Read-History $copipe
-                        Check '入力: 起動し直しても、貼り付けに使った項目は先頭に戻らない' ($restarted.Count -eq 10 -and $restarted[3] -ceq '（空き）' -and $restarted[0] -ceq $insertItems[2] -and $restarted[1] -ceq $insertItems[1]) ("items=" + (Format-Items $restarted))
+                        Check '入力: 起動し直しても、貼り付けに使った項目は先頭に戻らない' ($restarted.Count -eq 10 -and $restarted[3] -ceq '' -and $restarted[0] -ceq $insertItems[2] -and $restarted[1] -ceq $insertItems[1]) ("items=" + (Format-Items $restarted))
 
                         # 起動し直したので、入力先を前面に戻す
                         [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
@@ -2309,7 +2323,7 @@ try {
                         $items = Get-PopupItems $popup
                         Check 'モード: Tab で定型文モードに切り替わる (見出し)' ((Test-Title $labels '定型文') -and -not (Test-Title $labels 'クリップボード履歴')) "labels=[$labels]"
                         Check 'モード: 定型文モードの見出しに、Tab で履歴に戻れることが出ている' ($labels -like '*Tab*履歴*') "labels=[$labels]"
-                        Check 'モード: 定型文が無いときは、空きの枠が 10 個出る' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '（空き）' }).Count -eq 0) ("items=" + (Format-Items $items))
+                        Check 'モード: 定型文が無いときは、空きの枠が 10 個出る' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '' }).Count -eq 0) ("items=" + (Format-Items $items))
                         Check 'モード: 切り替えても小窓は出たまま' ($W::IsWindowVisible($popup))
                         Send-Key 0x31 1   # 1
                         [void](Wait-Pumping { $false } 600)
@@ -2396,7 +2410,7 @@ try {
                         Send-Key 0x09 1
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check '定型文: 書き換えた phrases.json を読み直して、一番上の階層を出す' ((Test-Title $labels '定型文') -and $items.Count -eq 10 -and $items[0] -ceq '定型文検証 一番上' -and $items[1] -ceq '├ 社外' -and $items[2] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
+                        Check '定型文: 書き換えた phrases.json を読み直して、一番上の階層を出す' ((Test-Title $labels '定型文') -and $items.Count -eq 10 -and $items[0] -ceq '定型文検証 一番上' -and $items[1] -ceq '├ 社外' -and $items[2] -ceq '') ("labels=[$labels] items=" + (Format-Items $items))
                         Check '定型文: 定型文モードの間は Esc を Copipe が受け取る' (-not $W::CanRegisterHotkey($owner, [uint32]0, $escVk))
                         Send-Key 0x1B 1
                         Check '定型文: 一番上で Esc を押しても、一番上のまま (小窓も出たまま)' ((Test-Title (Get-PopupLabels) '定型文') -and $W::IsWindowVisible($popup)) "labels=[$(Get-PopupLabels)]"
@@ -2404,7 +2418,7 @@ try {
                         Send-Key 0x32 1   # 2: グループ「社外」
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check '定型文: グループの番号を押すと、その中に入る (見出しに階層が出る)' ((Test-Title $labels '定型文 > 社外') -and $items.Count -eq 10 -and $items[2] -ceq '締め' -and $items[3] -ceq '├ 挨拶' -and $items[0] -ceq '（空き）') ("labels=[$labels] items=" + (Format-Items $items))
+                        Check '定型文: グループの番号を押すと、その中に入る (見出しに階層が出る)' ((Test-Title $labels '定型文 > 社外') -and $items.Count -eq 10 -and $items[2] -ceq '締め' -and $items[3] -ceq '├ 挨拶' -and $items[0] -ceq '') ("labels=[$labels] items=" + (Format-Items $items))
                         Check '定型文: グループに入っても、入力はしない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Send-Key 0x34 1   # 4: グループ「挨拶」
                         $labels = Get-PopupLabels
@@ -2903,6 +2917,8 @@ try {
                         Stop-Copipe $copipe
                         $pinItems = @(11..2 | ForEach-Object { '"数字キー検証 {0:D2}"' -f $_ }) -join ','
                         [System.IO.File]::WriteAllText($historyPath, '{"Items":[' + $pinItems + '],"Pinned":[]}', (New-Object System.Text.UTF8Encoding $false))
+                        # クリップボードに前の検証で入力した定型文が残っていると、小窓を出したときに履歴へ拾われるので空にする
+                        Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
                         $copipe = Start-Copipe
                         $app = $copipe.Process
                         $popup = $copipe.Popup
@@ -2916,14 +2932,14 @@ try {
                         if ($menu) { [void](Invoke-MenuItem $menu 'ピン止め') }
                         [void](Wait-Pumping { (Get-PopupItems $popup)[0] -ceq '📌 数字キー検証 09' } 2000)
                         $items = Get-PopupItems $popup
-                        Check 'ピン止め: ピン止めした項目が一番上に 📌 付きで移る (空いた番号は空きの枠)' ($items.Count -eq 11 -and $items[10] -ceq '（空き）' -and $items[0] -ceq '📌 数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items[2] -ceq '数字キー検証 10' -and $items[3] -ceq '数字キー検証 08') ("items=" + (Format-Items $items))
+                        Check 'ピン止め: ピン止めした項目が一番上に 📌 付きで移る (空いた番号は空きの枠)' ($items.Count -eq 11 -and $items[10] -ceq '' -and $items[0] -ceq '📌 数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items[2] -ceq '数字キー検証 10' -and $items[3] -ceq '数字キー検証 08') ("items=" + (Format-Items $items))
                         # 元のアプリへ戻すのは、メニューが閉じてから少し後になる
                         $fgMs = Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 1000
                         Check 'ピン止め: メニューで選んだ後も、元のアプリが前面のまま' ($fgMs -ge 0)
                         Check 'ピン止め: 小窓は出たまま' ($W::IsWindowVisible($popup))
                         Send-Key 0x31 1   # 1
                         $pinNumMs = Wait-Pumping { $box.Text -ceq '前:数字キー検証 11' } 3000
-                        Check 'ピン止め: ピン止めは番号なし。数字キー 1 は普通の履歴の 1 件目を入力する' ($pinNumMs -ge 0) ("text=[" + $box.Text + "]")
+                        Check 'ピン止め: ピン止めは数字なし (a〜z)。数字キー 1 は普通の履歴の 1 件目を入力する' ($pinNumMs -ge 0) ("text=[" + $box.Text + "]")
                         $pt = Get-ItemCenter $popup 0
                         [void]$W::SetCursorPos($pt.X, $pt.Y)
                         $W::DoubleClick()
@@ -3195,6 +3211,8 @@ try {
             # 残っていれば正常終了を依頼する (強制終了はトレイにアイコンの抜け殻を残すため最後の手段)
             & $stopScript -ExePath $exe
             [void]$W::SetCursorPos($savedCursor.X, $savedCursor.Y)
+            # 最小化したウインドウを元に戻す
+            $shell.UndoMinimizeALL()
             # 利用者の設定と履歴を元に戻す
             if ($settingsBackup) {
                 Copy-Item -LiteralPath $settingsBackup -Destination $settingsPath -Force

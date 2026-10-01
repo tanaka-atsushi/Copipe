@@ -35,6 +35,12 @@ namespace Copipe.UI
             return index == Count - 1 ? "0" : (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        /// <summary>ピン止めの index 番目 (0 始まり) に付ける文字 (a〜z)。27 件目以降と範囲外は null。</summary>
+        public static string PinLabel(int index)
+        {
+            return (index < 0 || index >= 26) ? null : ((char)('a' + index)).ToString();
+        }
+
         /// <summary>数字キーが指す一覧の位置 (0 始まり)。数字キーでなければ -1。修飾キーのビットは無視する。</summary>
         public static int IndexFromKey(Keys keys)
         {

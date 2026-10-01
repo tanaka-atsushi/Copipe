@@ -77,8 +77,8 @@ namespace Copipe.UI
                 Controls.Add(_textBox);
                 y += Scaled(116);
 
-                AddLabel(Lang.T("ファイル・フォルダー (省略可。指定すると、選んだとき本文の代わりにこれを開きます)",
-                                "File or folder (optional; opened instead of typing the text)"), y);
+                AddLabel(Lang.T("ファイル・フォルダー・URI (省略可。指定すると、選んだとき本文の代わりにこれを開きます)",
+                                "File, folder or URI (optional; opened instead of typing the text)"), y);
                 y += Scaled(22);
                 _pathBox = new TextBox();
                 _pathBox.Name = "pathBox";

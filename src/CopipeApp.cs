@@ -125,6 +125,7 @@ namespace Copipe
             _inserter = new TextInserter(_popup.Handle);
             _popupKeys = new PopupKeys();
             _popupKeys.NumberPressed += OnNumberKeyPressed;
+            _popupKeys.LetterPressed += OnLetterKeyPressed;
             _popupKeys.ModePressed += OnModeKeyPressed;
             _popupKeys.EscapePressed += OnEscapePressed;
             _popupKeys.ArrowPressed += OnArrowPressed;
@@ -374,6 +375,16 @@ namespace Copipe
             }
             // 履歴モードでは、ピン止めの行は番号なし。数字は普通の履歴の何件目か
             ActivateRow(_mode == PopupMode.History ? index + _popup.PinnedCount : index);
+        }
+
+        /// <summary>a〜z でピン止めの項目を選んだとき (履歴モードだけ)。クリックと同じ扱い。</summary>
+        private void OnLetterKeyPressed(int index)
+        {
+            if (RowMenu.IsOpen || _popup.IsDragging || _mode != PopupMode.History || index >= _popup.PinnedCount)
+            {
+                return;
+            }
+            ActivateRow(index);
         }
 
         /// <summary>
@@ -637,17 +648,22 @@ namespace Copipe
             {
                 // ダブルタップで出したままの小窓では、履歴モードでも Esc で閉じられるよう受け取る
                 _popupKeys.SetEscapeEnabled(_trigger == PopupTrigger.DoubleTap);
+                _popupKeys.SetLettersEnabled(true);
                 // 履歴もドラッグで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中)
                 _popup.AllowDrag = true;
-                _popup.AllowExternalDrop = false;
+                // 他のアプリから落としたファイル・フォルダー・文字列は、すぐにピン止めする
+                _popup.AllowExternalDrop = true;
+                _popup.ExternalDropAnywhere = true;
                 _popup.SetHeader(HistoryTitle, modeKeyName + ": " + PhraseTitle);
                 ShowHistory();
                 return;
             }
 
             _popupKeys.SetEscapeEnabled(true);
+            _popupKeys.SetLettersEnabled(false);
             _popup.AllowDrag = true;
             _popup.AllowExternalDrop = true;
+            _popup.ExternalDropAnywhere = false;
             // 見出しは今いる階層 (例: 定型文 > 社外 > 挨拶)。階層名はドラッグした項目を落とす先にもなる
             List<string> path = new List<string>();
             path.Add(PhraseTitle);
@@ -669,8 +685,7 @@ namespace Copipe
                     PopupRow row = new PopupRow(node.IsGroup ? PopupRowKind.Group : PopupRowKind.Item, node.Label);
                     if (!node.IsGroup && node.Path.Length > 0)
                     {
-                        // ponytail: 表示のたびに存在確認。つながらないネットワーク先だと遅れる。遅ければ登録時に種類を保存する
-                        row.Mark = Directory.Exists(node.Path) ? PopupRow.FolderMark : PopupRow.FileMark;
+                        row.Mark = PopupRow.MarkForPath(node.Path);
                     }
                     rows.Add(row);
                 }
@@ -1001,7 +1016,10 @@ namespace Copipe
                 return;
             }
             bool pinned = index < _popup.PinnedCount;
-            int chosen = ShowRowMenu(screen, new[] { pinned ? Lang.T("ピン止めを外す", "Unpin") : Lang.T("ピン止め", "Pin") });
+            string label = pinned ? Lang.T("ピン止めを外す", "Unpin")
+                : _history.IsPinnedFull ? Lang.T("ピン止めは 26 件までです", "Up to 26 pins")
+                : Lang.T("ピン止め", "Pin");
+            int chosen = ShowRowMenu(screen, new[] { label });
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
@@ -1133,10 +1151,28 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 他のアプリから空きの枠 (index) に落とされたファイル・フォルダー (path) か文字列 (text) を登録するダイアログを出す。
+        /// 他のアプリから落とされたファイル・フォルダー (path) か文字列 (text) を受け取る。
+        /// 履歴モードではピン止めの先頭に入れ、定型文モードでは空きの枠 (index) に登録するダイアログを出す。
         /// </summary>
         private void OnExternalDropped(int index, string path, string text)
         {
+            if (_mode == PopupMode.History)
+            {
+                // ponytail: ピン止めが満杯なら何も起きない。知らせが要るならトレイの通知などで出す
+                // ファイル・フォルダーは名前だけを一覧に出す (ドライブ C:\ など名前が無ければパスのまま)
+                string label = path == null ? null : Path.GetFileName(path.TrimEnd('\\'));
+                // URI の文字列は、文字として入力するのではなく開く項目にする
+                if (path == null && PopupRow.IsUri(text.Trim()))
+                {
+                    path = text.Trim();
+                }
+                if (!_dialogOpen && _history.PinText(path != null ? ClipboardHistory.LaunchEntry(path, label) : text))
+                {
+                    SaveHistory();
+                    ShowHistory();
+                }
+                return;
+            }
             PhraseNode group = CurrentPhraseGroup;
             if (_dialogOpen || _mode != PopupMode.Phrases || index < 0 || index >= group.Slots.Length ||
                 group.Slots[index] != null)
