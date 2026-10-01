@@ -9,6 +9,7 @@
 ## ビルドと動作確認
 
 - `build.ps1` でビルドに成功したら、毎回 `Start-Process bin\Copipe.exe` で起動して、すぐ試せるようにする (build.ps1 は動いている Copipe を終了させる)。
+- 機能を足したり動作を変えたりしたら、同じ作業の中で `tools\verify.ps1` の E2E (と必要なら単体の検証) もそれに合わせて更新する。実行するかどうかは下のとおりユーザーに確認する。
 - `tools\verify.ps1` を実行する前に、必ずユーザーに確認する。E2E はマウス・キーボードを数分間使うので、同じ PC で仕事をしていると邪魔になる。何を実行してどれくらいかかるかを伝え、軽い選択肢として `-SkipE2E` (マウス・キーボードを使わない) も挙げる。スクリーンショットや UI 自動操作のスクリプトも同じ。
 - `tools\verify.ps1` の出力を `Select-Object -First N` など、途中で止まるパイプにつながない。子プロセスが殺されて finally が動かず、ユーザーの settings.ini / history.json がテストの値のまま残り、クリップボードにもテストの文字列が残る。出力は最後まで読む (`Select-String ... | Select-Object -Last N` など) か、ファイルにリダイレクトする。
   - 実行が中断されたとき (ツール呼び出しを拒否されたときも同じ) は `tools\Restore-CopipeData.ps1` を実行して元に戻し、ユーザーに伝える。verify.ps1 は %TEMP%\CopipeVerify-*\restore-pending.txt を書いておき、次の開始時にもこのスクリプトを呼ぶ。もう一度実行する前にクリップボードを空にしてから Copipe を起動し直す。

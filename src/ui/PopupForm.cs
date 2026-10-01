@@ -182,7 +182,8 @@ namespace Copipe.UI
 
         private void OnExternalDragOver(object sender, DragEventArgs e)
         {
-            bool ok = AllowExternalDrop && (DroppedPath(e.Data) != null || DroppedText(e.Data) != null) &&
+            // 小窓から外へ持ち出している項目は、小窓に戻しても受け取らない
+            bool ok = !_draggingOut && AllowExternalDrop && (DroppedPath(e.Data) != null || DroppedText(e.Data) != null) &&
                       EmptyRowAtScreen(e.X, e.Y) >= 0;
             e.Effect = ok ? DragDropEffects.Copy : DragDropEffects.None;
         }
@@ -231,6 +232,15 @@ namespace Copipe.UI
 
         /// <summary>行のドラッグを始めたとき。引数は行の位置。</summary>
         public event Action<int> RowDragStarted;
+
+        /// <summary>
+        /// ドラッグしている行を小窓の外へ出したとき、他のアプリに渡すデータ (受け取る側が作る)。
+        /// null を返すと外へは出さず、小窓の中のドラッグを続ける。
+        /// </summary>
+        public Func<IDataObject> OutsideDragData { get; set; }
+
+        // 小窓から他のアプリへドラッグしている間 (DoDragDrop の中) は true
+        private bool _draggingOut;
 
         /// <summary>
         /// ドラッグしたまま、グループの行の中央か見出しの階層名で止めたとき。
@@ -639,6 +649,10 @@ namespace Copipe.UI
 
         private void OnDragMoved(Point screen)
         {
+            if (!Bounds.Contains(screen) && TryDragOut())
+            {
+                return;
+            }
             DropTarget hover = HitTest(screen);
             DropTarget drop = CanDrop(hover) ? hover : DropTarget.Nowhere;
 
@@ -660,6 +674,33 @@ namespace Copipe.UI
             }
             // 落とせない先では「禁止」の形にする
             Cursor.Current = (hover.Kind != DropKind.None && drop.Kind == DropKind.None) ? Cursors.No : Cursors.Default;
+        }
+
+        /// <summary>
+        /// 小窓の外に出たら、小窓の中のドラッグを終えて、他のアプリへのドラッグ (OLE) に引き継ぐ。
+        /// 渡すデータが無ければ (グループなど) 何もせず false。
+        /// </summary>
+        private bool TryDragOut()
+        {
+            Func<IDataObject> source = OutsideDragData;
+            IDataObject data = source == null ? null : source();
+            if (data == null)
+            {
+                return false;
+            }
+            // 左ボタンは押したままなので、DoDragDrop がそのままドラッグを続ける
+            _list.CancelDrag();
+            EndDrag(DropTarget.Nowhere);
+            _draggingOut = true;
+            try
+            {
+                _list.DoDragDrop(data, DragDropEffects.Copy);
+            }
+            finally
+            {
+                _draggingOut = false;
+            }
+            return true;
         }
 
         private void OnDragDropped(Point screen)

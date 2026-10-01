@@ -1702,7 +1702,8 @@ try {
         $helper = $null
         try {
             $K = [System.Windows.Forms.Keys]
-            $mainHotkey = Find-UsableHotkey @([Copipe.Services.Settings]::DefaultHotkey, $K::F2, $K::F13, $K::F9, $K::Pause)
+            # 既定の F1 は他のアプリ (ヘルプなど) が使っていることが多いので、検証は Pause で行う
+            $mainHotkey = Find-UsableHotkey @($K::Pause)
             Check '(準備) 登録できて擬似入力も届くホットキーが見つかる' ($null -ne $mainHotkey)
             if ($null -eq $mainHotkey) { return }
             if ($runHistory) {   # ---- ここから履歴の E2E (起動・表示位置・二重起動・設定したホットキー) ----
@@ -1721,8 +1722,9 @@ try {
                 $Process.Kill()
                 return $null
             }
-            if ($mainHotkey -ne [Copipe.Services.Settings]::DefaultHotkey) {
-                Info "初回起動の検証は省略 (既定のホットキー $([Copipe.UI.HotkeyText]::Display([Copipe.Services.Settings]::DefaultHotkey)) が使えないため)"
+            # 初回起動は既定のホットキーを登録する (キーは押さない)。他のアプリが登録していたら省略する
+            if (-not $W::CanRegisterHotkey($owner, [uint32]0, [uint32]([int][Copipe.Services.Settings]::DefaultHotkey -band 0xFFFF))) {
+                Info "初回起動の検証は省略 (既定のホットキー $([Copipe.UI.HotkeyText]::Display([Copipe.Services.Settings]::DefaultHotkey)) を他のアプリが登録しているため)"
             } else {
                 [System.IO.File]::Delete($settingsPath)
                 $firstRun = Start-Process -FilePath $exe -PassThru
@@ -1868,9 +1870,9 @@ try {
             if ($app.HasExited) { Check '終了: 終了コードは 0' ($app.ExitCode -eq 0) "exit=$($app.ExitCode)" }
 
             # ---- 設定ファイルで指定した別のホットキーで動くか ----
-            # 既定 (F1) と違うキーを選ぶ。他のアプリが使っているキーや、擬似入力が横取りされるキーは避ける
+            # 既定 (F1) とも、ここまで使った Pause とも違うキーを選ぶ。他のアプリが使っているキーや、擬似入力が横取りされるキーは避ける
             # (ホットキーは修飾キーを付けられないので、単独のキーから選ぶ)
-            $chosen = Find-UsableHotkey @(@($K::F13, $K::F14, $K::F9, $K::Pause) | Where-Object { $_ -ne [Copipe.Services.Settings]::DefaultHotkey })
+            $chosen = Find-UsableHotkey @(@($K::F13, $K::F14, $K::F9) | Where-Object { $_ -ne [Copipe.Services.Settings]::DefaultHotkey -and $_ -ne $mainHotkey })
             Check '(準備) 変更先に使える空きホットキーが見つかる' ($null -ne $chosen)
             if ($null -eq $chosen) { return }
             Use-Hotkey $chosen
@@ -2303,6 +2305,49 @@ try {
                                 $W::LeftUp()
                                 [void](Wait-Pumping { $false } 300)
                             }
+                        }
+                        # 他のアプリ役のドロップ先。落とされたものを $script:dropped に「TEXT:…」か「FILE:…」で残す。
+                        # 入力先の下に置く (小窓は入力先の右に出るので重ならない)
+                        $dropTarget = New-Object System.Windows.Forms.Form
+                        $dropTarget.Text = 'Copipe 検証のドロップ先'
+                        $dropTarget.StartPosition = 'Manual'
+                        $dropTarget.TopMost = $true
+                        $dropTarget.ShowInTaskbar = $false
+                        $dropTarget.Bounds = Rect ($primary.Left + 80) ($primary.Top + 360) 480 160
+                        $dropTarget.AllowDrop = $true
+                        $onDropOver = { $_.Effect = $_.AllowedEffect -band [System.Windows.Forms.DragDropEffects]::Copy }
+                        $dropTarget.add_DragEnter($onDropOver)
+                        $dropTarget.add_DragOver($onDropOver)
+                        $dropTarget.add_DragDrop({
+                            # 別のプロセスから落とされたデータは、PowerShell からは COM オブジェクトに見えて
+                            # GetData を呼べない (実測)。DataObject で包んでから読む
+                            $data = New-Object System.Windows.Forms.DataObject -ArgumentList (, $_.Data)
+                            $files = $data.GetData([System.Windows.Forms.DataFormats]::FileDrop)
+                            $script:droppedEffects = $_.AllowedEffect
+                            # ANSI のテキスト (CF_TEXT) も入っているか (変換で作られたものは数えない)
+                            $script:droppedAnsi = $data.GetDataPresent([System.Windows.Forms.DataFormats]::Text, $false)
+                            $script:dropped = if ($files) { 'FILE:' + ($files -join '|') } else { 'TEXT:' + $data.GetData([System.Windows.Forms.DataFormats]::UnicodeText) }
+                        })
+                        # ドロップ先を出す。出すと前面になるので、入力先をクリックして前面に戻す (小窓を出す前に呼ぶ)
+                        function Show-DropTarget {
+                            $dropTarget.Show()
+                            [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                            $W::LeftClick()
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        }
+                        # 一覧の Index 行目を、小窓の外のドロップ先までドラッグして落とす。落とされたもの (無ければ $null) を返す
+                        function Invoke-DragOut([int]$Index) {
+                            $script:dropped = $null
+                            $script:droppedEffects = $null
+                            $script:droppedAnsi = $null
+                            $to = Pt ($dropTarget.Left + 240) ($dropTarget.Top + 80)
+                            Invoke-Drag (Get-RowPoint $Index) $to -NoRelease
+                            $W::MoveMouse($to.X, $to.Y + 1)
+                            [void](Wait-Pumping { $false } 200)
+                            $script:dropUnder = ($W::RootWindowAt($to.X, $to.Y) -eq $dropTarget.Handle)
+                            $W::LeftUp()
+                            [void](Wait-Pumping { $null -ne $script:dropped } 1500)
+                            return $script:dropped
                         }
                         if ($runPhrases) {   # ---- ここから定型文の E2E ----
                         # ---- モードキー (Tab) で、履歴と定型文を切り替える ----
@@ -2836,6 +2881,38 @@ try {
                         Close-Popup
                         Check 'ドラッグ: 並べ替えた後も、数字キーでグループに入って入力できる' ($afterDragMs -ge 0) ("text=[" + $box.Text + "]" + " labels=[$afterDragLabels] 前面=" + $W::GetClass($afterDragFg) + " [" + $W::GetText($afterDragFg) + "]" + " 入力先=" + ($afterDragFg -eq $target.Handle))
 
+                        # ---- 定型文: 小窓の外 (他のアプリ) へドラッグ＆ドロップする ----
+                        # 一番上: [文字, ファイル, グループ]
+                        $dragOutFile = Join-Path $tempDir 'dragout.txt'
+                        [System.IO.File]::WriteAllText($dragOutFile, 'dragout')
+                        $dragOutJson = '{"Slots":[' +
+                            '{"Kind":"Phrase","Text":"外へ定型文 1行目\r\n2行目"},' +
+                            '{"Kind":"Phrase","Path":' + ($dragOutFile | ConvertTo-Json) + '},' +
+                            '{"Kind":"Group","Name":"外へ箱","Slots":[]}]}'
+                        [System.IO.File]::WriteAllText($phrasesPath, $dragOutJson, (New-Object System.Text.UTF8Encoding $false))
+                        Show-DropTarget
+                        Reset-Target
+                        Open-Phrases
+                        $before = [System.IO.File]::ReadAllText($phrasesPath)
+                        $dropped = Invoke-DragOut 0
+                        Check '外へドラッグ: (準備) ドロップ先が小窓に隠れていない' $script:dropUnder
+                        Check '外へドラッグ: 定型文の文字は、文字としてほかのアプリに落とせる (改行も含めて全文)' ($dropped -ceq "TEXT:外へ定型文 1行目`r`n2行目") "dropped=[$dropped]"
+                        Check '外へドラッグ: コピーとして渡す (移動はさせない)' ($script:droppedEffects -eq [System.Windows.Forms.DragDropEffects]::Copy) "effects=$script:droppedEffects"
+                        Check '外へドラッグ: ANSI のテキストしか読まないアプリ向けに、ANSI のテキストも渡す' ($script:droppedAnsi -eq $true) "ansi=$script:droppedAnsi"
+                        $dropped = Invoke-DragOut 1
+                        Check '外へドラッグ: ファイルのパスの定型文は、ファイルそのものとして落とせる' ($dropped -ceq "FILE:$dragOutFile") "dropped=[$dropped]"
+                        Check '外へドラッグ: ファイルはコピーとして渡す (移動はさせない)' ($script:droppedEffects -eq [System.Windows.Forms.DragDropEffects]::Copy) "effects=$script:droppedEffects"
+                        $dropped = Invoke-DragOut 2
+                        Check '外へドラッグ: グループは外へ出せない (何も落ちない)' ($null -eq $dropped) "dropped=[$dropped]"
+                        Check '外へドラッグ: 外へ落としても、定型文は変わらない' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $before)
+                        Check '外へドラッグ: 外へ落としても、入力先には何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        Check '外へドラッグ: 落とした後も小窓は出たまま' ($W::IsWindowVisible($popup))
+                        Send-Key 0x31 1   # 1: 外へ定型文
+                        $afterOutMs = Wait-Pumping { $box.Text -ceq "前:外へ定型文 1行目`r`n2行目" } 3000
+                        Check '外へドラッグ: 落とした後も、数字キーで入力できる' ($afterOutMs -ge 0) ("text=[" + $box.Text + "]")
+                        Close-Popup
+                        $dropTarget.Hide()
+
 
                         # ---- 定型文: 見出しの階層名 (パンくずリスト) をクリックして移動する ----
                         $crumbJson = '{"Slots":[{"Kind":"Group","Name":"外側","Slots":[{"Kind":"Group","Name":"内側","Slots":[{"Kind":"Phrase","Text":"一番奥"}]}]}]}'
@@ -3056,6 +3133,38 @@ try {
                         Check '並べ替え: ピン止めと普通の履歴の間では移さない (両方向とも)' ($after -ceq $before) "before=$before after=$after"
                         Close-History
 
+                        # ---- 履歴モード: 小窓の外 (他のアプリ) へドラッグ＆ドロップする ----
+                        # 行: 0 文字 (URI)、1 URL を開く項目 (定型文のパスに URL を登録して開いたもの)、2 ファイル (開く項目)
+                        $dragOutFile = Join-Path $tempDir 'dragout-history.txt'
+                        [System.IO.File]::WriteAllText($dragOutFile, 'dragout')
+                        $outHistory = New-Object Copipe.Services.ClipboardHistory 10
+                        [void]$outHistory.Add([Copipe.Services.ClipboardHistory]::LaunchEntry($dragOutFile, ''))
+                        [void]$outHistory.Add([Copipe.Services.ClipboardHistory]::LaunchEntry('https://example.com/開く', 'URLを開く項目'))
+                        [void]$outHistory.Add('https://example.com/外へ?a=1')
+                        $outHistory.Save($historyPath)
+                        # 並べ替えの検証で入力した文字がクリップボードに残っていると、起動し直したときに履歴へ拾われる
+                        Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
+                        Restart-WithHistory ([System.IO.File]::ReadAllBytes($historyPath))
+                        $copipe = $script:dragCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        Show-DropTarget
+                        Reset-Target
+                        Open-History
+                        $before = Format-Items (Get-PopupItems $popup)
+                        $dropped = Invoke-DragOut 0
+                        Check '外へドラッグ: 履歴の URI は、文字としてほかのアプリに落とせる' ($dropped -ceq 'TEXT:https://example.com/外へ?a=1') "dropped=[$dropped] under=$script:dropUnder"
+                        Check '外へドラッグ: 履歴の文字も、ANSI のテキストを一緒に渡す' ($script:droppedAnsi -eq $true) "ansi=$script:droppedAnsi"
+                        $dropped = Invoke-DragOut 1
+                        Check '外へドラッグ: URL を開く項目は、ファイルではなく文字として落とす (ブラウザーがローカルのファイルとして開かない)' ($dropped -ceq 'TEXT:https://example.com/開く') "dropped=[$dropped]"
+                        $dropped = Invoke-DragOut 2
+                        Check '外へドラッグ: 履歴のファイル (開く項目) は、ファイルそのものとして落とせる' ($dropped -ceq "FILE:$dragOutFile") "dropped=[$dropped]"
+                        $after = Format-Items (Get-PopupItems $popup)
+                        Check '外へドラッグ: 履歴の並びは変わらず、ピン止めにもならない' ($after -ceq $before) "before=$before after=$after"
+                        Check '外へドラッグ: 履歴から落としても、入力先には何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        Close-History
+                        $dropTarget.Hide()
+
                         Restart-WithHistory $historyBeforeDrag
                         $copipe = $script:dragCopipe
                         $app = $copipe.Process
@@ -3199,6 +3308,7 @@ try {
                         }
                     }
                 } finally {
+                    if ($dropTarget) { $dropTarget.Close(); $dropTarget.Dispose() }
                     $target.Close()
                     $target.Dispose()
                 }

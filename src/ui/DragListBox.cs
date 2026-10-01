@@ -8,7 +8,8 @@ namespace Copipe.UI
     /// 行をドラッグできる ListBox。左ボタンを押したまま少し動かすとドラッグを始め、
     /// 離すまでの動きを画面座標で知らせる。
     /// ドラッグ中はマウスの動きを ListBox 本来の処理に渡さない (押したまま動かすと選択が動いてしまうため)。
-    /// OLE のドラッグ＆ドロップ (DoDragDrop) は使わず、小窓の中だけで扱う。
+    /// OLE のドラッグ＆ドロップ (DoDragDrop) は使わず、小窓の中だけで扱う
+    /// (小窓の外へ出たときは、PopupForm が DoDragDrop に引き継ぐ)。
     /// </summary>
     internal sealed class DragListBox : ListBox
     {

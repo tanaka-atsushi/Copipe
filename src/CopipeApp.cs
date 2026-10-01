@@ -121,6 +121,7 @@ namespace Copipe
             _popup.RowDragEnded += OnRowDragEnded;
             _popup.ExternalDropped += OnExternalDropped;
             _popup.DropValidator = CanDrop;
+            _popup.OutsideDragData = OutsideDragData;
             _popup.InsertOnSingleClick = (_settings.InsertClick == InsertClick.Single);
             _inserter = new TextInserter(_popup.Handle);
             _popupKeys = new PopupKeys();
@@ -901,6 +902,62 @@ namespace Copipe
             {
                 ShowHistory();
             }
+        }
+
+        // ---- 他のアプリへのドラッグ＆ドロップ ----------------------------------------------
+
+        /// <summary>
+        /// ドラッグしている項目を小窓の外へ出したとき、他のアプリに渡すデータ。
+        /// ファイル・フォルダーはそのもの、それ以外 (URI も) は文字列として渡す。グループは渡さない (null)。
+        /// </summary>
+        private IDataObject OutsideDragData()
+        {
+            string path, label;
+            if (_historyDragText != null)
+            {
+                return ClipboardHistory.TryGetLaunchPath(_historyDragText, out path, out label)
+                    ? DragData(path, null)
+                    : DragData(null, _historyDragText);
+            }
+            if (_dragGroup == null)
+            {
+                return null;
+            }
+            PhraseNode node = _dragGroup.Slots[_dragIndex];
+            if (node == null || node.IsGroup)
+            {
+                return null;
+            }
+            return node.Path.Length > 0 ? DragData(node.Path, null) : DragData(null, node.Text);
+        }
+
+        private static IDataObject DragData(string path, string text)
+        {
+            // 開くパスに URL (https:、mailto: など、ファイルではない URI) を登録した項目は、文字として渡す。
+            // ファイルとして渡すと、ブラウザーはローカルのファイル (file:///https://…) として開こうとする
+            Uri uri;
+            if (!string.IsNullOrEmpty(path) && Uri.TryCreate(path, UriKind.Absolute, out uri) && !uri.IsFile)
+            {
+                text = path;
+                path = null;
+            }
+            DataObject data = new DataObject();
+            if (!string.IsNullOrEmpty(path))
+            {
+                data.SetData(DataFormats.FileDrop, new[] { path });
+            }
+            else if (!string.IsNullOrEmpty(text))
+            {
+                // ANSI のテキストしか読まないアプリにも落とせるよう、両方の形で渡す
+                // (クリップボードと違い、ドラッグ＆ドロップでは Windows が変換してくれない)
+                data.SetData(DataFormats.UnicodeText, text);
+                data.SetData(DataFormats.Text, text);
+            }
+            else
+            {
+                return null;
+            }
+            return data;
         }
 
         /// <summary>見出しの階層名の番号に当たるグループ (0 が一番上)。</summary>
