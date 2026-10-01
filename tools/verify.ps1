@@ -285,6 +285,13 @@ namespace CopipeVerify
             return (GetAsyncKeyState(vk) & 0x8000) != 0;
         }
 
+        /// <summary>そのウインドウのスレッドが、Timeout ミリ秒以内にメッセージを処理するか (WM_NULL を送って確かめる)。</summary>
+        public static bool Responds(IntPtr window, uint timeout)
+        {
+            UIntPtr result;
+            return SendMessageTimeout(window, 0x0000 /* WM_NULL */, IntPtr.Zero, IntPtr.Zero, SMTO_ABORTIFHUNG, timeout, out result) != IntPtr.Zero;
+        }
+
         /// <summary>そのホットキーが空いているか (登録してすぐ解除して確かめる)。</summary>
         public static bool CanRegisterHotkey(IntPtr window, uint modifiers, uint vk)
         {
@@ -2205,8 +2212,9 @@ try {
                         # ホットキーを押したまま Index 番目の行を右クリックし、出たメニューを返す。-Phrases なら定型文モードにしてから
                         function Open-RowMenu([int]$Index, [switch]$Phrases) {
                             [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                            $fgAtPress = $W::GetForegroundWindow()
                             Invoke-HotkeyPress
-                            [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                            $shownMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
                             if ($Phrases) { Send-Key 0x09 1 }
                             $pt = Get-ItemCenter $popup $Index
                             [void]$W::SetCursorPos($pt.X, $pt.Y)
@@ -2222,9 +2230,13 @@ try {
                                     }
                                 }
                                 $fg = $W::GetForegroundWindow()
+                                # 応答・ホットキー押下・登録済み: ホットキーが Copipe に届かなかったのか、Copipe が止まっていたのかの手がかり
                                 Info ("メニューが見つからない。見えているウインドウ: " + ($list -join ' / ') +
                                       " | Copipe 終了=" + $app.HasExited + " 小窓=" + $W::IsWindowVisible($popup) +
-                                      " 前面=" + $W::GetClass($fg) + " [" + $W::GetText($fg) + "]")
+                                      " 前面=" + $W::GetClass($fg) + " [" + $W::GetText($fg) + "]" +
+                                      " 応答=" + $W::Responds($popup, 500) + " ホットキー押下=" + $W::IsKeyDown($script:keyVk) +
+                                      " ホットキー登録済み=" + (-not $W::CanRegisterHotkey($owner, [uint32]0, [uint32]$script:keyVk)) +
+                                      " 押した時の前面=" + $W::GetClass($fgAtPress) + " [" + $W::GetText($fgAtPress) + "] 小窓が出るまで=$shownMs ms")
                             }
                             return $found
                         }
@@ -2392,6 +2404,20 @@ try {
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check 'モード: 定型文モードで離しても、次に開くときはクリップボード履歴' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
+
+                        # 離してすぐ (Copipe が離したことに気づく前に) 押し直しても、開き直す (定型文モードから履歴に戻る)。
+                        # 気づく前の押し直しを無視すると、ダイアログを閉じた直後などに押しても小窓が出なかった
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        Send-Key 0x09 1   # 定型文
+                        $W::KeyUp($script:keyVk)
+                        $W::KeyDown($script:keyVk)
+                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) 'クリップボード履歴' } 1000)
+                        $labels = Get-PopupLabels
+                        $quickVisible = $W::IsWindowVisible($popup)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        Check 'モード: 離してすぐ押し直しても、開き直して履歴から出る' ($quickVisible -and (Test-Title $labels 'クリップボード履歴')) "labels=[$labels] 小窓=$quickVisible"
 
                         # マウスのホイール: 小窓の上で ↓ に回すと定型文モード、↑ に回すと履歴モード (端で止まる。回り込まない)
                         function Send-Wheel([int]$Delta) {

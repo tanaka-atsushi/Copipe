@@ -406,13 +406,7 @@ namespace Copipe
                     return;
                 }
                 _popup.SelectItem(index);
-                string launchPath, launchLabel;
-                if (ClipboardHistory.TryGetLaunchPath(text, out launchPath, out launchLabel))
-                {
-                    LaunchPath(launchPath);
-                    return;
-                }
-                InsertAndMaybeClose(text);
+                UseEntry(text);
                 return;
             }
 
@@ -430,22 +424,31 @@ namespace Copipe
                 return;
             }
             _popup.SelectItem(index);
-            if (node.Path.Length > 0)
-            {
-                // 開いたものは履歴にも入れる (次から履歴モードで開ける)
-                if (_history.Add(ClipboardHistory.LaunchEntry(node.Path, node.Label)))
-                {
-                    SaveHistory();
-                }
-                LaunchPath(node.Path);
-                return;
-            }
-            // 入力した文字も履歴に入れる (パスと同じ)
-            if (_history.Add(node.Text))
+            // 入力した文字・開いたものは履歴にも入れる (次から履歴モードでも使える)
+            string entry = HistoryEntry(node);
+            if (_history.Add(entry))
             {
                 SaveHistory();
             }
-            InsertAndMaybeClose(node.Text);
+            UseEntry(entry);
+        }
+
+        /// <summary>定型文を、履歴に入れるときの形にする (開く項目なら開く印付きのパス、それ以外は本文)。</summary>
+        private static string HistoryEntry(PhraseNode node)
+        {
+            return node.Path.Length > 0 ? ClipboardHistory.LaunchEntry(node.Path, node.Label) : node.Text;
+        }
+
+        /// <summary>履歴の項目を使う。開く項目なら開き、それ以外は入力する。</summary>
+        private void UseEntry(string entry)
+        {
+            string path, label;
+            if (ClipboardHistory.TryGetLaunchPath(entry, out path, out label))
+            {
+                LaunchPath(path);
+                return;
+            }
+            InsertAndMaybeClose(entry);
         }
 
         /// <summary>ファイル・フォルダーを、関連付けられたアプリで開く。ダブルタップで出した小窓は、開いたら閉じる。</summary>
@@ -912,23 +915,21 @@ namespace Copipe
         /// </summary>
         private IDataObject OutsideDragData()
         {
+            string entry = _historyDragText;
+            if (entry == null && _dragGroup != null)
+            {
+                PhraseNode node = _dragGroup.Slots[_dragIndex];
+                if (node != null && !node.IsGroup)
+                {
+                    entry = HistoryEntry(node);
+                }
+            }
+            if (entry == null)
+            {
+                return null;
+            }
             string path, label;
-            if (_historyDragText != null)
-            {
-                return ClipboardHistory.TryGetLaunchPath(_historyDragText, out path, out label)
-                    ? PathData(path)
-                    : TextData(_historyDragText);
-            }
-            if (_dragGroup == null)
-            {
-                return null;
-            }
-            PhraseNode node = _dragGroup.Slots[_dragIndex];
-            if (node == null || node.IsGroup)
-            {
-                return null;
-            }
-            return node.Path.Length > 0 ? PathData(node.Path) : TextData(node.Text);
+            return ClipboardHistory.TryGetLaunchPath(entry, out path, out label) ? PathData(path) : TextData(entry);
         }
 
         private static IDataObject PathData(string path)
@@ -1196,8 +1197,7 @@ namespace Copipe
         private void PinPhrase(PhraseNode node)
         {
             // 開く項目は、履歴に入れるときと同じ形 (開く印付き) でピン止めする
-            string entry = node.Path.Length > 0 ? ClipboardHistory.LaunchEntry(node.Path, node.Label) : node.Text;
-            if (_history.PinText(entry))
+            if (_history.PinText(HistoryEntry(node)))
             {
                 SaveHistory();
             }
