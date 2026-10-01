@@ -1536,7 +1536,15 @@ try {
             return $null
         }
 
+        # 離してから 100 ms は押し直さない。Copipe は離したことを短い間隔で調べて気づくので、
+        # 気づく前に押し直すと (人の手では起きない速さ)、押し続けている (キーリピート) とみなされて小窓が出ない。
+        # ダイアログを閉じた直後は気づくのが遅れ、数 ms 差で押し直して失敗していた (実測)
+        $script:hotkeyReleasedAt = [Diagnostics.Stopwatch]::StartNew()
         function Invoke-HotkeyPress {
+            while ($script:hotkeyReleasedAt.ElapsedMilliseconds -lt 100) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 5
+            }
             foreach ($m in $script:modifierVks) { $W::KeyDown($m) }
             $W::KeyDown($script:keyVk)
             $script:hotkeyDown = $true
@@ -1545,6 +1553,7 @@ try {
             $W::KeyUp($script:keyVk)
             for ($i = $script:modifierVks.Count - 1; $i -ge 0; $i--) { $W::KeyUp($script:modifierVks[$i]) }
             $script:hotkeyDown = $false
+            $script:hotkeyReleasedAt.Restart()
         }
 
         function Find-Popup([int]$ProcessId) {
@@ -2405,19 +2414,20 @@ try {
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check 'モード: 定型文モードで離しても、次に開くときはクリップボード履歴' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
 
-                        # 離してすぐ (Copipe が離したことに気づく前に) 押し直しても、開き直す (定型文モードから履歴に戻る)。
-                        # 気づく前の押し直しを無視すると、ダイアログを閉じた直後などに押しても小窓が出なかった
+                        # 押し続けたとき (キーリピートで KeyDown が続けて届く) も、閉じたり開き直したりしない (定型文モードのまま)
                         Invoke-HotkeyPress
                         [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
                         Send-Key 0x09 1   # 定型文
-                        $W::KeyUp($script:keyVk)
-                        $W::KeyDown($script:keyVk)
-                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) 'クリップボード履歴' } 1000)
+                        $repeatHidden = $false
+                        for ($i = 0; $i -lt 10; $i++) {
+                            $W::KeyDown($script:keyVk)
+                            [void](Wait-Pumping { $false } 40)
+                            if (-not $W::IsWindowVisible($popup)) { $repeatHidden = $true }
+                        }
                         $labels = Get-PopupLabels
-                        $quickVisible = $W::IsWindowVisible($popup)
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
-                        Check 'モード: 離してすぐ押し直しても、開き直して履歴から出る' ($quickVisible -and (Test-Title $labels 'クリップボード履歴')) "labels=[$labels] 小窓=$quickVisible"
+                        Check 'モード: 押し続けて (キーリピート) も、小窓は閉じず定型文モードのまま' (-not $repeatHidden -and (Test-Title $labels '定型文') -and -not (Test-Title $labels 'クリップボード履歴')) "labels=[$labels] 閉じた=$repeatHidden"
 
                         # マウスのホイール: 小窓の上で ↓ に回すと定型文モード、↑ に回すと履歴モード (端で止まる。回り込まない)
                         function Send-Wheel([int]$Delta) {

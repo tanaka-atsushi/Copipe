@@ -109,12 +109,11 @@ namespace Copipe.Services
 
         private void OnHotkey()
         {
-            // MOD_NOREPEAT なので押しっぱなしで重ねて届くことは無い。押している間に届いたら、
-            // 離したことに気づく前 (調べる間隔の間や、ダイアログを閉じている最中) に押し直されている。
-            // 離した扱いにしてから押した扱いにする (無視すると、押し直しても小窓が出ないことがある。E2E で実測)
+            // MOD_NOREPEAT なので押しっぱなしで重ねて届くことは無いが、
+            // 離したことに気づく前に押し直された場合に Pressed を二重に出さない
             if (_held)
             {
-                RaiseReleased();
+                return;
             }
 
             _held = true;
