@@ -1999,6 +1999,28 @@ try {
                     $items = Read-History $copipe
                     Check '履歴: 終了して起動し直しても残っている' ($items.Count -eq 10 -and $items[0] -ceq 'あ 1件目' -and $items[3] -ceq '') "got=[$($items -join '] [')]"
 
+                    # エクスプローラーでのコピーと同じ形 (CF_HDROP) で、ファイルとフォルダーをまとめてコピーする
+                    $copyFile = Join-Path $tempDir 'コピー履歴.txt'
+                    $copyDir = Join-Path $tempDir 'コピー履歴フォルダー'
+                    Set-Content -LiteralPath $copyFile -Value 'x'
+                    New-Item -ItemType Directory -Path $copyDir -Force | Out-Null
+                    $drop = New-Object System.Collections.Specialized.StringCollection
+                    [void]$drop.Add($copyFile)
+                    [void]$drop.Add($copyDir)
+                    Invoke-ClipboardWrite { [System.Windows.Forms.Clipboard]::SetFileDropList($drop) }
+                    Start-Sleep -Milliseconds 400
+                    $items = Read-History $copipe
+                    Check '履歴: ファイル・フォルダーのコピーは、1 つずつ名前と印付きで入る (コピーした並びのまま)' ($items[0] -ceq '📄 コピー履歴.txt' -and $items[1] -ceq '📁 コピー履歴フォルダー' -and $items[2] -ceq 'あ 1件目') "got=[$($items -join '] [')]"
+                    $saved = [Copipe.Services.ClipboardHistory]::Load($historyPath, 10)
+                    $path = $null; $label = $null
+                    Check '履歴: ファイルは開く項目 (パス付き) として保存される' ([Copipe.Services.ClipboardHistory]::TryGetLaunchPath($saved.Items[0], [ref]$path, [ref]$label) -and $path -ceq $copyFile) "path=$path"
+
+                    $bmp = New-Object System.Drawing.Bitmap 4, 4
+                    Invoke-ClipboardWrite { [System.Windows.Forms.Clipboard]::SetImage($bmp) }
+                    $bmp.Dispose()
+                    Start-Sleep -Milliseconds 400
+                    $items = Read-History $copipe
+                    Check '履歴: 画像のコピーは履歴に入れない' ($items[0] -ceq '📄 コピー履歴.txt' -and $items[3] -ceq 'う 3件目' -and $items[5] -ceq '') "got=[$($items -join '] [')]"
                 }
             }
             }

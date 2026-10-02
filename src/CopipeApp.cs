@@ -257,7 +257,10 @@ namespace Copipe
             CaptureClipboard(true);
         }
 
-        /// <summary>今のクリップボードを読み、テキストなら履歴に加える。読めた種類を返す。</summary>
+        /// <summary>
+        /// 今のクリップボードを読み、テキストなら履歴に加える。ファイル・フォルダーなら 1 つずつ開く項目として加える
+        /// (コピーした並びの先頭が履歴の先頭に来る)。画像などは加えない。読めた種類を返す。
+        /// </summary>
         /// <param name="promoteExisting">
         /// すでに履歴にある内容を先頭へ移動するか。変化の通知 (本当のコピー) のときだけ true にする。
         /// 起動時やホットキーを押した時の拾い直しは取りこぼしの保険なので、並びは変えない。
@@ -274,17 +277,30 @@ namespace Copipe
             }
 
             ClipboardSnapshot snapshot = ClipboardReader.Read(_popup.Handle);
-            if (snapshot.Kind != ClipboardKind.Text)
+            List<string> entries = new List<string>();
+            if (snapshot.Kind == ClipboardKind.Text)
             {
-                // 履歴に残すのはテキストだけ (画像やファイルは残さない)
-                return snapshot.Kind;
+                entries.Add(snapshot.Text);
             }
-            if (!promoteExisting && _history.Contains(snapshot.Text))
+            else if (snapshot.Kind == ClipboardKind.Files)
             {
-                return snapshot.Kind;
+                foreach (string file in snapshot.Files)
+                {
+                    entries.Add(FileEntry(file));
+                }
+                // 1 件ずつ先頭に入れるので、逆から入れてコピーした並びのままにする
+                entries.Reverse();
             }
 
-            if (_history.Add(snapshot.Text))
+            bool added = false;
+            foreach (string entry in entries)
+            {
+                if (promoteExisting || !_history.Contains(entry))
+                {
+                    added |= _history.Add(entry);
+                }
+            }
+            if (added)
             {
                 SaveHistory();
                 if (_popup.Visible && _mode == PopupMode.History)
@@ -431,6 +447,15 @@ namespace Copipe
                 SaveHistory();
             }
             UseEntry(entry);
+        }
+
+        /// <summary>
+        /// コピー・ドロップされたファイル・フォルダーを、履歴の開く項目にする。
+        /// 名前だけを一覧に出す (ドライブ C:\ など名前が無ければパスのまま)。
+        /// </summary>
+        private static string FileEntry(string path)
+        {
+            return ClipboardHistory.LaunchEntry(path, Path.GetFileName(path.TrimEnd('\\')));
         }
 
         /// <summary>定型文を、履歴に入れるときの形にする (開く項目なら開く印付きのパス、それ以外は本文)。</summary>
@@ -1214,14 +1239,13 @@ namespace Copipe
             if (_mode == PopupMode.History)
             {
                 // ponytail: ピン止めが満杯なら何も起きない。知らせが要るならトレイの通知などで出す
-                // ファイル・フォルダーは名前だけを一覧に出す (ドライブ C:\ など名前が無ければパスのまま)
-                string label = path == null ? null : Path.GetFileName(path.TrimEnd('\\'));
+                string entry = path != null ? FileEntry(path) : text;
                 // URI の文字列は、文字として入力するのではなく開く項目にする
                 if (path == null && PopupRow.IsUri(text.Trim()))
                 {
-                    path = text.Trim();
+                    entry = ClipboardHistory.LaunchEntry(text.Trim(), null);
                 }
-                if (!_dialogOpen && _history.PinText(path != null ? ClipboardHistory.LaunchEntry(path, label) : text))
+                if (!_dialogOpen && _history.PinText(entry))
                 {
                     SaveHistory();
                     ShowHistory();
