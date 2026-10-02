@@ -613,10 +613,13 @@ namespace Copipe
             }
         }
 
-        /// <summary>モードキーで、クリップボード履歴と定型文を切り替える。小窓は出したままにする。</summary>
+        /// <summary>
+        /// モードキーで、クリップボード履歴と定型文を切り替える。小窓は出したままにする。
+        /// 履歴の項目をドラッグしている間も切り替え、定型文の空きの枠に落とせるようにする。
+        /// </summary>
         private void OnModeKeyPressed()
         {
-            if (_popup.IsDragging)
+            if (_popup.IsDragging && _historyDragText == null)
             {
                 return;
             }
@@ -725,6 +728,11 @@ namespace Copipe
                 // ドラッグ中に別の階層を開いたときは、元の行はこの一覧に無い
                 _popup.SetDragSource(CurrentPhraseGroup == _dragGroup ? _dragIndex : -1);
             }
+            else if (_historyDragText != null)
+            {
+                // 履歴からドラッグしてきた項目の行は、定型文の一覧には無い
+                _popup.SetDragSource(-1);
+            }
         }
 
         // ---- 定型文のドラッグ＆ドロップ ---------------------------------------------------
@@ -780,16 +788,17 @@ namespace Copipe
         /// </summary>
         private void OnDragOpenRequested(DropTarget target)
         {
-            if (_dragGroup == null || _mode != PopupMode.Phrases)
+            if ((_dragGroup == null && _historyDragText == null) || _mode != PopupMode.Phrases)
             {
                 return;
             }
-            PhraseNode dragged = _dragGroup.Slots[_dragIndex];
+            // 履歴からドラッグしてきた項目 (dragged は null) は、どのグループでも開く
+            PhraseNode dragged = _dragGroup != null ? _dragGroup.Slots[_dragIndex] : null;
             if (target.Kind == DropKind.Into)
             {
                 PhraseNode[] slots = CurrentPhraseGroup.Slots;
                 if (target.Index < 0 || target.Index >= slots.Length || slots[target.Index] == null ||
-                    !slots[target.Index].IsGroup || PhraseMoves.Contains(dragged, slots[target.Index]))
+                    !slots[target.Index].IsGroup || (dragged != null && PhraseMoves.Contains(dragged, slots[target.Index])))
                 {
                     return;
                 }
@@ -888,7 +897,12 @@ namespace Copipe
         /// </summary>
         private bool CanDropHistory(DropTarget target)
         {
-            if (_mode != PopupMode.History || target.Kind != DropKind.Swap)
+            if (_mode == PopupMode.Phrases)
+            {
+                PhraseNode group;
+                return PhraseDropSlot(target, out group) >= 0;
+            }
+            if (target.Kind != DropKind.Swap)
             {
                 return false;
             }
@@ -917,7 +931,22 @@ namespace Copipe
         {
             string text = _historyDragText;
             _historyDragText = null;
-            if (_mode != PopupMode.History || target.Kind != DropKind.Swap)
+            if (_mode == PopupMode.Phrases)
+            {
+                PhraseNode group;
+                int slot = PhraseDropSlot(target, out group);
+                if (slot >= 0)
+                {
+                    group.Slots[slot] = PhraseFromHistory(text);
+                    SavePhrases();
+                }
+                if (_popup.Visible)
+                {
+                    ShowMode();
+                }
+                return;
+            }
+            if (target.Kind != DropKind.Swap)
             {
                 return;
             }
@@ -930,6 +959,42 @@ namespace Copipe
             {
                 ShowHistory();
             }
+        }
+
+        /// <summary>
+        /// 履歴の項目を定型文として落とす枠。今の階層の空きの枠ならそこ、グループの行の中央か見出しの階層名なら
+        /// そのグループの最初の空き (定型文のドラッグと同じ)。落とせなければ -1。
+        /// </summary>
+        private int PhraseDropSlot(DropTarget target, out PhraseNode group)
+        {
+            PhraseNode[] slots = CurrentPhraseGroup.Slots;
+            group = null;
+            switch (target.Kind)
+            {
+                case DropKind.Swap:
+                    group = CurrentPhraseGroup;
+                    return target.Index >= 0 && target.Index < slots.Length && slots[target.Index] == null ? target.Index : -1;
+                case DropKind.Into:
+                    group = target.Index >= 0 && target.Index < slots.Length ? slots[target.Index] : null;
+                    break;
+                case DropKind.Level:
+                    // 今いる階層は、空きの枠に直接落とせばよいので対象にしない
+                    group = target.Index < _phrasePath.Count ? LevelGroup(target.Index) : null;
+                    break;
+            }
+            return group != null && group.IsGroup ? PhraseMoves.FirstEmptySlot(group) : -1;
+        }
+
+        /// <summary>履歴の項目を定型文にする。開く項目 (ファイル・フォルダー・URI) は、それを開く定型文にする。</summary>
+        private static PhraseNode PhraseFromHistory(string entry)
+        {
+            string path, label;
+            if (ClipboardHistory.TryGetLaunchPath(entry, out path, out label))
+            {
+                // 名前がパスそのままなら表示名は空にする (一覧にはファイル名が出る)
+                return PhraseNode.CreatePhrase(label == path ? string.Empty : label, string.Empty, path);
+            }
+            return PhraseNode.CreatePhrase(string.Empty, entry, string.Empty);
         }
 
         // ---- 他のアプリへのドラッグ＆ドロップ ----------------------------------------------
@@ -1088,7 +1153,7 @@ namespace Copipe
 
         // ---- 履歴のピン止め --------------------------------------------------------------
 
-        /// <summary>履歴の行を右クリックしたとき。「ピン止め」か「ピン止めを外す」を出す。</summary>
+        /// <summary>履歴の行を右クリックしたとき。「ピン止め」か「ピン止めを外す」と、「削除」を出す。</summary>
         private void ShowHistoryMenu(int index, Point screen)
         {
             string text = _popup.ItemAt(index);
@@ -1100,10 +1165,19 @@ namespace Copipe
             string label = pinned ? Lang.T("ピン止めを外す", "Unpin")
                 : _history.IsPinnedFull ? Lang.T("ピン止めは 26 件までです", "Up to 26 pins")
                 : Lang.T("ピン止め", "Pin");
-            int chosen = ShowRowMenu(screen, new[] { label });
+            int chosen = ShowRowMenu(screen, new[] { label, RowMenu.Separator, Lang.T("削除", "Delete") },
+                                     2, ConfirmDeleteLabel(null));
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
+            }
+            else if (chosen == 2 && _history.Remove(text))
+            {
+                SaveHistory();
+                if (_popup.Visible && _mode == PopupMode.History)
+                {
+                    ShowHistory();
+                }
             }
             // メニューを出すと小窓が前面になるので、元のアプリに戻す (続けて入力できるように)
             RestoreTargetWindow();
@@ -1140,13 +1214,24 @@ namespace Copipe
         /// <summary>
         /// 右クリックのメニューを出す。小窓はフォーカスを奪わないので、メニューにはキーが届かない。
         /// メニューを出している間は Esc をホットキーで受け取り、メニューを閉じる (OnEscapePressed)。
+        /// confirmIndex の項目 (削除) は、選ぶとその項目を confirmLabel に変えたメニューを出し直し、
+        /// もう一度選んだときだけ confirmIndex を返す。
         /// </summary>
-        private int ShowRowMenu(Point screen, IList<string> labels)
+        private int ShowRowMenu(Point screen, IList<string> labels, int confirmIndex = -1, string confirmLabel = null)
         {
             _popupKeys.SetEscapeEnabled(true);
             try
             {
-                return RowMenu.Show(_popup.Handle, screen, labels);
+                int chosen = RowMenu.Show(_popup.Handle, screen, labels);
+                if (chosen < 0 || chosen != confirmIndex || !_popup.Visible)
+                {
+                    return chosen;
+                }
+                // 標準のメニューは選ぶと閉じるので、同じ位置に出し直して、メニューの中で確認する
+                string[] again = new string[labels.Count];
+                labels.CopyTo(again, 0);
+                again[confirmIndex] = confirmLabel;
+                return RowMenu.Show(_popup.Handle, screen, again);
             }
             finally
             {
@@ -1204,7 +1289,9 @@ namespace Copipe
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
 
-            int chosen = ShowRowMenu(screen, labels);
+            // 削除は最後の項目。メニューの中でもう一度選ぶと消す
+            int chosen = node == null ? ShowRowMenu(screen, labels)
+                : ShowRowMenu(screen, labels, labels.Count - 1, ConfirmDeleteLabel(node));
             if (chosen >= 0 && chosen < actions.Count && actions[chosen] != null)
             {
                 // 右クリックの処理から抜けてからダイアログを出す
@@ -1321,40 +1408,38 @@ namespace Copipe
             });
         }
 
-        /// <summary>枠を空きにする。取り消せないので確認する (グループは中の件数も示す)。</summary>
+        /// <summary>
+        /// 右クリックのメニューで「削除」を選んだ後に、同じ項目に出す確認。node がグループなら中の件数も示す
+        /// (null は履歴の項目)。
+        /// </summary>
+        private static string ConfirmDeleteLabel(PhraseNode node)
+        {
+            if (node == null || !node.IsGroup)
+            {
+                return Lang.T("もう一度クリックで削除", "Click again to delete");
+            }
+            int phrases = 0;
+            int groups = 0;
+            CountContents(node, ref phrases, ref groups);
+            return Lang.T("もう一度クリックで削除 (中の定型文 " + phrases + " 件・グループ " + groups + " 件も)",
+                          "Click again to delete (with " + phrases + " snippet(s) and " + groups + " group(s) inside)");
+        }
+
+        /// <summary>枠を空きにする (確認は右クリックのメニューの中で済ませてある)。小窓は出したまま。</summary>
         private void DeleteSlot(PhraseNode group, int index)
         {
-            PhraseNode node = group.Slots[index];
-            if (node == null)
+            if (group.Slots[index] == null)
             {
                 return;
             }
-            RunPhraseDialog(delegate
+            group.Slots[index] = null;
+            SavePhrases();
+            if (_popup.Visible && _mode == PopupMode.Phrases)
             {
-                string name = PreviewText.Line(node.Label, 40);
-                string message;
-                if (node.IsGroup)
-                {
-                    int phrases = 0;
-                    int groups = 0;
-                    CountContents(node, ref phrases, ref groups);
-                    message = Lang.T("グループ「" + name + "」を削除します。\n中の定型文 " + phrases + " 件とグループ " + groups +
-                                     " 件も削除されます。\n\nよろしいですか。",
-                                     "Delete the group \"" + name + "\"?\nThe " + phrases + " snippet(s) and " + groups +
-                                     " group(s) inside it will also be deleted.");
-                }
-                else
-                {
-                    message = Lang.T("定型文「" + name + "」を削除します。\n\nよろしいですか。", "Delete the snippet \"" + name + "\"?");
-                }
-                if (MessageBox.Show(_dialogOwner, message, "Copipe", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
-                                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
-                {
-                    return;
-                }
-                group.Slots[index] = null;
-                SavePhrases();
-            });
+                ShowMode();
+            }
+            // メニューを出すと小窓が前面になるので、元のアプリに戻す (続けて入力できるように)
+            RestoreTargetWindow();
         }
 
         private static void CountContents(PhraseNode group, ref int phrases, ref int groups)

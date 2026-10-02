@@ -1147,6 +1147,10 @@ try {
         Check 'ピン止め: Contains はピン止めも見る' ($h.Contains('b') -and $h.Contains('g') -and -not $h.Contains('c'))
         Check 'ピン止めを外す: 普通の履歴の先頭に戻り、保持数を超えた分は古いものから捨てる' ($h.Unpin('b') -and ($h.Pinned -join ',') -ceq 'a' -and ($h.Items -join ',') -ceq 'b,g,f') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
         Check 'ピン止めを外す: ピン止めに無いものは何もしない' ((-not $h.Unpin('g')) -and ($h.Items -join ',') -ceq 'b,g,f')
+        Check '削除: 普通の履歴から消し、後ろが詰まる' ($h.Remove('g') -and ($h.Items -join ',') -ceq 'b,f' -and ($h.Pinned -join ',') -ceq 'a') "items=$($h.Items -join ',')"
+        Check '削除: ピン止めからも消せる' ($h.Remove('a') -and $h.Pinned.Count -eq 0 -and ($h.Items -join ',') -ceq 'b,f') "pinned=$($h.Pinned -join ',')"
+        Check '削除: 無いものは何もしない' (-not $h.Remove('zz'))
+        [void]$h.PinText('a')
         $h.Clear()
         Check '消去: 普通の履歴だけ消し、ピン止めは残る' ($h.Items.Count -eq 0 -and ($h.Pinned -join ',') -ceq 'a')
         $h.Capacity = 1
@@ -2282,6 +2286,24 @@ try {
                             }
                             return $false
                         }
+                        # 削除はメニューの中で確認する。「削除」を選ぶと同じ位置にメニューが出し直されて、その項目が確認に変わる。
+                        # もう一度選ぶと消す。確認のメニューを返す (ホットキーは押したまま)
+                        function Open-DeleteConfirm([int]$Index, [switch]$History) {
+                            $menu = if ($History) { Open-RowMenu $Index } else { Open-RowMenu $Index -Phrases }
+                            if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { return $null }
+                            [void](Wait-Pumping { $m = Find-RowMenu; $null -ne $m -and (Get-MenuNames $m) -like '*もう一度クリックで削除*' } 1500)
+                            return (Find-RowMenu)
+                        }
+                        # 確認の項目を選び、保存を待つ。選んだ後に小窓が出たまま、元のアプリが前面に戻ったかを返す
+                        function Invoke-DeleteConfirm($Confirm, [string]$Path) {
+                            if ($null -eq $Confirm) { return $false }
+                            $writtenBefore = [System.IO.File]::GetLastWriteTimeUtc($Path)
+                            $label = @($W::MenuItems($Confirm) | Where-Object { $_.Key -like 'もう一度クリックで削除*' })[0].Key
+                            if (-not (Invoke-MenuItem $Confirm $label)) { return $false }
+                            [void](Wait-Pumping { [System.IO.File]::GetLastWriteTimeUtc($Path) -ne $writtenBefore } 2000)
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                            return ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                        }
                         if ($runHistory) {   # 履歴の E2E: 矢印キー・Enter・強調表示
                         # 2 行にして 2 行目の末尾から ↑ を押す (入力先に届いていれば、カーソルが 1 行目へ動いてわかる)
                         $box.Text = "前:`r`n後:"
@@ -2776,45 +2798,30 @@ try {
                         $r = Read-Phrases
                         Check '名前の変更: 名前だけ変わり、中身はそのまま' ($dlg -ne [IntPtr]::Zero -and $r.Slots[1].Name -ceq '社外2' -and $r.Slots[1].Slots[0].Text -ceq '中の定型文' -and $r.Slots[1].Slots[1].IsGroup)
 
-                        # 削除は確認してから。いいえなら消さない
-                        function Open-DeleteConfirm([int]$Index) {
-                            $menu = Open-RowMenu $Index -Phrases
-                            if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { Invoke-HotkeyRelease; return [IntPtr]::Zero }
-                            [void](Wait-Pumping { (Find-Dialog $app.Id) -ne [IntPtr]::Zero } 3000)
-                            Invoke-HotkeyRelease
-                            return (Find-Dialog $app.Id)
-                        }
-                        # 確認のボタン (6 = はい、7 = いいえ) を押して閉じる。はいのときは保存を待つ。
-                        # 閉じた後に元のアプリが前面に戻ったかを返す
-                        function Close-Confirm([IntPtr]$Confirm, [int]$Button) {
-                            if ($Confirm -eq [IntPtr]::Zero) { return $false }
-                            $writtenBefore = (Get-PhrasesWritten)
-                            [void]$W::PostMessage($Confirm, 0x0111 <# WM_COMMAND #>, [IntPtr]$Button, [IntPtr]::Zero)
-                            [void](Wait-Pumping { -not $W::IsWindow($Confirm) } 2000)
-                            if ($Button -eq 6) {
-                                [void](Wait-Pumping { (Get-PhrasesWritten) -ne $writtenBefore } 2000)
-                            }
-                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
-                            $fg = $W::GetForegroundWindow()
-                            $script:confirmForeground = $W::GetClass($fg) + " [" + $W::GetText($fg) + "]"
-                            return ($fg -eq $target.Handle)
-                        }
                         $confirm = Open-DeleteConfirm 1
-                        $confirmText = if ($confirm -ne [IntPtr]::Zero) { (@($W::Children($confirm) | ForEach-Object { $W::GetText($_) }) -join ' ') } else { '' }
-                        Check '削除: グループは確認が出て、名前と中の件数が書いてある' ($confirmText -like '*社外2*' -and $confirmText -like '*定型文 1 件*' -and $confirmText -like '*グループ 1 件*') "text=[$confirmText]"
-                        $back = Close-Confirm $confirm 7
-                        Check '削除: 「いいえ」なら消さない' ((Read-Phrases).Slots[1].Name -ceq '社外2')
-                        Check '削除: 「いいえ」で閉じると、元のアプリが前面に戻る' $back "前面=$script:confirmForeground"
+                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
+                        Check '削除: 「削除」を選ぶと、メニューの中で確認に変わる (グループは中の件数も)' ($names -ceq '名前を変更... | もう一度クリックで削除 (中の定型文 1 件・グループ 1 件も)') "names=[$names]"
+                        Check '削除: 1 回目の「削除」では消さない' ((Read-Phrases).Slots[1].Name -ceq '社外2')
+                        Send-Key 0x1B 1   # Esc
+                        [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
+                        Check '削除: 確認のメニューを Esc で閉じると消さない' ($null -eq (Find-RowMenu) -and (Read-Phrases).Slots[1].Name -ceq '社外2')
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         $confirm = Open-DeleteConfirm 1
-                        $back = Close-Confirm $confirm 6
+                        $back = Invoke-DeleteConfirm $confirm $phrasesPath
                         $r = Read-Phrases
-                        Check '削除: 「はい」でグループを中身ごと消して空きにする' ($confirm -ne [IntPtr]::Zero -and $null -eq $r.Slots[1] -and $r.Slots[2].Text -ceq '既存の定型文')
-                        Check '削除: 「はい」で閉じると、元のアプリが前面に戻る' $back "前面=$script:confirmForeground"
+                        Check '削除: もう一度選ぶと、グループを中身ごと消して空きにする' ($null -ne $confirm -and $null -eq $r.Slots[1] -and $r.Slots[2].Text -ceq '既存の定型文')
+                        Check '削除: 消した後も小窓は出たまま、元のアプリが前面のまま' $back
+                        Check '削除: 一覧からも消える (空きの枠になる)' ((Get-PopupItems $popup)[1] -ceq '') ("items=" + (Format-Items (Get-PopupItems $popup)))
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         $confirm = Open-DeleteConfirm 0
-                        $confirmText = if ($confirm -ne [IntPtr]::Zero) { (@($W::Children($confirm) | ForEach-Object { $W::GetText($_) }) -join ' ') } else { '' }
-                        Check '削除: 定型文も確認が出て、名前が書いてある' ($confirmText -like '*E2E編集後*') "text=[$confirmText]"
-                        [void](Close-Confirm $confirm 6)
-                        Check '削除: 「はい」で定型文を消して空きにする' ($null -eq (Read-Phrases).Slots[0])
+                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
+                        Check '削除: 定型文も、メニューの中で確認に変わる' ($names -ceq '履歴にピン止め | - | 編集... | もう一度クリックで削除') "names=[$names]"
+                        [void](Invoke-DeleteConfirm $confirm $phrasesPath)
+                        Check '削除: もう一度選ぶと、定型文を消して空きにする' ($null -eq (Read-Phrases).Slots[0])
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
 
                         # ---- 定型文: ドラッグ＆ドロップで並べ替え・グループに入れる・上の階層に出す ----
                         # 一番上: [A, 箱(中: [中1]), 空き, B, 満杯(10 件)]
@@ -3064,7 +3071,7 @@ try {
                         Reset-Target
                         $menu = Open-RowMenu 2
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check 'ピン止め: 履歴の行を右クリックすると「ピン止め」が出る' ($names -ceq 'ピン止め') "names=[$names]"
+                        Check 'ピン止め: 履歴の行を右クリックすると「ピン止め」と「削除」が出る' ($names -ceq 'ピン止め | - | 削除') "names=[$names]"
                         if ($menu) { [void](Invoke-MenuItem $menu 'ピン止め') }
                         [void](Wait-Pumping { (Get-PopupItems $popup)[0] -ceq '📌 数字キー検証 09' } 2000)
                         $items = Get-PopupItems $popup
@@ -3085,7 +3092,7 @@ try {
 
                         $menu = Open-RowMenu 0
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check 'ピン止め: ピン止めした行を右クリックすると「ピン止めを外す」が出る' ($names -ceq 'ピン止めを外す') "names=[$names]"
+                        Check 'ピン止め: ピン止めした行を右クリックすると「ピン止めを外す」と「削除」が出る' ($names -ceq 'ピン止めを外す | - | 削除') "names=[$names]"
                         # 小窓はフォーカスを奪わないので、メニューには直接キーが届かない。Esc・モードキーは Copipe が受け取って閉じる
                         Send-Key 0x1B 1   # Esc
                         $escMs = Wait-Pumping { $null -eq (Find-RowMenu) } 1500
@@ -3133,6 +3140,20 @@ try {
                         [void](Wait-Pumping { $false } 700)
                         Check 'ピン止めを外す: 📌 のクリックでは入力しない (続けてクリックしても)' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Check 'ピン止めを外す: 小窓は出たまま、元のアプリが前面のまま' ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                        Close-History
+
+                        # 右クリックの「削除」で履歴から消す (メニューの中でもう一度選ぶと消える。後ろが詰まり、空いた番号は空きの枠)
+                        $confirm = Open-DeleteConfirm 1 -History
+                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
+                        Check '削除: 履歴でも「削除」を選ぶと、メニューの中で確認に変わり、まだ消さない' ($names -ceq 'ピン止め | - | もう一度クリックで削除' -and (Get-PopupItems $popup)[1] -ceq 'ピン止め検証 新しいコピー') "names=[$names]"
+                        $chose = Invoke-DeleteConfirm $confirm $historyPath
+                        [void](Wait-Pumping { (Get-PopupItems $popup)[1] -ceq '数字キー検証 11' } 2000)
+                        $items = Get-PopupItems $popup
+                        Check '削除: もう一度選ぶと履歴から消え、後ろが詰まる' ($null -ne $confirm -and $items[0] -ceq '数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items -notcontains 'ピン止め検証 新しいコピー') ("items=" + (Format-Items $items))
+                        $saved = [Copipe.Services.ClipboardHistory]::Load($historyPath, 10)
+                        Check '削除: 消したことが保存される' ($saved.Items -notcontains 'ピン止め検証 新しいコピー' -and $saved.Items.Count -eq 9) "items=$($saved.Items -join ',')"
+                        $fgMs = Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 1000
+                        Check '削除: 小窓は出たまま、元のアプリが前面のまま、入力はしない' ($fgMs -ge 0 -and $W::IsWindowVisible($popup) -and $box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Close-History
 
                         # ---- 履歴モード: ドラッグ＆ドロップで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中) ----
@@ -3190,6 +3211,49 @@ try {
                         [void](Wait-Pumping { $false } 300)
                         $after = Format-Items (Get-PopupItems $popup)
                         Check '並べ替え: ピン止めと普通の履歴の間では移さない (両方向とも)' ($after -ceq $before) "before=$before after=$after"
+
+                        # ---- 履歴モード: ドラッグ中にモードキーで定型文に切り替え、空きの枠に落とすと定型文として登録する ----
+                        # 登録した定型文は、後で phrases.json ごと元に戻す (後の検証は今の定型文を前提にしている)
+                        $phrasesBeforeHistoryDrop = if ([System.IO.File]::Exists($phrasesPath)) { [System.IO.File]::ReadAllBytes($phrasesPath) } else { $null }
+                        # 履歴の Row 行をつかみ、Tab で定型文モードにして、一番上の階層の ToSlot 行 (省略すると最初の空きの枠) に落とす。落とした行の位置を返す
+                        function Invoke-HistoryToPhrase([int]$Row, [int]$ToSlot = -1) {
+                            $slots = (Read-Phrases).Slots
+                            $slot = 0
+                            while ($slot -lt $slots.Length -and $null -ne $slots[$slot]) { $slot++ }
+                            if ($ToSlot -ge 0) { $slot = $ToSlot }
+                            Invoke-Drag (Get-RowPoint $Row) (Get-RowPoint $Row 0.95) -NoRelease
+                            Send-Key 0x09 1   # Tab (モードキー)
+                            $script:historyDropLabels = Get-PopupLabels
+                            $to = Get-RowPoint $slot
+                            $W::MoveMouse($to.X, $to.Y - 3)
+                            [void](Wait-Pumping { $false } 50)
+                            $W::MoveMouse($to.X, $to.Y)
+                            [void](Wait-Pumping { $false } 100)
+                            $W::LeftUp()
+                            [void](Wait-Pumping { $false } 300)
+                            return $slot
+                        }
+                        # 入力先には、前の検証 (数字キー 1) で入力した文字が残っている。ドラッグで増えないことを見る
+                        $textBeforeHistoryDrop = $box.Text
+                        $slot = Invoke-HistoryToPhrase 3
+                        Check '履歴→定型文: ドラッグ中でもモードキーで定型文モードに切り替わる' (Test-Title $script:historyDropLabels '定型文') "labels=[$script:historyDropLabels]"
+                        $node = (Read-Phrases).Slots[$slot]
+                        Check '履歴→定型文: 空きの枠に落とすと、その文字の定型文として登録される' ($null -ne $node -and -not $node.IsGroup -and $node.Text -ceq '並べ替えI1' -and $node.Path -ceq '') "slot=$slot text=[$($node.Text)] path=[$($node.Path)]"
+                        Check '履歴→定型文: 落とした後も定型文モードのまま、一覧に出る' ((Test-Title (Get-PopupLabels) '定型文') -and (Get-PopupItems $popup)[$slot] -like '*並べ替えI1') ("items=" + (Format-Items (Get-PopupItems $popup)))
+                        Check '履歴→定型文: 履歴からは消えない' (@((Read-SavedHistory).Items) -contains '並べ替えI1') "items=$((Read-SavedHistory).Items -join ',')"
+                        Check '履歴→定型文: ドラッグでは入力しない' ($box.Text -ceq $textBeforeHistoryDrop) ("text=[" + $box.Text + "] before=[" + $textBeforeHistoryDrop + "]")
+                        Close-History
+
+                        # グループの行 (中央) に落とすと、そのグループの最初の空きに入る (Copipe は定型文モードに入るとき読み直す)
+                        $book = [Copipe.Services.PhraseBook]::Load($phrasesPath)
+                        $groupSlot = 0
+                        while ($null -ne $book.Root.Slots[$groupSlot]) { $groupSlot++ }
+                        $book.Root.Slots[$groupSlot] = [Copipe.Model.PhraseNode]::CreateGroup('履歴の落とし先')
+                        $book.Save($phrasesPath)
+                        Open-History
+                        [void](Invoke-HistoryToPhrase 4 $groupSlot)
+                        $group = (Read-Phrases).Slots[$groupSlot]
+                        Check '履歴→定型文: グループの行に落とすと、そのグループの最初の空きに登録される' ($null -ne $group -and $group.IsGroup -and $null -ne $group.Slots[0] -and $group.Slots[0].Text -ceq '並べ替えI2') "group=[$($group.Name)] first=[$(if ($group -and $group.Slots[0]) { $group.Slots[0].Text })]"
                         Close-History
 
                         # ---- 履歴モード: 小窓の外 (他のアプリ) へドラッグ＆ドロップする ----
@@ -3223,6 +3287,14 @@ try {
                         Check '外へドラッグ: 履歴から落としても、入力先には何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Close-History
                         $dropTarget.Hide()
+
+                        # 履歴のファイル (開く項目) を定型文に落とすと、そのファイルを開く定型文 (ランチャー) になる
+                        Open-History
+                        $slot = Invoke-HistoryToPhrase 2
+                        $node = (Read-Phrases).Slots[$slot]
+                        Check '履歴→定型文: ファイルは、それを開く定型文 (パス付き) として登録される' ($null -ne $node -and $node.Path -ceq $dragOutFile -and $node.Text -ceq '') "slot=$slot text=[$($node.Text)] path=[$($node.Path)]"
+                        Close-History
+                        if ($null -ne $phrasesBeforeHistoryDrop) { [System.IO.File]::WriteAllBytes($phrasesPath, $phrasesBeforeHistoryDrop) } else { Remove-Item -LiteralPath $phrasesPath -ErrorAction SilentlyContinue }
 
                         Restart-WithHistory $historyBeforeDrag
                         $copipe = $script:dragCopipe

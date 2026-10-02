@@ -193,6 +193,12 @@ namespace Copipe.Services
             return true;
         }
 
+        /// <summary>ピン止めか普通の履歴から消す。後ろの項目は 1 つずつ前に詰まる。消したなら true。</summary>
+        public bool Remove(string text)
+        {
+            return _pinned.Remove(text) || _items.Remove(text);
+        }
+
         /// <summary>履歴に加える。加えた (または先頭へ移動した) なら true。</summary>
         public bool Add(string text)
         {
