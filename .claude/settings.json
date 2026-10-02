@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "ask": [
+      "PowerShell(*verify.ps1*)",
+      "Bash(*verify.ps1*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "PowerShell|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ps1\""
+          }
+        ]
+      }
+    ]
+  }
+}

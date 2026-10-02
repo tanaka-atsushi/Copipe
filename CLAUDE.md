@@ -16,7 +16,7 @@
 
 ## コミット
 
-- アップデートをコミットするたびに、About 画面に出るバージョン番号を上げる。
+- アップデート (src/ を変えるコミット) をコミットするたびに、About 画面に出るバージョン番号を上げる。.claude/ や CLAUDE.md だけの変更では上げない。
   - 書き換えるのは `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の3つ。
   - 指示がなければ末尾の数字を1つ上げる (1.0.0 → 1.0.1)。
   - バージョンの変更は、そのアップデートと同じコミットに入れる。
