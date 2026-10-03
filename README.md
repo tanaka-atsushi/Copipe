@@ -63,7 +63,7 @@ Press the **mode key** (Tab by default), or turn the mouse wheel over the popup,
 
 ### Tray menu
 
-Right-click the tray icon to open *Settings...*, *Clear history*, *About Copipe...* (version and donation link) or *Exit*.
+Right-click the tray icon to open *Settings...*, *Clear history*, *About Copipe...* (version and donation link) or *Exit*. The *About...* button in the bottom left of Settings opens the same About window.
 
 ### Settings
 

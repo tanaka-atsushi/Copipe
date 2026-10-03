@@ -167,6 +167,20 @@ namespace Copipe.UI
             _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
+            // 設定画面からもバージョンなどを見られるように (トレイのメニューの「Copipe について」と同じ画面)
+            Button about = new Button();
+            about.Name = "aboutButton";
+            about.Text = "About...";
+            about.Bounds = new Rectangle(Scaled(16), Scaled(410), Scaled(84), Scaled(30));
+            about.Click += delegate
+            {
+                using (AboutDialog dialog = new AboutDialog())
+                {
+                    dialog.ShowDialog(this);
+                }
+            };
+            Controls.Add(about);
+
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;

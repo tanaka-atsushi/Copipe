@@ -1112,6 +1112,38 @@ try {
             Check '設定画面: 別のキー (F2) にすると重なりが解け、OK を押せる' ($s.Box -ceq 'F2' -and $s.Ok -and -not $s.Red) "ok=$($s.Ok) note=$($s.Note)"
         } finally { $d.Close(); $d.Dispose() }
 
+        # About ボタン: OK の左にあり、押すと設定画面の上に「Copipe について」が出る
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            $about = $d.Controls['aboutButton']
+            $okButton = Get-DialogField $d '_ok'
+            Check '設定画面: About ボタンが OK の左にある (同じ行で、重ならない)' `
+                ($null -ne $about -and $about.Top -eq $okButton.Top -and $about.Right -le $okButton.Left) `
+                "about=$(if ($about) { $about.Bounds }) ok=$($okButton.Bounds)"
+            if ($null -ne $about) {
+                $script:aboutSeen = $null
+                $closer = New-Object System.Windows.Forms.Timer
+                $closer.Interval = 300
+                $closer.add_Tick({
+                    $closer.Stop()
+                    # ShowDialog の中から閉じる (閉じないと検証が止まるので、何があっても閉じる)
+                    foreach ($f in @([System.Windows.Forms.Application]::OpenForms)) {
+                        if ($f.GetType().Name -eq 'AboutDialog') {
+                            try { $script:aboutSeen = @{ Owner = ($f.Owner -eq $d); Visible = $f.Visible; Text = $f.Text } } catch { }
+                            $f.Close()
+                        }
+                    }
+                })
+                $closer.Start()
+                $about.PerformClick()
+                $closer.Dispose()
+                Check '設定画面: About ボタンを押すと、設定画面を親にして「Copipe について」が出る' `
+                    ($null -ne $script:aboutSeen -and $script:aboutSeen.Owner -and $script:aboutSeen.Visible) `
+                    "seen=$(if ($script:aboutSeen) { $script:aboutSeen.Text + ' owner=' + $script:aboutSeen.Owner })"
+                Check '設定画面: 「Copipe について」を閉じても設定画面は開いたまま' ($d.Visible -and -not $d.IsDisposed)
+            }
+        } finally { $d.Close(); $d.Dispose() }
+
         # モードキーの欄 (ホットキーと同じ決まり)
         $d = New-Dialog $K::Pause $K::Tab
         try {
