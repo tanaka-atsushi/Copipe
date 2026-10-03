@@ -14,6 +14,16 @@
 - `tools\verify.ps1` の出力を `Select-Object -First N` など、途中で止まるパイプにつながない。子プロセスが殺されて finally が動かず、ユーザーの settings.ini / history.json がテストの値のまま残り、クリップボードにもテストの文字列が残る。出力は最後まで読む (`Select-String ... | Select-Object -Last N` など) か、ファイルにリダイレクトする。
   - 実行が中断されたとき (ツール呼び出しを拒否されたときも同じ) は `tools\Restore-CopipeData.ps1` を実行して元に戻し、ユーザーに伝える。verify.ps1 は %TEMP%\CopipeVerify-*\restore-pending.txt を書いておき、次の開始時にもこのスクリプトを呼ぶ。もう一度実行する前にクリップボードを空にしてから Copipe を起動し直す。
 
+## 今後の作業 (別のセッションでやる)
+
+- **CapsLock をホットキーにできるか調べる** (2026-10-03 に相談。まだ手を付けていない)
+  - ユーザーの PC は英語配列。CapsLock (VK 0x14) は押すたびに CapsLock のオン・オフと LED が切り替わる。
+  - 案: 低レベルのキーボードフック (WH_KEYBOARD_LL) で CapsLock の押し下げ・押し上げを受け取り、握りつぶす (nonzero を返す)。Windows に届かないので状態と LED は変わらず、押し上げも検知できるはず (AutoHotkey・PowerToys の Keyboard Manager と同じしくみ)。
+  - 今の Copipe はフックを使わず RegisterHotKey と GetAsyncKeyState で検知している。CapsLock のときだけフックで検知する経路を足すことになる。
+  - 気をつける点: 管理者権限のウィンドウが前面だとフックに来ない (その間は普通に切り替わる)。フックはすぐ返す (遅いと Windows に黙って外される)。起動時に CapsLock がオンなら戻す必要がある。メーカーのユーティリティの画面表示が出なくなるかは試さないとわからない。
+  - 最初の一歩: フックで握りつぶすだけの小さなツールを作り、このノート PC で LED と画面表示が変わらないかをユーザーに試してもらう。
+  - 日本語 (JIS) キーボードの英数キー (0xF0) は、GetAsyncKeyState では離した後も「押されたまま」に見える (README の実測)。フックなら押し上げが来るかは未確認。
+
 ## コミット
 
 - アップデート (src/ を変えるコミット) をコミットするたびに、About 画面に出るバージョン番号を上げる。.claude/ や CLAUDE.md だけの変更では上げない。
