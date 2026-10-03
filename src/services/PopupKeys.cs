@@ -22,13 +22,10 @@ namespace Copipe.Services
         private const int ArrowId = 210; // ArrowId + ArrowKeys の位置
         private const int LetterId = 300; // LetterId + (A からの位置)。ピン止めを選ぶ a〜z
         private const int LetterCount = 26;
-        // ダブルタップのキーを押したまま (Ctrl+1 など) でも受け取るための登録は、ID にこれを足す
-        private const int HeldOffset = 1000;
 
         private bool _enabled;
         private bool _escapeEnabled;
         private bool _lettersEnabled;
-        private uint _heldMod;
 
         public PopupKeys()
         {
@@ -54,16 +51,13 @@ namespace Copipe.Services
 
         /// <summary>
         /// 数字キーとモードキーを登録する (修飾キーなし)。
-        /// ダブルタップで小窓を出したときは、そのキー (heldModifier: ControlKey・ShiftKey・Menu) を押したままなので、
-        /// 数字は Ctrl+1 などとして届く。そのキー付きでも登録する。
         /// 他のアプリや Windows が使っているキー (Alt+Tab など) は登録できないので、そのキーだけ効かない。
         /// modeKey が Keys.None なら、モードキーは登録しない。
         /// </summary>
-        public void Enable(Keys modeKey, Keys heldModifier)
+        public void Enable(Keys modeKey)
         {
             Disable();
             _enabled = true;
-            _heldMod = ModifierFlag(heldModifier);
 
             for (int i = 0; i < ItemNumber.AllKeys.Count; i++)
             {
@@ -80,35 +74,14 @@ namespace Copipe.Services
             }
         }
 
-        private static uint ModifierFlag(Keys heldModifier)
-        {
-            switch (HotkeyText.NormalizeModifier(heldModifier))
-            {
-                case Keys.ControlKey:
-                    return NativeMethods.MOD_CONTROL;
-                case Keys.ShiftKey:
-                    return NativeMethods.MOD_SHIFT;
-                case Keys.Menu:
-                    return NativeMethods.MOD_ALT;
-                default:
-                    return 0;
-            }
-        }
-
         private void Register(int id, uint vk, bool repeat = false)
         {
-            uint norepeat = repeat ? 0 : NativeMethods.MOD_NOREPEAT;
-            NativeMethods.RegisterHotKey(Handle, id, norepeat, vk);
-            if (_heldMod != 0)
-            {
-                NativeMethods.RegisterHotKey(Handle, id + HeldOffset, norepeat | _heldMod, vk);
-            }
+            NativeMethods.RegisterHotKey(Handle, id, repeat ? 0 : NativeMethods.MOD_NOREPEAT, vk);
         }
 
         private void Unregister(int id)
         {
             NativeMethods.UnregisterHotKey(Handle, id);
-            NativeMethods.UnregisterHotKey(Handle, id + HeldOffset);
         }
 
         /// <summary>
@@ -184,11 +157,6 @@ namespace Copipe.Services
             if (m.Msg == NativeMethods.WM_HOTKEY)
             {
                 int id = m.WParam.ToInt32();
-                if (id >= HeldOffset)
-                {
-                    // ダブルタップのキーを押したまま押された。修飾キーなしと同じに扱う
-                    id -= HeldOffset;
-                }
                 if (id == ModeKeyId)
                 {
                     Action mode = ModePressed;

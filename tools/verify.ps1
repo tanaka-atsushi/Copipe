@@ -880,7 +880,7 @@ try {
         Check '保存先の既定は %LOCALAPPDATA%\Copipe\settings.ini' ($S::DefaultPath -ceq (Join-Path $env:LOCALAPPDATA 'Copipe\settings.ini')) "got=$($S::DefaultPath)"
 
         $loaded = $S::Load($path)
-        Check '読み込み: ファイルが無ければ既定 (F1)' ($loaded.Hotkey -eq $S::DefaultHotkey -and $S::DefaultHotkey -eq $K::F1) "got=$($loaded.Hotkey)"
+        Check '読み込み: ファイルが無ければ既定 (CapsLock)' ($loaded.Hotkey -eq $S::DefaultHotkey -and $S::DefaultHotkey -eq $K::Capital) "got=$($loaded.Hotkey)"
 
         $loaded.Hotkey = $K::F2
         $loaded.Save($path)
@@ -892,7 +892,7 @@ try {
         # 前の版で保存した修飾キー付きのホットキーは、既定に戻す (修飾キーだけ外すと、そのキーが全アプリで打てなくなるため)
         foreach ($legacy in 'Ctrl+Space', 'Alt+A', 'Win+J', 'Ctrl+Shift+F13') {
             Set-Content -LiteralPath $path -Value "Hotkey=$legacy" -Encoding UTF8
-            Check "読み込み: 修飾キー付きの $legacy が書かれていたら既定 (F1) に戻す" ($S::Load($path).Hotkey -eq $S::DefaultHotkey) "got=$($S::Load($path).Hotkey)"
+            Check "読み込み: 修飾キー付きの $legacy が書かれていたら既定 (CapsLock) に戻す" ($S::Load($path).Hotkey -eq $S::DefaultHotkey) "got=$($S::Load($path).Hotkey)"
         }
 
         Set-Content -LiteralPath $path -Value "# コメント`r`n`r`n   Hotkey = 無変換ではない何か   `r`n" -Encoding UTF8
@@ -980,60 +980,14 @@ try {
         Check 'モードキーとホットキーの重なり: Space と Space は重なる' $HT::ConflictsWithHotkey($K::Space, $K::Space)
         Check 'モードキーとホットキーの重なり: F1 と Tab は重ならない' (-not $HT::ConflictsWithHotkey($K::F1, $K::Tab))
 
-        # ---- 起動方法の「なし」と、修飾キーのダブルタップ ----
-        Check 'ダブルタップ: 既定は なし' ($S::Load((Join-Path $settingsDir 'none.ini')).DoubleTap -eq $K::None)
-        foreach ($pair in @(@('Ctrl', $K::ControlKey), @('Shift', $K::ShiftKey), @('Alt', $K::Menu))) {
-            $saved4 = New-Object Copipe.Services.Settings
-            $saved4.DoubleTap = $pair[1]
-            $saved4.Save($path)
-            Check "ダブルタップ: $($pair[0]) を保存して読み戻せる (DoubleTap=$($pair[0]))" (((Get-Content -LiteralPath $path -Raw) -match "DoubleTap=$($pair[0])") -and $S::Load($path).DoubleTap -eq $pair[1]) "got=$($S::Load($path).DoubleTap)"
-        }
-        foreach ($bad in 'Win', 'A', 'Ctrl+Shift', 'abc', '') {
-            Set-Content -LiteralPath $path -Value "DoubleTap=$bad" -Encoding UTF8
-            Check "ダブルタップ: 使えない値 '$bad' は なし に戻す" ($S::Load($path).DoubleTap -eq $K::None) "got=$($S::Load($path).DoubleTap)"
-        }
-        Set-Content -LiteralPath $path -Value "DoubleTap=ctrl" -Encoding UTF8
-        Check 'ダブルタップ: 大文字小文字は区別しない' ($S::Load($path).DoubleTap -eq $K::ControlKey)
-        $saved5 = New-Object Copipe.Services.Settings
-        $saved5.Hotkey = $K::None
-        $saved5.DoubleTap = $K::ShiftKey
-        $saved5.Save($path)
-        Check 'ホットキー なし: Hotkey=None と書き、読み戻せる' (((Get-Content -LiteralPath $path -Raw) -match 'Hotkey=None') -and $S::Load($path).Hotkey -eq $K::None -and $S::Load($path).DoubleTap -eq $K::ShiftKey) "got=$($S::Load($path).Hotkey)"
-        Set-Content -LiteralPath $path -Value "Hotkey=None`r`nDoubleTap=None" -Encoding UTF8
-        Check 'ホットキーもダブルタップも なし なら、開けなくならないようホットキーを既定 (F1) に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey -and $S::Load($path).DoubleTap -eq $K::None) "hotkey=$($S::Load($path).Hotkey)"
-        Set-Content -LiteralPath $path -Value "Hotkey=None" -Encoding UTF8
-        Check 'ホットキー なし で、ダブルタップの行も無ければ、ホットキーを既定 (F1) に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
-        Check 'ダブルタップに使えるキー: Ctrl・Shift・Alt (左右も)' ($HT::IsValidDoubleTap($K::ControlKey) -and $HT::IsValidDoubleTap($K::ShiftKey) -and $HT::IsValidDoubleTap($K::Menu) -and $HT::IsValidDoubleTap($K::LControlKey) -and $HT::IsValidDoubleTap($K::RMenu))
-        Check 'ダブルタップに使えないキー: Windows キー・A・なし' (-not $HT::IsValidDoubleTap($K::LWin) -and -not $HT::IsValidDoubleTap($K::A) -and -not $HT::IsValidDoubleTap($K::None))
-        Check 'ダブルタップの左右: 右 Ctrl は Ctrl にそろえる' ($HT::NormalizeModifier($K::RControlKey) -eq $K::ControlKey -and $HT::NormalizeModifier($K::LMenu) -eq $K::Menu -and $HT::NormalizeModifier($K::RShiftKey) -eq $K::ShiftKey)
-        Check 'ダブルタップの表示名: Ctrl・Shift・Alt' ($HT::DoubleTapDisplay($K::ControlKey) -ceq 'Ctrl' -and $HT::DoubleTapDisplay($K::ShiftKey) -ceq 'Shift' -and $HT::DoubleTapDisplay($K::Menu) -ceq 'Alt')
-
-        # ダブルタップの判定 (時刻は ms。1 回目は 300 ms 以内に離し、離してから 400 ms 以内に 2 回目を押す)
-        $E = [Copipe.Services.DoubleTapEvent]
-        function Invoke-Taps([System.Windows.Forms.Keys]$Target, [object[]]$Steps) {
-            $tr = New-Object Copipe.Services.DoubleTapTracker $Target
-            $events = @()
-            foreach ($st in $Steps) { $events += $tr.Feed($st[0], $st[1], [long]$st[2]) }
-            return ,$events
-        }
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 200), @($K::LControlKey, $true, 700), @($K::LControlKey, $false, 1500))
-        Check 'ダブルタップ判定: トン・トーンで 2 回目を押したとき Pressed、キーリピートは無視、離すと Released' (($ev -join ',') -ceq 'None,None,Pressed,None,Released') "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::C, $true, 30), @($K::C, $false, 60), @($K::LControlKey, $false, 90), @($K::LControlKey, $true, 200), @($K::C, $true, 230))
-        Check 'ダブルタップ判定: Ctrl+C を 2 回では起動しない' (@($ev | Where-Object { $_ -eq $E::Pressed }).Count -eq 0) "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 600))
-        Check 'ダブルタップ判定: 離してから 400 ms を過ぎた 2 回目では起動しない' ($ev[2] -eq $E::None) "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 500), @($K::LControlKey, $true, 600))
-        Check 'ダブルタップ判定: 1 回目を長く押していたら (300 ms 超) 起動しない' ($ev[2] -eq $E::None) "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::RControlKey, $true, 200), @($K::RControlKey, $false, 900))
-        Check 'ダブルタップ判定: 左 Ctrl → 右 Ctrl でも起動する (左右を区別しない)' (($ev -join ',') -ceq 'None,None,Pressed,Released') "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LShiftKey, $true, 120), @($K::LShiftKey, $false, 150), @($K::LControlKey, $true, 200))
-        Check 'ダブルタップ判定: 間に別の修飾キー (Shift) を挟むと起動しない' ($ev[4] -eq $E::None) "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ShiftKey @(@($K::LShiftKey, $true, 0), @($K::LShiftKey, $false, 80), @($K::LShiftKey, $true, 200), @($K::D1, $true, 300), @($K::D1, $false, 350), @($K::LShiftKey, $false, 900))
-        Check 'ダブルタップ判定: 押し続けている間の数字キーでは取り消さず、離したとき Released' (($ev -join ',') -ceq 'None,None,Pressed,None,None,Released') "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $true, 0), @($K::LControlKey, $false, 80), @($K::LControlKey, $true, 200), @($K::LControlKey, $false, 250), @($K::LControlKey, $true, 330))
-        Check 'ダブルタップ判定: 3 回目は新しい 1 回目として数える (続けて起動しない)' (($ev -join ',') -ceq 'None,None,Pressed,Released,None') "got=$($ev -join ',')"
-        $ev = Invoke-Taps $K::ControlKey @(@($K::LControlKey, $false, 0), @($K::LControlKey, $true, 50), @($K::LControlKey, $false, 100), @($K::LControlKey, $true, 200))
-        Check 'ダブルタップ判定: 見張り始めたときに押されていたキーの「離す」は無視する' (($ev -join ',') -ceq 'None,None,None,Pressed') "got=$($ev -join ',')"
+        # ---- 前の版の設定 (ダブルタップ・ホットキーなし) を読んでも困らない ----
+        Set-Content -LiteralPath $path -Value "Hotkey=Pause`r`nDoubleTap=Ctrl`r`nModeKey=F2" -Encoding UTF8
+        $old = $S::Load($path)
+        Check '前の版の設定: DoubleTap= の行は読み飛ばし、ほかの値は読める' ($old.Hotkey -eq $K::Pause -and $old.ModeKey -eq $K::F2) "hotkey=$($old.Hotkey) mode=$($old.ModeKey)"
+        Set-Content -LiteralPath $path -Value "Hotkey=None`r`nDoubleTap=Shift" -Encoding UTF8
+        Check '前の版の設定: Hotkey=None (ダブルタップだけで使っていた) は、開けなくならないよう既定 (CapsLock) にする' ($S::Load($path).Hotkey -eq $S::DefaultHotkey) "hotkey=$($S::Load($path).Hotkey)"
+        (New-Object Copipe.Services.Settings).Save($path)
+        Check '保存: DoubleTap の行は書かない' (-not ((Get-Content -LiteralPath $path -Raw) -match 'DoubleTap'))
     }
 
     # ==========================================================================
@@ -1046,8 +1000,8 @@ try {
         $F = [Reflection.BindingFlags]'Public,NonPublic,Instance'
         # SettingsDialog は internal なので、型は exe から名前で取り出して作る
         $DT = [Copipe.UI.HotkeyText].Assembly.GetType('Copipe.UI.SettingsDialog', $true)
-        function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode, [System.Windows.Forms.Keys]$DoubleTap = [System.Windows.Forms.Keys]::None) {
-            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $DoubleTap, $Mode, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
+        function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode) {
+            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $Mode, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
             $d.StartPosition = 'Manual'
             $d.Location = New-Object System.Drawing.Point 200, 150
             $d.Show()
@@ -1069,7 +1023,6 @@ try {
         function Get-DialogState($d) {
             $note = Get-DialogField $d '_note'
             return @{ Box = (Get-DialogField $d '_hotkeyBox').Text; Mode = (Get-DialogField $d '_modeKeyBox').Text; Note = $note.Text
-                      Tap = (Get-DialogField $d '_doubleTapBox').Text; DoubleTap = $d.SelectedDoubleTap
                       Red = ($note.ForeColor.ToArgb() -ne [System.Drawing.SystemColors]::GrayText.ToArgb()); Ok = (Get-DialogField $d '_ok').Enabled
                       Hotkey = $d.SelectedHotkey; ModeKey = $d.SelectedModeKey }
         }
@@ -1164,39 +1117,10 @@ try {
             Check '設定画面: モードキーをホットキーと同じキー (Pause) にすると OK を押せない' (-not $s.Ok -and $s.Note -like '*同じキーは使えません*') "note=$($s.Note)"
         } finally { $d.Close(); $d.Dispose() }
 
-        # 起動方法の「なし」と、ダブルタップの欄
+        # ホットキーを「なし」にする欄は無い (ホットキーが無いと小窓を出せない)
         $d = New-Dialog $K::Pause $K::Tab
         try {
-            $s = Get-DialogState $d
-            Check '設定画面: ダブルタップの既定は（なし）' ($s.Tap -ceq '（なし）' -and $s.DoubleTap -eq $K::None) "tap=$($s.Tap)"
-            Send-DialogKey $d '_doubleTapBox' ($K::Control -bor $K::ControlKey); $s = Get-DialogState $d
-            Check '設定画面: ダブルタップの欄で Ctrl を押すと Ctrl になる' ($s.Tap -ceq 'Ctrl' -and $s.DoubleTap -eq $K::ControlKey -and $s.Ok -and -not $s.Red) "tap=$($s.Tap) note=$($s.Note)"
-            Send-DialogKey $d '_doubleTapBox' ($K::Shift -bor $K::RShiftKey); $s = Get-DialogState $d
-            Check '設定画面: 右 Shift でも Shift になる' ($s.Tap -ceq 'Shift' -and $s.DoubleTap -eq $K::ShiftKey) "tap=$($s.Tap)"
-            Send-DialogKey $d '_doubleTapBox' $K::A; $s = Get-DialogState $d
-            Check '設定画面: ダブルタップの欄で A を押すと、使えるキーを赤字で案内し OK を押せない' ($s.Red -and -not $s.Ok -and $s.Note -like '*Ctrl・Shift・Alt*') "note=$($s.Note)"
-            Send-DialogKeyUp $d $K::A; $s = Get-DialogState $d
-            Check '設定画面: A を離すと Shift の表示に戻る' ($s.Tap -ceq 'Shift' -and $s.Ok) "tap=$($s.Tap)"
-            Send-DialogKey $d '_doubleTapBox' ($K::Alt -bor $K::Menu); $s = Get-DialogState $d
-            Check '設定画面: Alt を選ぶとメニューバーの注意を出す (OK は押せる)' ($s.Tap -ceq 'Alt' -and $s.DoubleTap -eq $K::Menu -and $s.Ok -and $s.Note -like '*メニューバー*') "note=$($s.Note)"
-            (Get-DialogField $d '_hotkeyClear').PerformClick(); [System.Windows.Forms.Application]::DoEvents(); $s = Get-DialogState $d
-            Check '設定画面: ホットキーの「なし」で（なし）になる (ダブルタップがあるので OK を押せる)' ($s.Box -ceq '（なし）' -and $s.Hotkey -eq $K::None -and $s.Ok) "box=$($s.Box) ok=$($s.Ok) note=$($s.Note)"
-            (Get-DialogField $d '_doubleTapClear').PerformClick(); [System.Windows.Forms.Application]::DoEvents(); $s = Get-DialogState $d
-            Check '設定画面: 両方「なし」にすると理由を出し、OK を押せない' ($s.Tap -ceq '（なし）' -and -not $s.Ok -and $s.Red -and $s.Note -like '*どちらかを設定*') "tap=$($s.Tap) ok=$($s.Ok) note=$($s.Note)"
-            $note = Get-DialogField $d '_note'
-            $need = [System.Windows.Forms.TextRenderer]::MeasureText($note.Text, $note.Font, (New-Object System.Drawing.Size $note.Width, 0), [System.Windows.Forms.TextFormatFlags]'WordBreak').Height
-            Check '設定画面: 両方なしの理由が欄に収まる' ($need -le $note.Height) "need=$need height=$($note.Height)"
-            Send-DialogKey $d '_hotkeyBox' $K::F9; $s = Get-DialogState $d
-            Check '設定画面: ホットキーを設定し直すと OK を押せる' ($s.Box -ceq 'F9' -and $s.Ok) "ok=$($s.Ok)"
-            (Get-DialogField $d '_hotkeyClear').PerformClick()
-            Send-DialogKey $d '_doubleTapBox' ($K::Control -bor $K::LControlKey)
-            Send-DialogKey $d '_doubleTapBox' $K::Enter
-            Check '設定画面: ホットキーなし・ダブルタップ Ctrl で確定できる' ($d.DialogResult -eq 'OK' -and $d.SelectedHotkey -eq $K::None -and $d.SelectedDoubleTap -eq $K::ControlKey) "result=$($d.DialogResult) hotkey=$($d.SelectedHotkey) tap=$($d.SelectedDoubleTap)"
-        } finally { $d.Dispose() }
-        $d = New-Dialog $K::None $K::Tab $K::ShiftKey
-        try {
-            $s = Get-DialogState $d
-            Check '設定画面: ホットキーなしで開くと（なし）と出る' ($s.Box -ceq '（なし）' -and $s.Tap -ceq 'Shift' -and $s.Ok) "box=$($s.Box) tap=$($s.Tap)"
+            Check '設定画面: ホットキーの「なし」ボタンもダブルタップの欄も無い' ($null -eq $DT.GetField('_hotkeyClear', $F) -and $null -eq $DT.GetField('_doubleTapBox', $F))
         } finally { $d.Close(); $d.Dispose() }
 
         # 確定と取り消し
@@ -1649,12 +1573,11 @@ try {
 
         # 設定ファイルにホットキーを書き、ハーネスが擬似入力するキーもそれに合わせる
         # 貼り付けの操作は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
-        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double', [System.Windows.Forms.Keys]$DoubleTap = [System.Windows.Forms.Keys]::None) {
+        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double') {
             $settings = [Copipe.Services.Settings]::Load([Copipe.Services.Settings]::DefaultPath)
             $settings.Hotkey = $Keys
             $settings.InsertClick = [Copipe.Services.InsertClick]$InsertClick
             $settings.ModeKey = [System.Windows.Forms.Keys]::Tab
-            $settings.DoubleTap = $DoubleTap
             $settings.Save([Copipe.Services.Settings]::DefaultPath)
             $script:hotkeyKeys = $Keys
             $script:hotkeyName = [Copipe.UI.HotkeyText]::Display($Keys)
@@ -1881,7 +1804,7 @@ try {
         $helper = $null
         try {
             $K = [System.Windows.Forms.Keys]
-            # 既定の F1 は他のアプリ (ヘルプなど) が使っていることが多いので、検証は Pause で行う
+            # 既定の CapsLock はフックで受け取る特別なキーなので、ふだんの検証は Pause で行う (CapsLock は後の節で確かめる)
             $mainHotkey = Find-UsableHotkey @($K::Pause)
             Check '(準備) 登録できて擬似入力も届くホットキーが見つかる' ($null -ne $mainHotkey)
             if ($null -eq $mainHotkey) { return }
@@ -2050,7 +1973,7 @@ try {
             if ($app.HasExited) { Check '終了: 終了コードは 0' ($app.ExitCode -eq 0) "exit=$($app.ExitCode)" }
 
             # ---- 設定ファイルで指定した別のホットキーで動くか ----
-            # 既定 (F1) とも、ここまで使った Pause とも違うキーを選ぶ。他のアプリが使っているキーや、擬似入力が横取りされるキーは避ける
+            # 既定 (CapsLock) とも、ここまで使った Pause とも違うキーを選ぶ。他のアプリが使っているキーや、擬似入力が横取りされるキーは避ける
             # (ホットキーは修飾キーを付けられないので、単独のキーから選ぶ)
             $chosen = Find-UsableHotkey @(@($K::F13, $K::F14, $K::F9) | Where-Object { $_ -ne [Copipe.Services.Settings]::DefaultHotkey -and $_ -ne $mainHotkey })
             Check '(準備) 変更先に使える空きホットキーが見つかる' ($null -ne $chosen)
@@ -2456,31 +2379,31 @@ try {
                             }
                             return $false
                         }
-                        # 削除はメニューの中で確認する。「削除」を選ぶとメニューは閉じずに、その項目が「OK?」に変わる。
-                        # もう一度選ぶと消す。確認のメニューを返す (ホットキーは押したまま)。
-                        # $script:confirmSameMenu: 確認に変わる間、メニューが閉じずに同じウィンドウのままだったか
-                        function Open-DeleteConfirm([int]$Index, [switch]$History) {
-                            $script:confirmSameMenu = $false
-                            $menu = if ($History) { Open-RowMenu $Index } else { Open-RowMenu $Index -Phrases }
-                            if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { return $null }
-                            $script:menuStayed = $true
-                            [void](Wait-Pumping {
-                                $m = Find-RowMenu
-                                if ($m -ne $menu) { $script:menuStayed = $false }
-                                $m -eq $menu -and (Get-MenuNames $m).Contains('OK?')
-                            } 1500)
-                            $found = Find-RowMenu
-                            $script:confirmSameMenu = $script:menuStayed -and $found -eq $menu
-                            return $found
+                        # 定型文の削除は、メニューを閉じてから確認のダイアログで確かめる。
+                        # 「削除」を選び、出てきた確認 (#32770) を返す。ホットキーはその後で離す。
+                        # $script:menuClosedAtConfirm: 確認が出たとき、メニューが閉じていたか
+                        function Open-DeleteConfirm([int]$Index) {
+                            $menu = Open-RowMenu $Index -Phrases
+                            if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { Invoke-HotkeyRelease; return [IntPtr]::Zero }
+                            [void](Wait-Pumping { (Find-Dialog $app.Id) -ne [IntPtr]::Zero } 3000)
+                            $script:menuClosedAtConfirm = $null -eq (Find-RowMenu)
+                            Invoke-HotkeyRelease
+                            return (Find-Dialog $app.Id)
                         }
-                        # 確認の項目を選び、保存を待つ。選んだ後に小窓が出たまま、元のアプリが前面に戻ったかを返す
-                        function Invoke-DeleteConfirm($Confirm, [string]$Path) {
-                            if ($null -eq $Confirm) { return $false }
-                            $writtenBefore = [System.IO.File]::GetLastWriteTimeUtc($Path)
-                            if (-not (Invoke-MenuItem $Confirm 'OK?')) { return $false }
-                            [void](Wait-Pumping { [System.IO.File]::GetLastWriteTimeUtc($Path) -ne $writtenBefore } 2000)
+                        # 確認のボタン (6 = はい、7 = いいえ) を押して閉じる。はいのときは保存を待つ。
+                        # 閉じた後に元のアプリが前面に戻ったかを返す
+                        function Close-Confirm([IntPtr]$Confirm, [int]$Button) {
+                            if ($Confirm -eq [IntPtr]::Zero) { return $false }
+                            $writtenBefore = (Get-PhrasesWritten)
+                            [void]$W::PostMessage($Confirm, 0x0111 <# WM_COMMAND #>, [IntPtr]$Button, [IntPtr]::Zero)
+                            [void](Wait-Pumping { -not $W::IsWindow($Confirm) } 2000)
+                            if ($Button -eq 6) {
+                                [void](Wait-Pumping { (Get-PhrasesWritten) -ne $writtenBefore } 2000)
+                            }
                             [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
-                            return ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
+                            $fg = $W::GetForegroundWindow()
+                            $script:confirmForeground = $W::GetClass($fg) + " [" + $W::GetText($fg) + "]"
+                            return ($fg -eq $target.Handle)
                         }
                         if ($runHistory) {   # 履歴の E2E: 矢印キー・Enter・強調表示
                         # 2 行にして 2 行目の末尾から ↑ を押す (入力先に届いていれば、カーソルが 1 行目へ動いてわかる)
@@ -2978,40 +2901,25 @@ try {
                         $r = Read-Phrases
                         Check '名前の変更: 名前だけ変わり、中身はそのまま' ($dlg -ne [IntPtr]::Zero -and $r.Slots[1].Name -ceq '社外2' -and $r.Slots[1].Slots[0].Text -ceq '中の定型文' -and $r.Slots[1].Slots[1].IsGroup)
 
+                        # 削除は、メニューを閉じてから確認のダイアログで確かめる。いいえなら消さない
+                        # (メニューの中で確かめると、メニューを開いたままになり、その間は CapsLock のホットキーのフックが呼ばれなかった)
                         $confirm = Open-DeleteConfirm 1
-                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 「削除」を選ぶと、メニューの中で「OK?」に変わる' ($names -ceq '名前を変更... | OK?') "names=[$names]"
-                        Check '削除: 確認に変わる間、メニューは閉じない (出し直さない)' $script:confirmSameMenu
-                        Check '削除: 1 回目の「削除」では消さない' ((Read-Phrases).Slots[1].Name -ceq '社外2')
-                        # 別の項目にマウスを移すと「削除」に戻る (メニューは出たまま)
-                        $other = @($W::MenuItems($confirm) | Where-Object { $_.Key -ceq '名前を変更...' })
-                        if ($other.Count -gt 0) {
-                            $r0 = $other[0].Value
-                            [void]$W::SetCursorPos([int]($r0.X + $r0.Width / 2), [int]($r0.Y + $r0.Height / 2))
-                        }
-                        [void](Wait-Pumping { $m = Find-RowMenu; $null -ne $m -and (Get-MenuNames $m) -ceq '名前を変更... | 削除' } 1500)
-                        $names = if ($m = Find-RowMenu) { Get-MenuNames $m } else { '' }
-                        Check '削除: 確認中に別の項目へマウスを移すと「削除」に戻る' ($names -ceq '名前を変更... | 削除') "names=[$names]"
-                        Send-Key 0x1B 1   # Esc
-                        [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
-                        Check '削除: 確認のメニューを Esc で閉じると消さない' ($null -eq (Find-RowMenu) -and (Read-Phrases).Slots[1].Name -ceq '社外2')
-                        Invoke-HotkeyRelease
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        $confirmText = if ($confirm -ne [IntPtr]::Zero) { (@($W::Children($confirm) | ForEach-Object { $W::GetText($_) }) -join ' ') } else { '' }
+                        Check '削除: グループは確認が出て、名前と中の件数が書いてある' ($confirmText -like '*社外2*' -and $confirmText -like '*定型文 1 件*' -and $confirmText -like '*グループ 1 件*') "text=[$confirmText]"
+                        Check '削除: 確認が出たときには、メニューは閉じている' $script:menuClosedAtConfirm
+                        $back = Close-Confirm $confirm 7
+                        Check '削除: 「いいえ」なら消さない' ((Read-Phrases).Slots[1].Name -ceq '社外2')
+                        Check '削除: 「いいえ」で閉じると、元のアプリが前面に戻る' $back "前面=$script:confirmForeground"
                         $confirm = Open-DeleteConfirm 1
-                        $back = Invoke-DeleteConfirm $confirm $phrasesPath
+                        $back = Close-Confirm $confirm 6
                         $r = Read-Phrases
-                        Check '削除: もう一度選ぶと、グループを中身ごと消して空きにする' ($null -ne $confirm -and $null -eq $r.Slots[1] -and $r.Slots[2].Text -ceq '既存の定型文')
-                        Check '削除: 消した後も小窓は出たまま、元のアプリが前面のまま' $back
-                        Check '削除: 一覧からも消える (空きの枠になる)' ((Get-PopupItems $popup)[1] -ceq '') ("items=" + (Format-Items (Get-PopupItems $popup)))
-                        Invoke-HotkeyRelease
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        Check '削除: 「はい」でグループを中身ごと消して空きにする' ($confirm -ne [IntPtr]::Zero -and $null -eq $r.Slots[1] -and $r.Slots[2].Text -ceq '既存の定型文')
+                        Check '削除: 「はい」で閉じると、元のアプリが前面に戻る' $back "前面=$script:confirmForeground"
                         $confirm = Open-DeleteConfirm 0
-                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 定型文も、メニューの中で確認に変わる' ($names -ceq '履歴にピン止め | - | 編集... | OK?' -and $script:confirmSameMenu) "names=[$names] same=$script:confirmSameMenu"
-                        [void](Invoke-DeleteConfirm $confirm $phrasesPath)
-                        Check '削除: もう一度選ぶと、定型文を消して空きにする' ($null -eq (Read-Phrases).Slots[0])
-                        Invoke-HotkeyRelease
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        $confirmText = if ($confirm -ne [IntPtr]::Zero) { (@($W::Children($confirm) | ForEach-Object { $W::GetText($_) }) -join ' ') } else { '' }
+                        Check '削除: 定型文も確認が出て、名前が書いてある' ($confirmText -like '*E2E編集後*') "text=[$confirmText]"
+                        [void](Close-Confirm $confirm 6)
+                        Check '削除: 「はい」で定型文を消して空きにする' ($null -eq (Read-Phrases).Slots[0])
 
                         # ---- 定型文: ドラッグ＆ドロップで並べ替え・グループに入れる・上の階層に出す ----
                         # 一番上: [A, 箱(中: [中1]), 空き, B, 満杯(10 件)]
@@ -3332,14 +3240,16 @@ try {
                         Check 'ピン止めを外す: 小窓は出たまま、元のアプリが前面のまま' ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
                         Close-History
 
-                        # 右クリックの「削除」で履歴から消す (メニューの中でもう一度選ぶと消える。後ろが詰まり、空いた番号は空きの枠)
-                        $confirm = Open-DeleteConfirm 1 -History
-                        $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 履歴でも「削除」を選ぶと、メニューの中で確認に変わり、まだ消さない' ($names -ceq 'ピン止め | - | OK?' -and $script:confirmSameMenu -and (Get-PopupItems $popup)[1] -ceq 'ピン止め検証 新しいコピー') "names=[$names]"
-                        $chose = Invoke-DeleteConfirm $confirm $historyPath
+                        # 右クリックの「削除」で履歴から消す (確認はしない。後ろが詰まり、空いた番号は空きの枠)
+                        $menu = Open-RowMenu 1
+                        $names = if ($menu) { Get-MenuNames $menu } else { '' }
+                        Check '削除: 履歴の行のメニューに「削除」がある (まだ消さない)' ($names -ceq 'ピン止め | - | 削除' -and (Get-PopupItems $popup)[1] -ceq 'ピン止め検証 新しいコピー') "names=[$names]"
+                        $writtenBefore = [System.IO.File]::GetLastWriteTimeUtc($historyPath)
+                        $chose = $menu -and (Invoke-MenuItem $menu '削除')
+                        [void](Wait-Pumping { [System.IO.File]::GetLastWriteTimeUtc($historyPath) -ne $writtenBefore } 2000)
                         [void](Wait-Pumping { (Get-PopupItems $popup)[1] -ceq '数字キー検証 11' } 2000)
                         $items = Get-PopupItems $popup
-                        Check '削除: もう一度選ぶと履歴から消え、後ろが詰まる' ($null -ne $confirm -and $items[0] -ceq '数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items -notcontains 'ピン止め検証 新しいコピー') ("items=" + (Format-Items $items))
+                        Check '削除: 選ぶと確認せずに履歴から消え、後ろが詰まる' ($chose -and $null -eq (Find-RowMenu) -and $items[0] -ceq '数字キー検証 09' -and $items[1] -ceq '数字キー検証 11' -and $items -notcontains 'ピン止め検証 新しいコピー') ("items=" + (Format-Items $items))
                         $saved = [Copipe.Services.ClipboardHistory]::Load($historyPath, 10)
                         Check '削除: 消したことが保存される' ($saved.Items -notcontains 'ピン止め検証 新しいコピー' -and $saved.Items.Count -eq 9) "items=$($saved.Items -join ',')"
                         $fgMs = Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 1000
@@ -3492,138 +3402,17 @@ try {
                         $popup = $copipe.Popup
                         Reset-Target
 
-                        # ---- 修飾キーのダブルタップ (小窓を出したままにする。もう一度のダブルタップ・Esc・外のクリック・別のアプリへの切り替えで閉じる) ----
-                        function Restart-Copipe([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$DoubleTap) {
+                        # 設定のホットキーを変えて Copipe を起動し直し、入力先を前面にする
+                        function Restart-Copipe([System.Windows.Forms.Keys]$Hotkey) {
                             Stop-Copipe $script:copipeRef
-                            Use-Hotkey $Hotkey -DoubleTap $DoubleTap
+                            Use-Hotkey $Hotkey
                             $script:copipeRef = Start-Copipe
                             [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
                             $W::LeftClick()
                             [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                             [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
                         }
-                        # トン・トン と 2 回押す (2 回目は -Hold なら押したまま)
-                        function Invoke-DoubleTap([byte]$Vk, [switch]$Hold) {
-                            $W::KeyDown($Vk); [void](Wait-Pumping { $false } 50); $W::KeyUp($Vk)
-                            [void](Wait-Pumping { $false } 90)
-                            $W::KeyDown($Vk)
-                            if (-not $Hold) { [void](Wait-Pumping { $false } 50); $W::KeyUp($Vk) }
-                        }
                         $script:copipeRef = $copipe
-                        Restart-Copipe $mainHotkey $K::ControlKey
-                        $popup = $script:copipeRef.Popup
-                        $items = Read-History $script:copipeRef
-                        Reset-Target
-
-                        Invoke-DoubleTap 0x11
-                        $tapMs = Wait-Until { $W::IsWindowVisible($popup) } 1500
-                        Check 'ダブルタップ (Ctrl): 2 回押すと小窓が出る' ($tapMs -ge 0) "exited=$($script:copipeRef.Process.HasExited)"
-                        [void](Wait-Pumping { $false } 500)
-                        Check 'ダブルタップ (Ctrl): 離しても小窓は出たまま' ($W::IsWindowVisible($popup))
-                        Send-Key 0x09 1
-                        Check 'ダブルタップ (Ctrl): 出したままの間、Tab でモードが切り替わる' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
-                        Send-Key 0x09 1
-                        Send-Key 0x31 1
-                        $insMs = Wait-Pumping { $box.Text -ceq ('前:' + $items[0]) } 3000
-                        Check 'ダブルタップ (Ctrl): 出したままの間、数字キーで入力できる' ($insMs -ge 0) ("text=[" + $box.Text + "]")
-                        $closeMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
-                        Check 'ダブルタップ (Ctrl): 入力すると小窓は閉じる' ($closeMs -ge 0)
-                        Check 'ダブルタップ (Ctrl): 閉じた後は Tab・数字キー・Esc の横取りをやめる' ($W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x09) -and $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x31) -and $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x1B))
-                        [void](Wait-Pumping { $false } 500)
-
-                        # Esc で閉じる (入力はしない)
-                        Reset-Target
-                        Invoke-DoubleTap 0x11
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
-                        [void](Wait-Pumping { $false } 300)
-                        Send-Key 0x1B 1
-                        $escMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
-                        Check 'ダブルタップ (Ctrl): Esc で閉じる (入力はしない)' ($escMs -ge 0 -and $box.Text -ceq '前:') ("text=[" + $box.Text + "]")
-                        [void](Wait-Pumping { $false } 500)
-
-                        # もう一度のダブルタップで閉じる
-                        Invoke-DoubleTap 0x11
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
-                        [void](Wait-Pumping { $false } 500)
-                        Invoke-DoubleTap 0x11
-                        $againMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1500
-                        Check 'ダブルタップ (Ctrl): もう一度ダブルタップすると閉じる' ($againMs -ge 0)
-                        [void](Wait-Pumping { $false } 500)
-
-                        # 小窓の外をクリックすると閉じる
-                        Invoke-DoubleTap 0x11
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
-                        [void](Wait-Pumping { $false } 300)
-                        [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
-                        $W::LeftClick()
-                        $outMs = Wait-Pumping { -not $W::IsWindowVisible($popup) } 1500
-                        Check 'ダブルタップ (Ctrl): 小窓の外をクリックすると閉じる' ($outMs -ge 0)
-                        Check 'ダブルタップ (Ctrl): 閉じた後も入力先が前面' ($W::GetForegroundWindow() -eq $target.Handle)
-                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                        [void](Wait-Pumping { $false } 500)
-
-                        # 小窓の中のダブルクリックで入力すると閉じる (項目を選ぶだけの操作では閉じない: グループに入る・モードを切り替えるなど)
-                        Reset-Target
-                        Invoke-DoubleTap 0x11
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
-                        $pt = Get-ItemCenter $popup 1
-                        [void]$W::SetCursorPos($pt.X, $pt.Y)
-                        $W::DoubleClick()
-                        $clickMs = Wait-Pumping { $box.Text -ceq ('前:' + $items[1]) } 3000
-                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
-                        $clickCloseMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
-                        Check 'ダブルタップ (Ctrl): 小窓の中のダブルクリックで入力でき、入力すると閉じる' ($clickMs -ge 0 -and $clickCloseMs -ge 0) ("text=[" + $box.Text + "] visible=" + $W::IsWindowVisible($popup))
-                        [void](Wait-Pumping { $false } 500)
-
-                        # 2 回目を押し続けても出る。押している間の Tab は Ctrl+Tab として届く
-                        Invoke-DoubleTap 0x11 -Hold
-                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1500)
-                        $W::KeyDown([byte]0x09); $W::KeyUp([byte]0x09)
-                        [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文' } 1000)
-                        Check 'ダブルタップ (Ctrl): 2 回目を押したままの Tab (Ctrl+Tab) でもモードが切り替わる' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
-                        $W::KeyUp([byte]0x11)
-                        [void](Wait-Pumping { $false } 300)
-                        Check 'ダブルタップ (Ctrl): 押し続けてから離しても出たまま' ($W::IsWindowVisible($popup))
-                        Send-Key 0x1B 1   # 定型文の一番上なので閉じる
-                        $escTopMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
-                        Check 'ダブルタップ (Ctrl): 定型文の一番上で Esc を押すと閉じる' ($escTopMs -ge 0)
-                        [void](Wait-Pumping { $false } 500)
-
-                        # Ctrl+C を 2 回では出ない
-                        foreach ($i in 1, 2) {
-                            $W::KeyDown([byte]0x11); $W::KeyDown([byte]0x43); $W::KeyUp([byte]0x43); $W::KeyUp([byte]0x11)
-                            [void](Wait-Pumping { $false } 80)
-                        }
-                        [void](Wait-Pumping { $false } 500)
-                        Check 'ダブルタップ (Ctrl): Ctrl+C を 2 回押しても小窓は出ない' (-not $W::IsWindowVisible($popup))
-                        # 1 回押すだけでは出ない
-                        $W::KeyDown([byte]0x11); [void](Wait-Pumping { $false } 60); $W::KeyUp([byte]0x11)
-                        [void](Wait-Pumping { $false } 600)
-                        Check 'ダブルタップ (Ctrl): 1 回押すだけでは小窓は出ない' (-not $W::IsWindowVisible($popup))
-                        # ホットキーでも今までどおり出る (並行して使える)
-                        $W::KeyDown($script:keyVk)
-                        $hkMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
-                        $W::KeyUp($script:keyVk)
-                        $hkHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
-                        Check 'ダブルタップ (Ctrl): ホットキーでも並行して出せ、離すと消える' ($hkMs -ge 0 -and $hkHideMs -ge 0)
-
-                        # ホットキーを「なし」にする: そのキーは Copipe が受け取らず、ダブルタップだけで出す
-                        $oldVk = $script:keyVk
-                        Restart-Copipe $K::None $K::ShiftKey
-                        $popup = $script:copipeRef.Popup
-                        Check 'ホットキー なし: 起動できる (登録の失敗を知らせない)' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
-                        Check 'ホットキー なし: 前のホットキーは Copipe が登録していない (他のアプリに届く)' ($W::CanRegisterHotkey($owner, [uint32]0, [uint32]$oldVk))
-                        $W::KeyDown([byte]$oldVk); [void](Wait-Pumping { $false } 400)
-                        $shownByOld = $W::IsWindowVisible($popup)
-                        $W::KeyUp([byte]$oldVk)
-                        Check 'ホットキー なし: 前のホットキーを押しても小窓は出ない' (-not $shownByOld)
-                        [void](Wait-Pumping { $false } 500)
-                        Invoke-DoubleTap 0x10
-                        $shiftMs = Wait-Until { $W::IsWindowVisible($popup) } 1500
-                        Send-Key 0x1B 1
-                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
-                        Check 'ホットキー なし: Shift のダブルタップで小窓が出る' ($shiftMs -ge 0)
-                        [void](Wait-Pumping { $false } 500)
 
                         # ---- CapsLock をホットキーにする (低レベルのキーボードフックで受け取り、握りつぶす) ----
                         # 起動時に CapsLock がオンなら、Copipe がオフに戻す (握りつぶしている間は CapsLock だけでは戻せないため)
@@ -3633,7 +3422,7 @@ try {
                         # Copipe より先にフックを付け、Copipe が通した CapsLock だけを数える (後から付けた Copipe のフックが先に呼ばれる)
                         $keyWatchOn = $W::StartKeyWatch(0x14)
                         Check 'CapsLock: 検証のフックを付けられる (Copipe が通したキーを数えるため)' $keyWatchOn
-                        Restart-Copipe $K::Capital $K::None
+                        Restart-Copipe $K::Capital
                         $popup = $script:copipeRef.Popup
                         Check 'CapsLock: 起動できる (登録の失敗を知らせない)' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
                         $capsOffMs = Wait-Pumping { -not $W::IsToggled(0x14) } 2000
@@ -3666,7 +3455,7 @@ try {
 
                         # ---- 半角/全角をホットキーにする (このマシンは英語配列なので擬似入力で確かめる。本物の日本語キーボードでは未確認) ----
                         # IME のオン・オフで 0xF3 と 0xF4 が入れ替わるので、0xF3 で押して 0xF4 で離しても 1 つのキーとして扱う
-                        Restart-Copipe ([System.Windows.Forms.Keys]0xF3) $K::None
+                        Restart-Copipe ([System.Windows.Forms.Keys]0xF3)
                         $popup = $script:copipeRef.Popup
                         Check '半角/全角: 起動できる' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
                         $W::KeyDown(0xF3)

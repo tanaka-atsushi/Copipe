@@ -5,7 +5,7 @@ English | [日本語](README.ja.md)
 **Hold a hotkey, see your clipboard history next to the mouse cursor, click to type it.**
 
 Copipe is a small clipboard history tool for Windows. It sits in the system tray and remembers the text you copy.
-Hold the hotkey (F1 by default) and a popup appears by the cursor. Double-click an item, or press its number key,
+Hold the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or press its number key,
 and Copipe types it at the text cursor of the app you are working in. Let go of the hotkey and the popup disappears.
 
 - **Never steals focus.** The popup does not activate, so your text cursor stays where it was.
@@ -31,13 +31,10 @@ Requires Windows 10 or 11.
 ## How to use
 
 1. Start Copipe. An icon appears in the system tray, and from now on the text you copy is kept in the history.
-2. **Hold the hotkey** (F1 by default). The popup shows your history, newest first.
+2. **Hold the hotkey** (CapsLock by default). The popup shows your history, newest first.
 3. While holding it, **double-click an item** or **press its number key**. The full text, including line breaks and tabs, is typed where your text cursor is.
    You can keep holding the hotkey and insert more items.
 4. **Release the hotkey** to close the popup.
-
-You can also set a **double-tap** key in Settings (Ctrl, Shift or Alt). Press it twice and the popup stays open until you insert an item,
-double-tap again, press Esc, click outside, or switch to another app.
 
 ### History
 
@@ -58,7 +55,7 @@ Press the **mode key** (Tab by default), or turn the mouse wheel over the popup,
 
 - Each level has ten slots (1–9, 0). A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
 - Select a snippet to type it. Select a group to open it. **Esc** goes back up one level, and you can click a level name in the header to jump to it.
-- Right-click a slot to add, edit, rename, delete or pin to history. Drag slots to move them, or drop one on a group to put it inside.
+- Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first). Drag slots to move them, or drop one on a group to put it inside.
 - A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
 
 ### Tray menu
@@ -72,14 +69,13 @@ Settings opens automatically the first time you start Copipe.
 | Setting | |
 |---|---|
 | **Hotkey** | The key you hold to show the popup. F1, Pause, CapsLock and so on. It must be a single key: Ctrl, Shift, Alt and Win combinations are not allowed. |
-| **Double-tap** | Ctrl, Shift or Alt, pressed twice. Optional. |
 | **Mode key** | Switches between history and snippets while the popup is open (Tab by default). |
 | **Paste with** | Double-click (default) or single-click. |
 | **Language** | Auto (follow Windows), English or Japanese. |
 
 Good to know:
 
-- **While Copipe is running, other apps do not receive the hotkey.** For example, with F1 VS Code's F1 command palette stops working. Ctrl+Shift+P still works.
+- **While Copipe is running, other apps do not receive the hotkey.** With the default CapsLock, CapsLock no longer switches upper/lower case (Shift+CapsLock still works). With F1, VS Code's F1 command palette stops working (Ctrl+Shift+P still works).
 - **F12 cannot be used.** Windows reserves it for debuggers.
 - **If the popup does not appear,** another app may be grabbing the key. Choose a different key.
 - **Only one Copipe runs at a time.** Starting it again just shows "Copipe is already running." and the running one keeps working.

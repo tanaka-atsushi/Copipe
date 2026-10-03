@@ -33,8 +33,6 @@ namespace Copipe
         }
         private const string PathSeparator = " > ";
 
-        private const int StickyCheckMs = 50;
-
         // 元のアプリを前面に戻した後、切り替えが終わるのを待ってダイアログの持ち主を隠す (最大 100 ms × 30 回)
         private const int OwnerHideIntervalMs = 100;
         private const int OwnerHideMaxTicks = 30;
@@ -50,15 +48,13 @@ namespace Copipe
         private enum PopupTrigger
         {
             None,
-            Hotkey,
-            DoubleTap
+            Hotkey
         }
 
         private readonly Settings _settings;
         private readonly ClipboardHistory _history;
         private readonly PopupForm _popup;
         private readonly HoldHotkey _hotkey;
-        private readonly DoubleTapWatcher _doubleTap;
         private readonly ClipboardMonitor _monitor;
         private readonly TextInserter _inserter;
         private readonly PopupKeys _popupKeys;
@@ -72,10 +68,6 @@ namespace Copipe
         // トレイのアイコンの画像。NotifyIcon は閉じても画像を解放しないので、自分で解放する
         private readonly Icon _trayImage;
         private readonly DialogOwner _dialogOwner = new DialogOwner();
-        // ダブルタップで出したままの小窓の、別のアプリへの切り替えを調べる
-        private readonly Timer _stickyTimer = new Timer();
-        // ダブルタップで出したままの小窓の、外のクリックを受け取る
-        private readonly MouseClickWatcher _mouseClicks;
         private readonly Timer _ownerHideTimer = new Timer();
         private int _ownerHideTicks;
         // 定型文と、今いる階層 (一番上から順に入ったグループ。一番上なら空)
@@ -135,13 +127,6 @@ namespace Copipe
             _hotkey.Pressed += OnHotkeyPressed;
             _hotkey.Released += OnHotkeyReleased;
 
-            _doubleTap = new DoubleTapWatcher();
-            _doubleTap.Pressed += OnDoubleTapPressed;
-            _doubleTap.Released += OnDoubleTapReleased;
-
-            _mouseClicks = new MouseClickWatcher();
-            _mouseClicks.ButtonPressed += OnStickyMouseClicked;
-
             _monitor = new ClipboardMonitor();
             _monitor.Changed += OnClipboardChanged;
 
@@ -151,8 +136,6 @@ namespace Copipe
 
             _ownerHideTimer.Interval = OwnerHideIntervalMs;
             _ownerHideTimer.Tick += OnOwnerHideTimerTick;
-            _stickyTimer.Interval = StickyCheckMs;
-            _stickyTimer.Tick += OnStickyTimerTick;
 
             // 文字は UpdateLabels で入れる (言語を変えたときも入れ直す)
             _settingsItem = new ToolStripMenuItem(string.Empty, null, OnSettingsClick);
@@ -181,22 +164,10 @@ namespace Copipe
             get { return HotkeyText.Display(_settings.Hotkey); }
         }
 
-        /// <summary>起動方法の表示 (例: ホットキー: Pause / ダブルタップ: Ctrl)。使わないものは出さない。</summary>
+        /// <summary>起動方法の表示 (例: ホットキー: Pause)。</summary>
         private string TriggerText
         {
-            get
-            {
-                List<string> parts = new List<string>();
-                if (_settings.Hotkey != Keys.None)
-                {
-                    parts.Add(Lang.T("ホットキー: ", "Hotkey: ") + HotkeyName);
-                }
-                if (_settings.DoubleTap != Keys.None)
-                {
-                    parts.Add(Lang.T("ダブルタップ: ", "Double-tap: ") + HotkeyText.DoubleTapDisplay(_settings.DoubleTap));
-                }
-                return string.Join(" / ", parts.ToArray());
-            }
+            get { return Lang.T("ホットキー: ", "Hotkey: ") + HotkeyName; }
         }
 
         /// <summary>ホットキーを登録し、クリップボードの監視を始めて、トレイにアイコンを出す。</summary>
@@ -205,15 +176,6 @@ namespace Copipe
             if (!_hotkey.TryRegister(_settings.Hotkey))
             {
                 return false;
-            }
-            if (!_doubleTap.SetKey(_settings.DoubleTap))
-            {
-                MessageBox.Show(
-                    Lang.T("ダブルタップ (" + HotkeyText.DoubleTapDisplay(_settings.DoubleTap) + ") のキー入力を受け取れませんでした。" +
-                           "ダブルタップでは小窓を出せません。\n\nCopipe をいったん終了して、もう一度お試しください。",
-                           "Could not receive key input for double-tap (" + HotkeyText.DoubleTapDisplay(_settings.DoubleTap) + "). " +
-                           "Double-tap will not show the popup.\n\nPlease exit Copipe and try again."),
-                    "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 
             if (!_monitor.Start())
@@ -313,37 +275,15 @@ namespace Copipe
 
         private void OnHotkeyPressed(object sender, EventArgs e)
         {
-            ShowPopupFor(PopupTrigger.Hotkey, Keys.None);
+            ShowPopupFor(PopupTrigger.Hotkey);
         }
 
-        /// <summary>
-        /// 修飾キーのダブルタップ。小窓を出し、離しても出したままにする (もう一度のダブルタップ・Esc・
-        /// 小窓の外のクリック・別のアプリへの切り替えで閉じる)。ダブルタップで出しているときにもう一度なら閉じる。
-        /// </summary>
-        private void OnDoubleTapPressed(object sender, EventArgs e)
-        {
-            if (_trigger == PopupTrigger.DoubleTap)
-            {
-                ClosePopup();
-                return;
-            }
-            ShowPopupFor(PopupTrigger.DoubleTap, _settings.DoubleTap);
-            if (_trigger == PopupTrigger.DoubleTap)
-            {
-                _mouseClicks.Start();
-                _stickyTimer.Start();
-            }
-        }
-
-        /// <summary>
-        /// 小窓を出す。trigger は出した起動方法 (その方法で離したときだけ消す)。
-        /// heldModifier は押し続けている修飾キー (ダブルタップのとき)。数字キーなどはそのキー付きでも受け取る。
-        /// </summary>
-        private void ShowPopupFor(PopupTrigger trigger, Keys heldModifier)
+        /// <summary>小窓を出す。trigger は出した起動方法 (その方法で離したときだけ消す)。</summary>
+        private void ShowPopupFor(PopupTrigger trigger)
         {
             if (_dialogOpen || _trigger != PopupTrigger.None)
             {
-                // 定型文のダイアログや設定画面を出している間、または別の起動方法で出している間は何もしない
+                // 定型文のダイアログや設定画面を出している間、または既に出している間は何もしない
                 return;
             }
             _trigger = trigger;
@@ -355,7 +295,7 @@ namespace Copipe
             // (E2E で、表示の直後に押した数字が漏れたため)。
             // モードキーがホットキーと同じキーだと、押したことが区別できないので登録しない
             Keys modeKey = HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey;
-            _popupKeys.Enable(modeKey, heldModifier);
+            _popupKeys.Enable(modeKey);
 
             // 通知を取りこぼしていた場合の保険として、押した時点の内容も拾う
             ClipboardKind kind = CaptureClipboard(false);
@@ -473,10 +413,11 @@ namespace Copipe
                 LaunchPath(path);
                 return;
             }
-            InsertAndMaybeClose(entry);
+            // テキストカーソルの位置に入力する。小窓はキーを離すまで出したまま (続けて入力できる)
+            _inserter.Insert(entry);
         }
 
-        /// <summary>ファイル・フォルダーを、関連付けられたアプリで開く。ダブルタップで出した小窓は、開いたら閉じる。</summary>
+        /// <summary>ファイル・フォルダーを、関連付けられたアプリで開く。</summary>
         private void LaunchPath(string path)
         {
             try
@@ -488,23 +429,6 @@ namespace Copipe
                 MessageBox.Show(
                     Lang.T("開けませんでした: ", "Could not open: ") + path + "\r\n" + ex.Message,
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-            if (_trigger == PopupTrigger.DoubleTap)
-            {
-                ClosePopup();
-            }
-        }
-
-        /// <summary>
-        /// テキストカーソルの位置に入力する。ダブルタップで出したままの小窓は、入力したら閉じる。
-        /// ホットキーで出した小窓は、キーを離すまで出したまま (続けて入力できる)。
-        /// </summary>
-        private void InsertAndMaybeClose(string text)
-        {
-            _inserter.Insert(text);
-            if (_trigger == PopupTrigger.DoubleTap)
-            {
-                ClosePopup();
             }
         }
 
@@ -582,12 +506,6 @@ namespace Copipe
             {
                 _phrasePath.RemoveAt(_phrasePath.Count - 1);
                 ShowMode();
-                return;
-            }
-            // ダブルタップで出したままの小窓は、Esc で閉じる (定型文モードでは一番上の階層のとき)
-            if (_trigger == PopupTrigger.DoubleTap)
-            {
-                ClosePopup();
             }
         }
 
@@ -678,8 +596,7 @@ namespace Copipe
             string modeKeyName = HotkeyText.Display(_settings.ModeKey);
             if (_mode == PopupMode.History)
             {
-                // ダブルタップで出したままの小窓では、履歴モードでも Esc で閉じられるよう受け取る
-                _popupKeys.SetEscapeEnabled(_trigger == PopupTrigger.DoubleTap);
+                _popupKeys.SetEscapeEnabled(false);
                 _popupKeys.SetLettersEnabled(true);
                 // 履歴もドラッグで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中)
                 _popup.AllowDrag = true;
@@ -1061,72 +978,17 @@ namespace Copipe
 
         private void OnHotkeyReleased(object sender, EventArgs e)
         {
-            HidePopupFor(PopupTrigger.Hotkey);
-        }
-
-        private void OnDoubleTapReleased(object sender, EventArgs e)
-        {
-            // ダブルタップで出した小窓は、離しても出したまま
-        }
-
-        /// <summary>小窓を消す。出した起動方法と違う方法で離されたときは何もしない。</summary>
-        private void HidePopupFor(PopupTrigger trigger)
-        {
-            if (_trigger != trigger)
-            {
-                return;
-            }
-            ClosePopup();
-        }
-
-        /// <summary>
-        /// ダブルタップで出したままの小窓を、外がクリックされたとき・別のアプリに切り替わったときに閉じる。
-        /// 小窓はフォーカスを奪わない作りで、外のクリックを知らせる仕組みが無いので、出している間だけ短い間隔で調べる。
-        /// </summary>
-        private void OnStickyTimerTick(object sender, EventArgs e)
-        {
-            if (_trigger != PopupTrigger.DoubleTap || !_popup.Visible)
-            {
-                _stickyTimer.Stop();
-                return;
-            }
-
-            if (RowMenu.IsOpen || _dialogOpen || _popup.IsDragging)
-            {
-                // 右クリックのメニュー・ダイアログ・ドラッグの最中は閉じない
-                return;
-            }
-            IntPtr foreground = NativeMethods.GetForegroundWindow();
-            if (foreground != IntPtr.Zero && foreground != _targetWindow && foreground != _popup.Handle)
+            // 小窓を出していないとき (ダイアログを出している間に押して離したときなど) は何もしない
+            if (_trigger == PopupTrigger.Hotkey)
             {
                 ClosePopup();
             }
         }
 
-        /// <summary>ダブルタップで出したままの小窓の外で、マウスのボタンが押されたら閉じる。</summary>
-        private void OnStickyMouseClicked(object sender, EventArgs e)
-        {
-            if (_trigger != PopupTrigger.DoubleTap || !_popup.Visible)
-            {
-                return;
-            }
-            if (RowMenu.IsOpen || _dialogOpen || _popup.IsDragging)
-            {
-                // 右クリックのメニュー・ダイアログ・ドラッグの最中は閉じない
-                return;
-            }
-            if (!_popup.Bounds.Contains(Cursor.Position))
-            {
-                ClosePopup();
-            }
-        }
-
-        /// <summary>小窓を閉じる (どの起動方法で出したかによらない)。</summary>
+        /// <summary>小窓を閉じる。</summary>
         private void ClosePopup()
         {
             _trigger = PopupTrigger.None;
-            _stickyTimer.Stop();
-            _mouseClicks.Stop();
             // 数字キーやモードキーを横取りしたままにすると、どのアプリでも打てなくなる。真っ先に解除する
             _popupKeys.Disable();
             // 離した後に遅れて表示が変わらないよう、先に読み直しを止める
@@ -1165,8 +1027,8 @@ namespace Copipe
             string label = pinned ? Lang.T("ピン止めを外す", "Unpin")
                 : _history.IsPinnedFull ? Lang.T("ピン止めは 26 件までです", "Up to 26 pins")
                 : Lang.T("ピン止め", "Pin");
-            int chosen = ShowRowMenu(screen, new[] { label, RowMenu.Separator, Lang.T("削除", "Delete") },
-                                     2);
+            // 履歴の項目は、コピーし直せば戻せるので確認しない
+            int chosen = ShowRowMenu(screen, new[] { label, RowMenu.Separator, Lang.T("削除", "Delete") });
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
@@ -1214,19 +1076,17 @@ namespace Copipe
         /// <summary>
         /// 右クリックのメニューを出す。小窓はフォーカスを奪わないので、メニューにはキーが届かない。
         /// メニューを出している間は Esc をホットキーで受け取り、メニューを閉じる (OnEscapePressed)。
-        /// confirmIndex の項目 (削除) は、選ぶとメニューを開いたままその項目が「OK?」に変わり、
-        /// もう一度選んだときだけ confirmIndex を返す。
         /// </summary>
-        private int ShowRowMenu(Point screen, IList<string> labels, int confirmIndex = -1)
+        private int ShowRowMenu(Point screen, IList<string> labels)
         {
             _popupKeys.SetEscapeEnabled(true);
             try
             {
-                return RowMenu.Show(_popup.Handle, screen, labels, confirmIndex, Lang.T("OK?", "Sure?"));
+                return RowMenu.Show(_popup.Handle, screen, labels);
             }
             finally
             {
-                _popupKeys.SetEscapeEnabled(_mode == PopupMode.Phrases || _trigger == PopupTrigger.DoubleTap);
+                _popupKeys.SetEscapeEnabled(_mode == PopupMode.Phrases);
             }
         }
 
@@ -1280,9 +1140,7 @@ namespace Copipe
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
 
-            // 削除は最後の項目。メニューの中でもう一度選ぶと消す
-            int chosen = node == null ? ShowRowMenu(screen, labels)
-                : ShowRowMenu(screen, labels, labels.Count - 1);
+            int chosen = ShowRowMenu(screen, labels);
             if (chosen >= 0 && chosen < actions.Count && actions[chosen] != null)
             {
                 // 右クリックの処理から抜けてからダイアログを出す
@@ -1399,21 +1257,64 @@ namespace Copipe
             });
         }
 
-        /// <summary>枠を空きにする (確認は右クリックのメニューの中で済ませてある)。小窓は出したまま。</summary>
+        /// <summary>
+        /// 枠を空きにする。取り消せないので確認する (グループは中の件数も示す)。
+        /// 確認はメニューを閉じてからダイアログで出す。メニューの中で確認すると、メニューを開いたままになり、
+        /// その間は CapsLock のホットキーのフックが呼ばれず、離しても小窓とメニューが消えなかった
+        /// </summary>
         private void DeleteSlot(PhraseNode group, int index)
         {
-            if (group.Slots[index] == null)
+            PhraseNode node = group.Slots[index];
+            if (node == null)
             {
                 return;
             }
-            group.Slots[index] = null;
-            SavePhrases();
-            if (_popup.Visible && _mode == PopupMode.Phrases)
+            RunPhraseDialog(delegate
             {
-                ShowMode();
+                string name = PreviewText.Line(node.Label, 40);
+                string message;
+                if (node.IsGroup)
+                {
+                    int phrases = 0;
+                    int groups = 0;
+                    CountContents(node, ref phrases, ref groups);
+                    message = Lang.T("グループ「" + name + "」を削除します。\n中の定型文 " + phrases + " 件とグループ " + groups +
+                                     " 件も削除されます。\n\nよろしいですか。",
+                                     "Delete the group \"" + name + "\"?\nThe " + phrases + " snippet(s) and " + groups +
+                                     " group(s) inside it will also be deleted.");
+                }
+                else
+                {
+                    message = Lang.T("定型文「" + name + "」を削除します。\n\nよろしいですか。", "Delete the snippet \"" + name + "\"?");
+                }
+                if (MessageBox.Show(_dialogOwner, message, "Copipe", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                {
+                    return;
+                }
+                group.Slots[index] = null;
+                SavePhrases();
+            });
+        }
+
+        private static void CountContents(PhraseNode group, ref int phrases, ref int groups)
+        {
+            foreach (PhraseNode child in group.Slots)
+            {
+                if (child == null)
+                {
+                    continue;
+                }
+                if (child.IsGroup)
+                {
+                    groups++;
+                    CountContents(child, ref phrases, ref groups);
+                }
+                else
+                {
+                    phrases++;
+                }
             }
-            // メニューを出すと小窓が前面になるので、元のアプリに戻す (続けて入力できるように)
-            RestoreTargetWindow();
         }
 
         /// <summary>
@@ -1548,8 +1449,6 @@ namespace Copipe
             {
                 // 解除しないと、今のホットキーを押しても設定画面に取り込めない
                 _hotkey.Unregister();
-                // 設定画面を出している間はダブルタップも見張らない (設定画面で Ctrl などを押すため)
-                _doubleTap.Stop();
                 _popupKeys.Disable();
                 _trigger = PopupTrigger.None;
                 _popup.HidePopup();
@@ -1559,12 +1458,11 @@ namespace Copipe
                 while (!finished)
                 {
                     Keys chosenHotkey;
-                    Keys chosenDoubleTap;
                     Keys chosenModeKey;
                     InsertClick chosenClick;
                     UiLanguage chosenLanguage;
                     using (SettingsDialog dialog = new SettingsDialog(
-                        _settings.Hotkey, _settings.DoubleTap, _settings.ModeKey, _settings.InsertClick, _settings.Language))
+                        _settings.Hotkey, _settings.ModeKey, _settings.InsertClick, _settings.Language))
                     {
                         if (dialog.ShowDialog() != DialogResult.OK)
                         {
@@ -1572,7 +1470,6 @@ namespace Copipe
                             return;
                         }
                         chosenHotkey = dialog.SelectedHotkey;
-                        chosenDoubleTap = dialog.SelectedDoubleTap;
                         chosenModeKey = dialog.SelectedModeKey;
                         chosenClick = dialog.SelectedInsertClick;
                         chosenLanguage = dialog.SelectedLanguage;
@@ -1584,7 +1481,7 @@ namespace Copipe
                         {
                             RestoreHotkey();
                         }
-                        ApplySettings(chosenHotkey, chosenDoubleTap, chosenModeKey, chosenClick, chosenLanguage);
+                        ApplySettings(chosenHotkey, chosenModeKey, chosenClick, chosenLanguage);
                         finished = true;
                     }
                     else
@@ -1601,20 +1498,12 @@ namespace Copipe
             finally
             {
                 _dialogOpen = false;
-                // 設定どおりのダブルタップの見張りに戻す (取り消したときも)
-                if (!_doubleTap.SetKey(_settings.DoubleTap))
-                {
-                    MessageBox.Show(
-                        Lang.T("ダブルタップのキー入力を受け取れませんでした。ダブルタップでは小窓を出せません。",
-                               "Could not receive key input for double-tap. Double-tap will not show the popup."),
-                        "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
             }
         }
 
-        private void ApplySettings(Keys hotkey, Keys doubleTap, Keys modeKey, InsertClick insertClick, UiLanguage language)
+        private void ApplySettings(Keys hotkey, Keys modeKey, InsertClick insertClick, UiLanguage language)
         {
-            bool changed = (hotkey != _settings.Hotkey) || (doubleTap != _settings.DoubleTap) || (modeKey != _settings.ModeKey) ||
+            bool changed = (hotkey != _settings.Hotkey) || (modeKey != _settings.ModeKey) ||
                            (insertClick != _settings.InsertClick) || (language != _settings.Language);
             if (!changed)
             {
@@ -1622,7 +1511,6 @@ namespace Copipe
             }
 
             _settings.Hotkey = hotkey;
-            _settings.DoubleTap = doubleTap;
             _settings.ModeKey = modeKey;
             _settings.InsertClick = insertClick;
             _settings.Language = language;
@@ -1772,15 +1660,12 @@ namespace Copipe
                 _popupKeys.Dispose();
                 _inserter.Dispose();
                 _hotkey.Dispose();
-                _doubleTap.Dispose();
-                _mouseClicks.Dispose();
                 _retryTimer.Dispose();
                 _trayIcon.Dispose();
                 // Dispose は終了時に 2 回呼ばれることがある。Icon は 2 回解放しても例外にならない
                 _trayImage.Dispose();
                 _trayMenu.Dispose();
                 _ownerHideTimer.Dispose();
-                _stickyTimer.Dispose();
                 _dialogOwner.Dispose();
                 _popup.FormClosed -= OnPopupClosed;
                 _popup.Dispose();

@@ -62,7 +62,7 @@ namespace Copipe.Services
             Unregister();
             if ((keys & Keys.KeyCode) == Keys.None)
             {
-                // ホットキーを使わない設定 (ダブルタップだけで小窓を出す)
+                // キーが無ければ何も登録しない
                 return true;
             }
 

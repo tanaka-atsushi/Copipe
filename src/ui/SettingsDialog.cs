@@ -6,7 +6,7 @@ using Copipe.Services;
 namespace Copipe.UI
 {
     /// <summary>
-    /// 設定画面。ホットキー・ダブルタップ・モードキー・貼り付けの操作を変える。
+    /// 設定画面。ホットキー・モードキー・貼り付けの操作を変える。
     /// キーは押されたキーをその場で取り込む。表示している間、呼び出し側は今のホットキーを
     /// 解除しておくこと (解除しないと、今のキーを押してもここには届かない)。
     /// </summary>
@@ -28,24 +28,18 @@ namespace Copipe.UI
         private static readonly Color ErrorColor = Color.FromArgb(0xC0, 0x30, 0x00);
 
         private readonly Button _hotkeyBox;
-        private readonly Button _hotkeyClear;
-        private readonly Button _doubleTapBox;
-        private readonly Button _doubleTapClear;
         private readonly Button _modeKeyBox;
         private readonly Label _note;
         private readonly RadioButton _singleClick;
         private readonly ComboBox _language;
         private readonly Button _ok;
         private Keys _selected;
-        private Keys _selectedDoubleTap;
         private Keys _selectedModeKey;
         private bool _pending;
 
-        public SettingsDialog(Keys currentHotkey, Keys currentDoubleTap, Keys currentModeKey,
-                              InsertClick currentInsertClick, UiLanguage currentLanguage)
+        public SettingsDialog(Keys currentHotkey, Keys currentModeKey, InsertClick currentInsertClick, UiLanguage currentLanguage)
         {
             _selected = currentHotkey;
-            _selectedDoubleTap = HotkeyText.NormalizeModifier(currentDoubleTap);
             _selectedModeKey = currentModeKey;
 
             Text = Lang.T("設定", "Settings");
@@ -60,7 +54,7 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(460));
+            ClientSize = new Size(Scaled(380), Scaled(384));
 
             Label hotkeyLabel = new Label();
             hotkeyLabel.Text = Lang.T("ホットキー (押し続けている間、小窓が出ます)", "Hotkey (shows the popup while held)");
@@ -69,55 +63,22 @@ namespace Copipe.UI
             Controls.Add(hotkeyLabel);
 
             _hotkeyBox = new Button();
-            _hotkeyBox.Text = HotkeyDisplay(currentHotkey);
+            _hotkeyBox.Text = HotkeyText.Display(currentHotkey);
             _hotkeyBox.Font = new Font(Font.FontFamily, Font.SizeInPoints * 1.5f, FontStyle.Bold);
-            _hotkeyBox.Bounds = new Rectangle(Scaled(16), Scaled(38), Scaled(268), Scaled(50));
+            _hotkeyBox.Bounds = new Rectangle(Scaled(16), Scaled(38), Scaled(348), Scaled(50));
             _hotkeyBox.UseMnemonic = false;
             Controls.Add(_hotkeyBox);
-
-            _hotkeyClear = NewClearButton(new Rectangle(Scaled(292), Scaled(38), Scaled(72), Scaled(50)));
-            _hotkeyClear.Click += delegate
-            {
-                _pending = false;
-                _selected = Keys.None;
-                _hotkeyBox.Text = NoneText;
-                ShowNote(GuideNote, false);
-                UpdateState();
-            };
-
-            Label doubleTapLabel = new Label();
-            doubleTapLabel.Text = Lang.T("ダブルタップ (Ctrl などを 2 回押し、押し続ける間)", "Double-tap (press Ctrl etc. twice and hold)");
-            doubleTapLabel.AutoSize = true;
-            doubleTapLabel.Location = new Point(Scaled(16), Scaled(100));
-            Controls.Add(doubleTapLabel);
-
-            _doubleTapBox = new Button();
-            _doubleTapBox.Text = DoubleTapText(_selectedDoubleTap);
-            _doubleTapBox.Font = new Font(Font.FontFamily, Font.SizeInPoints * 1.2f, FontStyle.Bold);
-            _doubleTapBox.Bounds = new Rectangle(Scaled(16), Scaled(124), Scaled(268), Scaled(40));
-            _doubleTapBox.UseMnemonic = false;
-            Controls.Add(_doubleTapBox);
-
-            _doubleTapClear = NewClearButton(new Rectangle(Scaled(292), Scaled(124), Scaled(72), Scaled(40)));
-            _doubleTapClear.Click += delegate
-            {
-                _pending = false;
-                _selectedDoubleTap = Keys.None;
-                _doubleTapBox.Text = NoneText;
-                ShowNote(GuideNote, false);
-                UpdateState();
-            };
 
             Label modeKeyLabel = new Label();
             modeKeyLabel.Text = Lang.T("モードキー (小窓で履歴と定型文を切り替える)", "Mode key (switches history / snippets in the popup)");
             modeKeyLabel.AutoSize = true;
-            modeKeyLabel.Location = new Point(Scaled(16), Scaled(176));
+            modeKeyLabel.Location = new Point(Scaled(16), Scaled(100));
             Controls.Add(modeKeyLabel);
 
             _modeKeyBox = new Button();
             _modeKeyBox.Text = HotkeyText.Display(currentModeKey);
             _modeKeyBox.Font = new Font(Font.FontFamily, Font.SizeInPoints * 1.2f, FontStyle.Bold);
-            _modeKeyBox.Bounds = new Rectangle(Scaled(16), Scaled(200), Scaled(348), Scaled(40));
+            _modeKeyBox.Bounds = new Rectangle(Scaled(16), Scaled(124), Scaled(348), Scaled(40));
             _modeKeyBox.UseMnemonic = false;
             Controls.Add(_modeKeyBox);
 
@@ -127,26 +88,26 @@ namespace Copipe.UI
             _note.AutoSize = false;
             _note.UseMnemonic = false;
             _note.ForeColor = SystemColors.GrayText;
-            _note.Bounds = new Rectangle(Scaled(16), Scaled(248), Scaled(348), Scaled(68));
+            _note.Bounds = new Rectangle(Scaled(16), Scaled(172), Scaled(348), Scaled(68));
             Controls.Add(_note);
 
 
             Label clickLabel = new Label();
             clickLabel.Text = Lang.T("貼り付けの操作", "Paste with");
             clickLabel.AutoSize = true;
-            clickLabel.Location = new Point(Scaled(16), Scaled(326));
+            clickLabel.Location = new Point(Scaled(16), Scaled(250));
             Controls.Add(clickLabel);
 
             RadioButton doubleClick = new RadioButton();
             doubleClick.Text = Lang.T("ダブルクリック", "Double-click");
             doubleClick.AutoSize = true;
-            doubleClick.Location = new Point(Scaled(120), Scaled(324));
+            doubleClick.Location = new Point(Scaled(120), Scaled(248));
             Controls.Add(doubleClick);
 
             _singleClick = new RadioButton();
             _singleClick.Text = Lang.T("シングルクリック", "Single-click");
             _singleClick.AutoSize = true;
-            _singleClick.Location = new Point(Scaled(236), Scaled(324));
+            _singleClick.Location = new Point(Scaled(236), Scaled(248));
             Controls.Add(_singleClick);
 
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
@@ -156,7 +117,7 @@ namespace Copipe.UI
             Label languageLabel = new Label();
             languageLabel.Text = "Language";
             languageLabel.AutoSize = true;
-            languageLabel.Location = new Point(Scaled(16), Scaled(364));
+            languageLabel.Location = new Point(Scaled(16), Scaled(288));
             Controls.Add(languageLabel);
 
             _language = new ComboBox();
@@ -164,14 +125,14 @@ namespace Copipe.UI
             _language.DropDownStyle = ComboBoxStyle.DropDownList;
             _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
             _language.SelectedIndex = (int)currentLanguage;
-            _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(284), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
             // 設定画面からもバージョンなどを見られるように (トレイのメニューの「Copipe について」と同じ画面)
             Button about = new Button();
             about.Name = "aboutButton";
             about.Text = "About...";
-            about.Bounds = new Rectangle(Scaled(16), Scaled(410), Scaled(84), Scaled(30));
+            about.Bounds = new Rectangle(Scaled(16), Scaled(334), Scaled(84), Scaled(30));
             about.Click += delegate
             {
                 using (AboutDialog dialog = new AboutDialog())
@@ -184,13 +145,13 @@ namespace Copipe.UI
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(410), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(334), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(410), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(334), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -202,12 +163,6 @@ namespace Copipe.UI
         public Keys SelectedHotkey
         {
             get { return _selected; }
-        }
-
-        /// <summary>OK で閉じたときに選ばれたダブルタップのキー (ControlKey・ShiftKey・Menu。使わなければ None)。</summary>
-        public Keys SelectedDoubleTap
-        {
-            get { return _selectedDoubleTap; }
         }
 
         /// <summary>OK で閉じたときに選ばれたモードキー。</summary>
@@ -256,7 +211,7 @@ namespace Copipe.UI
                     return true;
                 }
 
-                if (ActiveControl == _hotkeyBox || ActiveControl == _doubleTapBox || ActiveControl == _modeKeyBox)
+                if (ActiveControl == _hotkeyBox || ActiveControl == _modeKeyBox)
                 {
                     // Enter は「確定」に使う。ホットキーにしてしまうと、どのアプリでも
                     // Enter が Copipe に奪われて文字入力ができなくなる
@@ -273,10 +228,6 @@ namespace Copipe.UI
                     if (ActiveControl == _hotkeyBox)
                     {
                         CaptureHotkey(keyData);
-                    }
-                    else if (ActiveControl == _doubleTapBox)
-                    {
-                        CaptureDoubleTap(keyData);
                     }
                     else
                     {
@@ -298,8 +249,7 @@ namespace Copipe.UI
             if (_pending)
             {
                 _pending = false;
-                _hotkeyBox.Text = HotkeyDisplay(_selected);
-                _doubleTapBox.Text = DoubleTapText(_selectedDoubleTap);
+                _hotkeyBox.Text = HotkeyText.Display(_selected);
                 _modeKeyBox.Text = HotkeyText.Display(_selectedModeKey);
                 ShowNote(GuideNote, false);
                 UpdateState();
@@ -309,40 +259,6 @@ namespace Copipe.UI
         private void CaptureHotkey(Keys keys)
         {
             CaptureKey(keys, Lang.T("ホットキー", "the hotkey"), _hotkeyBox, HotkeyText.IsValid, delegate(Keys code) { _selected = code; });
-        }
-
-        /// <summary>
-        /// ダブルタップの欄。Ctrl・Shift・Alt (左右どちらでも) を押すと取り込む。他のキーは使えるキーを案内する。
-        /// Alt は使えるが、アプリによっては押して離すとメニューバーにフォーカスが移るので注意を出す。
-        /// </summary>
-        private void CaptureDoubleTap(Keys keys)
-        {
-            Keys code = HotkeyText.NormalizeModifier(keys);
-            if (HotkeyText.IsValidDoubleTap(code))
-            {
-                _pending = false;
-                _selectedDoubleTap = code;
-                _doubleTapBox.Text = DoubleTapText(code);
-                if (code == Keys.Menu)
-                {
-                    ShowNote(Lang.T("注意: Alt は、アプリによっては押して離すとメニューバーにフォーカスが移ります。" +
-                                    "よければ Enter か OK で確定します。",
-                                    "Note: in some apps, pressing and releasing Alt moves focus to the menu bar. " +
-                                    "Press Enter or OK to confirm."), true);
-                }
-                else
-                {
-                    ShowNote(ConfirmNote, false);
-                }
-                UpdateState();
-                return;
-            }
-
-            // 使えないキーは、_pending のままにして OK を押させない
-            _pending = true;
-            _doubleTapBox.Text = HotkeyText.Display(keys & Keys.KeyCode);
-            ShowNote(Lang.T("ダブルタップには Ctrl・Shift・Alt が使えます。どれかを押してください。", "Double-tap can use Ctrl, Shift or Alt. Please press one of them."), true);
-            UpdateState();
         }
 
         private void CaptureModeKey(Keys keys)
@@ -418,53 +334,18 @@ namespace Copipe.UI
 
         private void UpdateState()
         {
-            bool noHotkey = (_selected == Keys.None);
-            bool conflict = !noHotkey && HotkeyText.ConflictsWithHotkey(_selected, _selectedModeKey);
-            // どちらも「なし」だと、小窓を出す方法が無くなる
-            bool noTrigger = noHotkey && _selectedDoubleTap == Keys.None;
+            bool conflict = HotkeyText.ConflictsWithHotkey(_selected, _selectedModeKey);
             // 使えないキーを表示している間は、実際に確定されるキーと食い違うので押させない
-            _ok.Enabled = !_pending && !conflict && !noTrigger &&
-                          (noHotkey || HotkeyText.IsValid(_selected)) && HotkeyText.IsValidModeKey(_selectedModeKey);
+            _ok.Enabled = !_pending && !conflict && HotkeyText.IsValid(_selected) && HotkeyText.IsValidModeKey(_selectedModeKey);
             if (_pending)
             {
                 return;
             }
-            if (noTrigger)
-            {
-                ShowNote(Lang.T("ホットキーかダブルタップのどちらかを設定してください (両方「なし」にはできません)。",
-                                "Set either a hotkey or a double-tap (both cannot be None)."), true);
-            }
-            else if (conflict)
+            if (conflict)
             {
                 ShowNote(Lang.T("ホットキーとモードキーに同じキーは使えません。どちらかを別のキーにしてください。",
                                 "The hotkey and the mode key cannot be the same. Please change one of them."), true);
             }
-        }
-
-        /// <summary>欄に出す「使わない」の表示。</summary>
-        private static string NoneText
-        {
-            get { return Lang.T("（なし）", "(none)"); }
-        }
-
-        private static string HotkeyDisplay(Keys keys)
-        {
-            return keys == Keys.None ? NoneText : HotkeyText.Display(keys);
-        }
-
-        private static string DoubleTapText(Keys keys)
-        {
-            return keys == Keys.None ? NoneText : HotkeyText.DoubleTapDisplay(keys);
-        }
-
-        /// <summary>欄の右に置く「なし」ボタン (押すと、その起動方法を使わない設定にする)。</summary>
-        private Button NewClearButton(Rectangle bounds)
-        {
-            Button button = new Button();
-            button.Text = Lang.T("なし", "None");
-            button.Bounds = bounds;
-            Controls.Add(button);
-            return button;
         }
 
         private int Scaled(int value)
@@ -484,10 +365,6 @@ namespace Copipe.UI
                 if (_modeKeyBox != null && _modeKeyBox.Font != null)
                 {
                     _modeKeyBox.Font.Dispose();
-                }
-                if (_doubleTapBox != null && _doubleTapBox.Font != null)
-                {
-                    _doubleTapBox.Font.Dispose();
                 }
             }
             base.Dispose(disposing);

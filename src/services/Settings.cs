@@ -22,8 +22,8 @@ namespace Copipe.Services
     /// </summary>
     public sealed class Settings
     {
-        /// <summary>設定ファイルが無いときのホットキー。</summary>
-        public const Keys DefaultHotkey = Keys.F1;
+        /// <summary>設定ファイルが無いときのホットキー (押し続ける。CapsLock 本来の切り替えはしなくなる)。</summary>
+        public const Keys DefaultHotkey = Keys.Capital;
 
         /// <summary>設定ファイルが無いときのモードキー (ホットキーを押したまま押して、履歴と定型文を切り替える)。</summary>
         public const Keys DefaultModeKey = Keys.Tab;
@@ -33,7 +33,6 @@ namespace Copipe.Services
 
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
-        private const string DoubleTapName = "DoubleTap";
         private const string LanguageName = "Language";
 
         public Settings()
@@ -41,7 +40,6 @@ namespace Copipe.Services
             Hotkey = DefaultHotkey;
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
-            DoubleTap = Keys.None;
             Language = UiLanguage.Auto;
         }
 
@@ -56,12 +54,6 @@ namespace Copipe.Services
         /// (ホットキーに Ctrl などが付いていれば、押したままなので自動で同じ修飾キー付きで受け取る)。
         /// </summary>
         public Keys ModeKey { get; set; }
-
-        /// <summary>
-        /// ダブルタップで小窓を出す修飾キー (ControlKey・ShiftKey・Menu)。使わなければ Keys.None。
-        /// 2 回目を押し続けている間だけ小窓を出す。ホットキーと並行して使える。
-        /// </summary>
-        public Keys DoubleTap { get; set; }
 
         /// <summary>画面の言葉 (Windows に合わせる / 日本語 / 英語)。</summary>
         public UiLanguage Language { get; set; }
@@ -107,22 +99,11 @@ namespace Copipe.Services
                     if (string.Equals(name, HotkeyName, StringComparison.OrdinalIgnoreCase))
                     {
                         Keys keys;
+                        // None (使わない) は読まずに既定のままにする。ホットキーが無いと小窓を出せないため
+                        // (以前の版はダブルタップだけで使えたので None を書いていた)
                         if (HotkeyText.TryParse(value, out keys))
                         {
                             settings.Hotkey = keys;
-                        }
-                        else if (string.Equals(value, HotkeyText.NoneSetting, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // ホットキーを使わない (ダブルタップだけで小窓を出す)
-                            settings.Hotkey = Keys.None;
-                        }
-                    }
-                    else if (string.Equals(name, DoubleTapName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Keys keys;
-                        if (HotkeyText.TryParseDoubleTap(value, out keys))
-                        {
-                            settings.DoubleTap = keys;
                         }
                     }
                     else if (string.Equals(name, ModeKeyName, StringComparison.OrdinalIgnoreCase))
@@ -163,11 +144,6 @@ namespace Copipe.Services
                 // 壊れたファイル・読み取り権限が無いなど。設定より起動を優先する
                 return new Settings();
             }
-            if (settings.Hotkey == Keys.None && settings.DoubleTap == Keys.None)
-            {
-                // どちらも使わないと小窓を出せなくなるので、ホットキーを既定に戻す
-                settings.Hotkey = DefaultHotkey;
-            }
             return settings;
         }
 
@@ -182,14 +158,10 @@ namespace Copipe.Services
 
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(Lang.T("# Copipe の設定 (メモ帳で編集できます)", "# Copipe settings (you can edit this file in Notepad)"));
-            sb.AppendLine(Lang.T("# Hotkey: 押している間だけ小窓を出すキー。修飾キー (Ctrl など) は付けられない。使わないときは None。例: F1、Pause、IMENonconvert (無変換)",
-                                 "# Hotkey: key that shows the popup while held. No modifiers (Ctrl etc.). None to disable. e.g. F1, Pause"));
+            sb.AppendLine(Lang.T("# Hotkey: 押している間だけ小窓を出すキー。修飾キー (Ctrl など) は付けられない。例: F1、Pause、IMENonconvert (無変換)",
+                                 "# Hotkey: key that shows the popup while held. No modifiers (Ctrl etc.). e.g. F1, Pause"));
             sb.AppendLine(string.Format(
-                CultureInfo.InvariantCulture, "{0}={1}", HotkeyName, Hotkey == Keys.None ? HotkeyText.NoneSetting : HotkeyText.ToSetting(Hotkey)));
-            sb.AppendLine(Lang.T("# DoubleTap: 2 回押して、2 回目を押し続けている間だけ小窓を出す修飾キー。Ctrl・Shift・Alt か None (使わない)",
-                                 "# DoubleTap: modifier that shows the popup when pressed twice. Ctrl, Shift, Alt or None (disabled)"));
-            sb.AppendLine(string.Format(
-                CultureInfo.InvariantCulture, "{0}={1}", DoubleTapName, DoubleTap == Keys.None ? HotkeyText.NoneSetting : HotkeyText.DoubleTapDisplay(DoubleTap)));
+                CultureInfo.InvariantCulture, "{0}={1}", HotkeyName, HotkeyText.ToSetting(Hotkey)));
             sb.AppendLine(Lang.T("# InsertClick: 履歴の項目を貼り付ける操作。Double (ダブルクリック) か Single (シングルクリック)",
                                  "# InsertClick: click to paste an item. Double or Single"));
             sb.AppendLine(string.Format(

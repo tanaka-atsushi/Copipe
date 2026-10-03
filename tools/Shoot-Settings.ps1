@@ -7,7 +7,7 @@
     撮った画像は自分の目で見て確かめること。下の自動の判定は目安で、見落としもある。
 
     撮る状態: 開いた直後・CapsLock・半角/全角・英数 (使えないキー)・数字キー・モードキーの 半角/全角・
-    ダブルタップの Alt (どれも、赤字の説明が出る状態)
+    モードキーをホットキーと同じキーにしたとき (どれも、赤字の説明が出る状態)
 
     使い方:  tools\Shoot-Settings.ps1                  bin\Copipe.exe を撮り、%TEMP%\CopipeShots に保存
              tools\Shoot-Settings.ps1 -OutDir <フォルダー>
@@ -104,11 +104,11 @@ foreach ($langName in 'Japanese', 'English') {
         @('eisu', '_hotkeyBox', [System.Windows.Forms.Keys]0xF0),
         @('digit', '_hotkeyBox', $K::D1),
         @('mode-zenkaku', '_modeKeyBox', [System.Windows.Forms.Keys]0xF4),
-        @('doubletap-alt', '_doubleTapBox', ($K::Alt -bor $K::Menu))
+        @('mode-same', '_modeKeyBox', $K::Pause)
     )
     foreach ($st in $states) {
         $d = [Activator]::CreateInstance($DT, $F, $null,
-            [object[]]@($K::Pause, $K::None, $K::Tab, [Enum]::Parse($IC, 'Double'), [Enum]::Parse($UL, $langName)), $null)
+            [object[]]@($K::Pause, $K::Tab, [Enum]::Parse($IC, 'Double'), [Enum]::Parse($UL, $langName)), $null)
         try {
             $d.StartPosition = 'Manual'
             $d.Location = New-Object System.Drawing.Point -4000, 100
