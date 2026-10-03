@@ -72,9 +72,10 @@ namespace Copipe.UI
             Keys code = keys & Keys.KeyCode;
             if (code == Keys.Capital)
             {
-                return Lang.T("CapsLock を押しても大文字・小文字は切り替わらなくなります (Shift+CapsLock で切り替えられます)。" +
+                // Shift+CapsLock で切り替わるとは書かない。日本語入力を使っていると、日本語入力の切り替えになる (実測)
+                return Lang.T("CapsLock を押しても大文字・小文字は切り替わらなくなります (Shift などと一緒に押したときは、今までどおり働きます)。" +
                               "よければ Enter か OK で確定します。",
-                              "CapsLock will no longer switch upper/lower case (Shift+CapsLock still does). " +
+                              "CapsLock will no longer switch upper/lower case (it still works with Shift etc. held). " +
                               "Press Enter or OK to confirm.");
             }
             if (IsZenkaku(code))

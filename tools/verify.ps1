@@ -292,6 +292,80 @@ namespace CopipeVerify
             return (GetKeyState(vk) & 1) != 0;
         }
 
+        // ---- キーが Copipe に握りつぶされずに届いたかを数える (低レベルのキーボードフック) ----
+        // 低レベルのフックは後から付けたものが先に呼ばれるので、Copipe を起動する前に付けておくと、
+        // Copipe のフックが通したキーだけがここに届く。CapsLock を握りつぶしたことを、オン・オフの読み取り
+        // (読むスレッドによっては古い値になる) に頼らずに確かめられる。
+        // フックはキー入力をこちらの返事まで待たせるので、メッセージを処理し続ける専用のスレッドで動かす
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint threadId);
+        [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+        [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [StructLayout(LayoutKind.Sequential)] private struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public int x; public int y; }
+        [DllImport("user32.dll")] private static extern int GetMessage(out MSG msg, IntPtr hWnd, uint min, uint max);
+        [DllImport("user32.dll")] private static extern bool PeekMessage(out MSG msg, IntPtr hWnd, uint min, uint max, uint remove);
+        [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
+        private static LowLevelKeyboardProc keyWatchProc;
+        private static System.Threading.Thread keyWatchThread;
+        private static uint keyWatchThreadId;
+        private static int keyWatchVk;
+        private static int keyWatchDowns;
+
+        /// <summary>vk の押し下げを数え始める。付けられなければ false。</summary>
+        public static bool StartKeyWatch(int vk)
+        {
+            StopKeyWatch();
+            keyWatchVk = vk;
+            keyWatchDowns = 0;
+            keyWatchProc = KeyWatchCallback;
+            System.Threading.ManualResetEvent ready = new System.Threading.ManualResetEvent(false);
+            bool hooked = false;
+            keyWatchThread = new System.Threading.Thread(delegate()
+            {
+                keyWatchThreadId = GetCurrentThreadId();
+                MSG msg;
+                PeekMessage(out msg, IntPtr.Zero, 0, 0, 0);   // WM_QUIT を受け取れるようキューを作る
+                IntPtr hook = SetWindowsHookEx(13 /* WH_KEYBOARD_LL */, keyWatchProc, GetModuleHandle(null), 0);
+                hooked = hook != IntPtr.Zero;
+                ready.Set();
+                if (!hooked) { return; }
+                while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0) { }
+                UnhookWindowsHookEx(hook);
+            });
+            keyWatchThread.IsBackground = true;
+            keyWatchThread.Start();
+            ready.WaitOne(3000);
+            return hooked;
+        }
+
+        /// <summary>数え始めてから (または ResetKeyWatch から)、vk の押し下げが届いた回数。</summary>
+        public static int KeyWatchDowns { get { return System.Threading.Interlocked.CompareExchange(ref keyWatchDowns, 0, 0); } }
+
+        public static void ResetKeyWatch() { System.Threading.Interlocked.Exchange(ref keyWatchDowns, 0); }
+
+        public static void StopKeyWatch()
+        {
+            if (keyWatchThread == null) { return; }
+            if (keyWatchThread.IsAlive)
+            {
+                PostThreadMessage(keyWatchThreadId, 0x0012 /* WM_QUIT */, IntPtr.Zero, IntPtr.Zero);
+                keyWatchThread.Join(1000);
+            }
+            keyWatchThread = null;
+        }
+
+        private static IntPtr KeyWatchCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            // KBDLLHOOKSTRUCT: vkCode (0)、scanCode (4)、flags (8)。flags の 0x80 は押し上げ
+            if (nCode >= 0 && Marshal.ReadInt32(lParam) == keyWatchVk && (Marshal.ReadInt32(lParam, 8) & 0x80) == 0)
+            {
+                System.Threading.Interlocked.Increment(ref keyWatchDowns);
+            }
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
         /// <summary>そのウインドウのスレッドが、Timeout ミリ秒以内にメッセージを処理するか (WM_NULL を送って確かめる)。</summary>
         public static bool Responds(IntPtr window, uint timeout)
         {
@@ -2465,6 +2539,17 @@ try {
                             [void](Wait-Pumping { $null -ne $script:dropped } $TimeoutMs)
                             return $script:dropped
                         }
+                        # 定型文の読み書きの確認は、履歴の E2E (履歴→定型文のドラッグ) でも使うので、定型文の E2E の外で定義する
+                        # (-E2E History だけで流すと、中で定義した関数が無くて止まっていた)
+                        function Read-Phrases { [void](Get-PhrasesWritten); return [Copipe.Services.PhraseBook]::Load($phrasesPath).Root }
+                        # phrases.json を書き換えた時刻。Copipe が保存の途中 (一時ファイルとの置き換え中) で一瞬無いときは、少し待って読み直す
+                        function Get-PhrasesWritten {
+                            for ($i = 0; $i -lt 20; $i++) {
+                                if ([System.IO.File]::Exists($phrasesPath)) { return [System.IO.File]::GetLastWriteTimeUtc($phrasesPath) }
+                                Start-Sleep -Milliseconds 10
+                            }
+                            return [DateTime]::MinValue
+                        }
                         if ($runPhrases) {   # ---- ここから定型文の E2E ----
                         # ---- モードキー (Tab) で、履歴と定型文を切り替える ----
                         # 入力先で Tab を受け付ける (Tab が漏れたら文字として入り、分かるように)
@@ -2693,15 +2778,6 @@ try {
                             # 元のアプリ役 (このハーネスの画面) は、実際のアプリと同じくメッセージを処理しながら前面に戻るのを待つ
                             [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                             return $closedMs
-                        }
-                        function Read-Phrases { [void](Get-PhrasesWritten); return [Copipe.Services.PhraseBook]::Load($phrasesPath).Root }
-                        # phrases.json を書き換えた時刻。Copipe が保存の途中 (一時ファイルとの置き換え中) で一瞬無いときは、少し待って読み直す
-                        function Get-PhrasesWritten {
-                            for ($i = 0; $i -lt 20; $i++) {
-                                if ([System.IO.File]::Exists($phrasesPath)) { return [System.IO.File]::GetLastWriteTimeUtc($phrasesPath) }
-                                Start-Sleep -Milliseconds 10
-                            }
-                            return [DateTime]::MinValue
                         }
 
                         $phraseJson2 = '{"Slots":[null,' +
@@ -3500,6 +3576,9 @@ try {
                         if (-not $W::IsToggled(0x14)) { $W::KeyDown(0x14); $W::KeyUp(0x14) }
                         [void](Wait-Pumping { $W::IsToggled(0x14) } 1000)
                         $capsOnBeforeStart = $W::IsToggled(0x14)
+                        # Copipe より先にフックを付け、Copipe が通した CapsLock だけを数える (後から付けた Copipe のフックが先に呼ばれる)
+                        $keyWatchOn = $W::StartKeyWatch(0x14)
+                        Check 'CapsLock: 検証のフックを付けられる (Copipe が通したキーを数えるため)' $keyWatchOn
                         Restart-Copipe $K::Capital $K::None
                         $popup = $script:copipeRef.Popup
                         Check 'CapsLock: 起動できる (登録の失敗を知らせない)' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
@@ -3507,6 +3586,7 @@ try {
                         Check 'CapsLock: 起動時にオンだった CapsLock をオフに戻す' ($capsOnBeforeStart -and $capsOffMs -ge 0) "before=$capsOnBeforeStart after=$($W::IsToggled(0x14))"
                         Check 'CapsLock: Copipe が登録している (二重起動・他のアプリとの取り合いを今までどおり知らせる)' (-not $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x14))
                         Reset-Target
+                        $W::ResetKeyWatch()
                         $W::KeyDown(0x14)
                         $capsShowMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
                         # 押し続けたときの繰り返し (押し下げが重ねて届く) でも、出たままで切り替わらない
@@ -3516,15 +3596,19 @@ try {
                         $capsHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
                         [void](Wait-Pumping { $false } 200)
                         Check 'CapsLock: 押し続けている間だけ小窓が出て、離すと消える' ($capsShowMs -ge 0 -and $capsStillShown -and $capsHideMs -ge 0) "show=$capsShowMs held=$capsStillShown hide=$capsHideMs"
-                        Check 'CapsLock: 押して離しても CapsLock はオフのまま (握りつぶしている)' (-not $W::IsToggled(0x14))
+                        Check 'CapsLock: 押して離しても CapsLock はオフのまま (握りつぶしている)' (-not $W::IsToggled(0x14) -and $W::KeyWatchDowns -eq 0) "toggled=$($W::IsToggled(0x14)) passed=$($W::KeyWatchDowns)"
                         Check 'CapsLock: 入力先に何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
-                        # Shift+CapsLock は握りつぶさずに通す (CapsLock を切り替えたいときの逃げ道)
+                        # Shift+CapsLock では小窓を出さない。Copipe は Shift などと一緒なら通すが、通したかどうかはここでは見ない。
+                        # 日本語入力を使っていると、Shift+CapsLock は低レベルのフックに届く前に日本語入力が受け取る
+                        # (Copipe を止めていても検証のフックに届かなかった。実測) ので、通したかを確かめられない。
+                        # 2 回送って、切り替わったもの (CapsLock か日本語入力) を元に戻す
                         $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
-                        $shiftCapsMs = Wait-Pumping { $W::IsToggled(0x14) } 1000
-                        Check 'CapsLock: Shift+CapsLock では小窓を出さず、CapsLock が切り替わる' ($shiftCapsMs -ge 0 -and -not $W::IsWindowVisible($popup)) "toggled=$($W::IsToggled(0x14))"
+                        [void](Wait-Pumping { $false } 500)
+                        $shiftCapsShown = $W::IsWindowVisible($popup)
                         $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
-                        [void](Wait-Pumping { -not $W::IsToggled(0x14) } 1000)
-                        [void](Wait-Pumping { $false } 300)
+                        [void](Wait-Pumping { $false } 500)
+                        Check 'CapsLock: Shift+CapsLock では小窓を出さない' (-not $shiftCapsShown -and -not $W::IsWindowVisible($popup))
+                        $W::StopKeyWatch()
 
                         # ---- 半角/全角をホットキーにする (このマシンは英語配列なので擬似入力で確かめる。本物の日本語キーボードでは未確認) ----
                         # IME のオン・オフで 0xF3 と 0xF4 が入れ替わるので、0xF3 で押して 0xF4 で離しても 1 つのキーとして扱う
@@ -3556,6 +3640,7 @@ try {
             if ($second -and -not $second.HasExited) { $second.Kill(); [void]$second.WaitForExit(5000) }
             # 残っていれば正常終了を依頼する (強制終了はトレイにアイコンの抜け殻を残すため最後の手段)
             & $stopScript -ExePath $exe
+            $W::StopKeyWatch()
             # CapsLock を元のオン・オフに戻す (Copipe を止めた後なので、握りつぶされない)
             [System.Windows.Forms.Application]::DoEvents()
             if ($W::IsToggled(0x14) -ne $savedCapsLock) { $W::KeyDown(0x14); $W::KeyUp(0x14) }

@@ -120,7 +120,7 @@ namespace Copipe.Services
                     {
                         if (!_swallowing)
                         {
-                            // Ctrl・Shift・Alt・Windows キーと一緒なら通す (Shift+CapsLock で切り替える、
+                            // Ctrl・Shift・Alt・Windows キーと一緒なら通す (Shift+CapsLock (英語配列なら CapsLock、日本語入力を使っていると入力の切り替え)、
                             // Alt+半角/全角 で日本語入力を切り替えるなど。F1 のホットキーでも Ctrl+F1 は他のアプリに届くのと同じ)
                             if (IsModifierHeld())
                             {
