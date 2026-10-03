@@ -10,7 +10,7 @@ namespace Copipe.UI
     /// 階層名ごとの位置が分かるので、クリックでその階層へ移動でき、ドラッグした項目を階層名に落とせる。
     /// Text には全体 (区切りを含む) を入れておく (検証ハーネスが読む)。
     /// </summary>
-    internal sealed class BreadcrumbLabel : Label
+    internal sealed class BreadcrumbLabel : HeaderLabel
     {
         public const string Separator = " > ";
 

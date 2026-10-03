@@ -114,7 +114,7 @@ namespace Copipe.UI
             _title.TextAlign = ContentAlignment.MiddleLeft;
             header.Controls.Add(_title);
 
-            _hint = new Label();
+            _hint = new HeaderLabel();
             _hint.Dock = DockStyle.Right;
             _hint.AutoSize = true;
             _hint.UseMnemonic = false;

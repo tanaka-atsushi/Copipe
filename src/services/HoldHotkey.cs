@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using Copipe.Interop;
+using Copipe.UI;
 
 namespace Copipe.Services
 {
@@ -8,6 +9,8 @@ namespace Copipe.Services
     /// 「押し続けている間」を知らせるホットキー。
     /// 押した瞬間は RegisterHotKey の WM_HOTKEY で受け取り、離した瞬間は押されている間だけ
     /// GetAsyncKeyState を短い間隔で調べて検知する。キーボードフック (全キー入力の監視) は使わない。
+    /// ただし CapsLock・半角/全角だけは、RegisterHotKey で受け取っても CapsLock や日本語入力が切り替わってしまうので、
+    /// そのキーだけを低レベルのキーボードフック (KeyboardHook) で受け取って握りつぶす。
     /// UI スレッドで作り、UI スレッドで使うこと (イベントも UI スレッドで発生する)。
     /// </summary>
     internal sealed class HoldHotkey : NativeWindow, IDisposable
@@ -21,6 +24,8 @@ namespace Copipe.Services
         private Keys _keys;
         private bool _registered;
         private bool _held;
+        // CapsLock・半角/全角のときだけ。押す・離すはフックから届くので、WM_HOTKEY と離したことの見回りは使わない
+        private KeyboardHook _keyHook;
 
         public HoldHotkey()
         {
@@ -67,7 +72,31 @@ namespace Copipe.Services
             if ((keys & Keys.Alt) == Keys.Alt) { modifiers |= NativeMethods.MOD_ALT; }
 
             _keys = keys;
+            if (HotkeyText.UsesKeyboardHook(keys))
+            {
+                _keyHook = KeyboardHook.Start(Handle, HotkeyText.HookVirtualKeys(keys));
+                if (_keyHook == null)
+                {
+                    return false;
+                }
+                if ((keys & Keys.KeyCode) == Keys.Capital)
+                {
+                    // 握りつぶしている間は CapsLock だけではオフに戻せないので、オンならオフにしておく
+                    // (起動したとき・設定画面で CapsLock を押して取り込んだときなど)。
+                    // 下の RegisterHotKey より先にする。登録した後だとオフにする入力がホットキーとして吸い込まれ、
+                    // 入力先のアプリに届かずに CapsLock がかかったままになることがあった
+                    _keyHook.TurnOffCapsLock();
+                }
+            }
+
+            // フックで受け取るキーも登録はしておく。Copipe の二重起動や、他のアプリが使っているキーを
+            // 今までどおり「登録できなかった」と知らせるため (WM_HOTKEY はフックが先に握りつぶすので届かない)
             _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, modifiers, (uint)(keys & Keys.KeyCode));
+            if (!_registered && _keyHook != null)
+            {
+                _keyHook.Dispose();
+                _keyHook = null;
+            }
             return _registered;
         }
 
@@ -80,6 +109,11 @@ namespace Copipe.Services
                 _held = false;
                 RaiseReleased();
             }
+            if (_keyHook != null)
+            {
+                _keyHook.Dispose();
+                _keyHook = null;
+            }
             if (_registered)
             {
                 NativeMethods.UnregisterHotKey(Handle, HotkeyId);
@@ -91,7 +125,29 @@ namespace Copipe.Services
         {
             if (m.Msg == NativeMethods.WM_HOTKEY && m.WParam.ToInt32() == HotkeyId)
             {
-                OnHotkey();
+                // フックで受け取っているときは、フックからの知らせだけを使う
+                if (_keyHook == null)
+                {
+                    OnHotkey();
+                }
+                return;
+            }
+            if (m.Msg == KeyboardHook.PressedMessage)
+            {
+                // 解除した後に届いた古い知らせは無視する
+                if (_keyHook != null)
+                {
+                    OnHotkey();
+                }
+                return;
+            }
+            if (m.Msg == KeyboardHook.ReleasedMessage)
+            {
+                if (_keyHook != null && _held)
+                {
+                    _held = false;
+                    RaiseReleased();
+                }
                 return;
             }
             base.WndProc(ref m);
@@ -117,7 +173,11 @@ namespace Copipe.Services
             }
 
             _held = true;
-            _releaseTimer.Start();
+            if (_keyHook == null)
+            {
+                // フックで受け取るキーは握りつぶすので GetAsyncKeyState に反映されない。離したこともフックから届く
+                _releaseTimer.Start();
+            }
 
             EventHandler handler = Pressed;
             if (handler != null)
@@ -150,6 +210,11 @@ namespace Copipe.Services
         public void Dispose()
         {
             _releaseTimer.Dispose();
+            if (_keyHook != null)
+            {
+                _keyHook.Dispose();
+                _keyHook = null;
+            }
             if (_registered)
             {
                 NativeMethods.UnregisterHotKey(Handle, HotkeyId);

@@ -285,6 +285,13 @@ namespace CopipeVerify
             return (GetAsyncKeyState(vk) & 0x8000) != 0;
         }
 
+        [DllImport("user32.dll")] private static extern short GetKeyState(int vk);
+        /// <summary>CapsLock などがオンか。</summary>
+        public static bool IsToggled(byte vk)
+        {
+            return (GetKeyState(vk) & 1) != 0;
+        }
+
         /// <summary>そのウインドウのスレッドが、Timeout ミリ秒以内にメッセージを処理するか (WM_NULL を送って確かめる)。</summary>
         public static bool Responds(IntPtr window, uint timeout)
         {
@@ -705,10 +712,24 @@ try {
         Check '表示名: 空にはならない (どのキーでも何か表示する)' ($HT::Display($zenkakuOff).Length -gt 0 -and $HT::Display($unknown).Length -gt 0)
 
         # 押している間の判定ができないキー (押して離しても GetAsyncKeyState が押下のままになる。実測)
-        foreach ($imeKey in $zenkakuOff, $zenkakuOn, $eisu, $katakana) {
+        foreach ($imeKey in $eisu, $katakana) {
             Check ("離したことを判定できないキーは使えない: " + $HT::Display($imeKey)) (-not $HT::IsValid($imeKey))
             Check ("離したことを判定できないキーだと分かる: " + $HT::Display($imeKey)) $HT::CannotDetectRelease($imeKey)
+            Check ("キーボードフックの対象ではない: " + $HT::Display($imeKey)) (-not $HT::UsesKeyboardHook($imeKey))
         }
+        # 半角/全角・CapsLock は、ホットキーにするとキーボードフックで受け取って握りつぶすので使える
+        foreach ($hookKey in $zenkakuOff, $zenkakuOn, $K::Capital) {
+            Check ("フックで受け取るキーはホットキーに使える: " + $HT::Display($hookKey)) ($HT::IsValid($hookKey) -and -not $HT::CannotDetectRelease($hookKey))
+            Check ("フックで受け取るキーだと分かる: " + $HT::Display($hookKey)) $HT::UsesKeyboardHook($hookKey)
+            Check ("フックで受け取るキーには、本来の働きが無くなる説明がある: " + $HT::Display($hookKey)) (-not [string]::IsNullOrEmpty($HT::HookKeyNote($hookKey)))
+        }
+        Check 'フックの対象ではない: F1・修飾キー付きの CapsLock' (-not $HT::UsesKeyboardHook($K::F1) -and -not $HT::UsesKeyboardHook($K::Shift -bor $K::Capital) -and $null -eq $HT::HookKeyNote($K::F1))
+        # .NET Framework の KeysConverter は Capital と返すので、キートップの刻印 (CapsLock) にそろえる
+        Check '表示名: CapsLock (Capital ではない)' ($HT::Display($K::Capital) -ceq 'CapsLock') "got=[$($HT::Display($K::Capital))]"
+        Check '保存形式: CapsLock' ($HT::ToSetting($K::Capital) -ceq 'CapsLock') "got=[$($HT::ToSetting($K::Capital))]"
+        # 半角/全角は IME の状態で 0xF3 と 0xF4 が入れ替わるので、どちらを選んでも両方を見張る
+        Check 'フックで見張るキー: 半角/全角は 0xF3 と 0xF4 の両方' ((($HT::HookVirtualKeys($zenkakuOff) -join ',') -eq '243,244') -and (($HT::HookVirtualKeys($zenkakuOn) -join ',') -eq '243,244')) "got=$($HT::HookVirtualKeys($zenkakuOn) -join ',')"
+        Check 'フックで見張るキー: CapsLock は 0x14 だけ' (($HT::HookVirtualKeys($K::Capital) -join ',') -eq '20')
         Check '無変換は使える (離したことを判定できる)' ($HT::IsValid($K::IMENonconvert) -and -not $HT::CannotDetectRelease($K::IMENonconvert))
         Check '変換は使える' ($HT::IsValid($K::IMEConvert) -and -not $HT::CannotDetectRelease($K::IMEConvert))
         Check 'NumLock は使える (実測で離したことを判定できる)' ($HT::IsValid($K::NumLock))
@@ -726,12 +747,16 @@ try {
             Check "読み戻し: 不正な VK 番号 '$badVk' は false" (-not $HT::TryParse($badVk, [ref]$parsed))
         }
         $parsed = $K::None
-        Check '読み戻し: 使えないキー (半角/全角) は false' (-not $HT::TryParse($HT::ToSetting($zenkakuOff), [ref]$parsed)) "setting=[$($HT::ToSetting($zenkakuOff))] parsed=$parsed"
+        Check '読み戻し: 使えないキー (英数) は false' (-not $HT::TryParse($HT::ToSetting($eisu), [ref]$parsed)) "setting=[$($HT::ToSetting($eisu))] parsed=$parsed"
+        foreach ($hookKey in $zenkakuOff, $zenkakuOn) {
+            $parsed = $K::None
+            Check ("読み戻し: 半角/全角 は VK 番号で書いて読み戻せる: " + $HT::ToSetting($hookKey)) ($HT::TryParse($HT::ToSetting($hookKey), [ref]$parsed) -and $parsed -eq $hookKey) "setting=[$($HT::ToSetting($hookKey))] parsed=$parsed"
+        }
 
         # 設定ファイルに書く形式と、その読み戻し
         Check '保存形式: F1' ($HT::ToSetting($K::F1) -ceq 'F1')
         Check '保存形式: Ctrl+Space' ($HT::ToSetting($K::Control -bor $K::Space) -ceq 'Ctrl+Space')
-        foreach ($keys in @($K::F1, $K::Pause, $K::IMENonconvert, $K::Oem3)) {
+        foreach ($keys in @($K::F1, $K::Pause, $K::IMENonconvert, $K::Oem3, $K::Capital)) {
             $text = $HT::ToSetting($keys)
             $parsed = $K::None
             $ok = $HT::TryParse($text, [ref]$parsed)
@@ -791,8 +816,12 @@ try {
         Set-Content -LiteralPath $path -Value "Hotkey=ControlKey" -Encoding UTF8
         Check '読み込み: 修飾キー単独が書かれていたら既定に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
 
+        Set-Content -LiteralPath $path -Value "Hotkey=VK240" -Encoding UTF8
+        Check '読み込み: 手で書かれた英数 (VK240) は既定に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
         Set-Content -LiteralPath $path -Value "Hotkey=VK243" -Encoding UTF8
-        Check '読み込み: 手で書かれた半角/全角 (VK243) も既定に戻す' ($S::Load($path).Hotkey -eq $S::DefaultHotkey)
+        Check '読み込み: 手で書かれた半角/全角 (VK243) は読める (フックで受け取る)' ($S::Load($path).Hotkey -eq $zenkakuOff) "got=$($S::Load($path).Hotkey)"
+        Set-Content -LiteralPath $path -Value "Hotkey=CapsLock" -Encoding UTF8
+        Check '読み込み: CapsLock は読める' ($S::Load($path).Hotkey -eq $K::Capital) "got=$($S::Load($path).Hotkey)"
 
         Set-Content -LiteralPath $path -Value "# 設定`r`n`r`n  hotkey = IMENonconvert  `r`nUnknownKey=1`r`n" -Encoding UTF8
         Check '読み込み: コメント・空行・前後の空白・大小文字・未知の項目を無視する' ($S::Load($path).Hotkey -eq $K::IMENonconvert) "got=$($S::Load($path).Hotkey)"
@@ -979,12 +1008,19 @@ try {
             Check '設定画面: 数字キー (Ctrl+1) は理由を赤字で出し、OK を押せない' ($s.Box -ceq '1' -and $s.Red -and -not $s.Ok -and $s.Note -like '*数字キー*ホットキーにはできません*') "box=$($s.Box) ok=$($s.Ok) note=$($s.Note)"
             Send-DialogKeyUp $d $K::D1; $s = Get-DialogState $d
             Check '設定画面: 使えないキーを離すと、選ばれていたキー (F9) の表示に戻り、OK を押せる' ($s.Box -ceq 'F9' -and $s.Ok -and $s.Hotkey -eq $K::F9) "box=$($s.Box) ok=$($s.Ok)"
-            Send-DialogKey $d '_hotkeyBox' ([System.Windows.Forms.Keys]0xF3); $s = Get-DialogState $d
-            Check '設定画面: 半角/全角 は離したことを判定できない理由を赤字で出す' ($s.Red -and -not $s.Ok -and $s.Note -like '*離したことを判定できない*') "note=$($s.Note)"
+            Send-DialogKey $d '_hotkeyBox' ([System.Windows.Forms.Keys]0xF0); $s = Get-DialogState $d
+            Check '設定画面: 英数 は離したことを判定できない理由を赤字で出す' ($s.Red -and -not $s.Ok -and $s.Note -like '*離したことを判定できない*') "note=$($s.Note)"
             $note = Get-DialogField $d '_note'
             $need = [System.Windows.Forms.TextRenderer]::MeasureText($note.Text, $note.Font, (New-Object System.Drawing.Size $note.Width, 0), [System.Windows.Forms.TextFormatFlags]'WordBreak').Height
             Check '設定画面: 赤字の説明が欄に収まる (切れない)' ($need -le $note.Height) "need=$need height=$($note.Height)"
-            Send-DialogKeyUp $d ([System.Windows.Forms.Keys]0xF3)
+            Send-DialogKeyUp $d ([System.Windows.Forms.Keys]0xF0)
+            # CapsLock・半角/全角 は選べる。そのキー本来の働きが無くなることを赤字で知らせる (説明は欄に収まる)
+            foreach ($hookKey in $K::Capital, [System.Windows.Forms.Keys]0xF3) {
+                Send-DialogKey $d '_hotkeyBox' $hookKey; $s = Get-DialogState $d
+                $note = Get-DialogField $d '_note'
+                $need = [System.Windows.Forms.TextRenderer]::MeasureText($note.Text, $note.Font, (New-Object System.Drawing.Size $note.Width, 0), [System.Windows.Forms.TextFormatFlags]'WordBreak').Height
+                Check "設定画面: $($s.Box) は選べて、本来の働きが無くなることを赤字で知らせる" ($s.Hotkey -eq $hookKey -and $s.Ok -and $s.Red -and $s.Note -like '*切り替わらなくなります*' -and $need -le $note.Height) "box=$($s.Box) ok=$($s.Ok) note=$($s.Note) need=$need height=$($note.Height)"
+            }
             Send-DialogKey $d '_hotkeyBox' $K::Tab; $s = Get-DialogState $d
             Check '設定画面: モードキーと同じキー (Tab) にすると、重なっている理由を出し OK を押せない' ($s.Red -and -not $s.Ok -and $s.Note -like '*同じキーは使えません*') "ok=$($s.Ok) note=$($s.Note)"
             Send-DialogKey $d '_hotkeyBox' $K::F2; $s = Get-DialogState $d
@@ -1003,6 +1039,10 @@ try {
             Send-DialogKey $d '_modeKeyBox' $K::NumPad5; $s = Get-DialogState $d
             Check '設定画面: モードキーでテンキーの 5 は「モードキーにはできません」と出す' ($s.Red -and -not $s.Ok -and $s.Note -like '*モードキーにはできません*') "note=$($s.Note)"
             Send-DialogKeyUp $d $K::NumPad5
+            # 半角/全角 はホットキーにはできるが、モードキーにはできない
+            Send-DialogKey $d '_modeKeyBox' ([System.Windows.Forms.Keys]0xF4); $s = Get-DialogState $d
+            Check '設定画面: モードキーで 半角/全角 は「モードキーにはできません」と出す' ($s.Red -and -not $s.Ok -and $s.ModeKey -eq $K::F3 -and $s.Note -like '*モードキーにはできません*') "mode=$($s.ModeKey) note=$($s.Note)"
+            Send-DialogKeyUp $d ([System.Windows.Forms.Keys]0xF4)
             Send-DialogKey $d '_modeKeyBox' $K::Pause; $s = Get-DialogState $d
             Check '設定画面: モードキーをホットキーと同じキー (Pause) にすると OK を押せない' (-not $s.Ok -and $s.Note -like '*同じキーは使えません*') "note=$($s.Note)"
         } finally { $d.Close(); $d.Dispose() }
@@ -1712,6 +1752,8 @@ try {
         }
 
         $savedCursor = $W::GetCursor()
+        # CapsLock をホットキーにする E2E で切り替えるので、最後に元のオン・オフへ戻す
+        $savedCapsLock = $W::IsToggled(0x14)
         # 他のアプリ (Orca など) が途中で前面を取ると、擬似入力が検証用の窓に届かず失敗する (実測)。
         # デスクトップだけが見える状態にしてから始め、最後に元へ戻す
         $shell = New-Object -ComObject Shell.Application
@@ -3451,6 +3493,51 @@ try {
                         Send-Key 0x1B 1
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check 'ホットキー なし: Shift のダブルタップで小窓が出る' ($shiftMs -ge 0)
+                        [void](Wait-Pumping { $false } 500)
+
+                        # ---- CapsLock をホットキーにする (低レベルのキーボードフックで受け取り、握りつぶす) ----
+                        # 起動時に CapsLock がオンなら、Copipe がオフに戻す (握りつぶしている間は CapsLock だけでは戻せないため)
+                        if (-not $W::IsToggled(0x14)) { $W::KeyDown(0x14); $W::KeyUp(0x14) }
+                        [void](Wait-Pumping { $W::IsToggled(0x14) } 1000)
+                        $capsOnBeforeStart = $W::IsToggled(0x14)
+                        Restart-Copipe $K::Capital $K::None
+                        $popup = $script:copipeRef.Popup
+                        Check 'CapsLock: 起動できる (登録の失敗を知らせない)' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
+                        $capsOffMs = Wait-Pumping { -not $W::IsToggled(0x14) } 2000
+                        Check 'CapsLock: 起動時にオンだった CapsLock をオフに戻す' ($capsOnBeforeStart -and $capsOffMs -ge 0) "before=$capsOnBeforeStart after=$($W::IsToggled(0x14))"
+                        Check 'CapsLock: Copipe が登録している (二重起動・他のアプリとの取り合いを今までどおり知らせる)' (-not $W::CanRegisterHotkey($owner, [uint32]0, [uint32]0x14))
+                        Reset-Target
+                        $W::KeyDown(0x14)
+                        $capsShowMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
+                        # 押し続けたときの繰り返し (押し下げが重ねて届く) でも、出たままで切り替わらない
+                        foreach ($i in 1..3) { [void](Wait-Pumping { $false } 100); $W::KeyDown(0x14) }
+                        $capsStillShown = $W::IsWindowVisible($popup)
+                        $W::KeyUp(0x14)
+                        $capsHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        [void](Wait-Pumping { $false } 200)
+                        Check 'CapsLock: 押し続けている間だけ小窓が出て、離すと消える' ($capsShowMs -ge 0 -and $capsStillShown -and $capsHideMs -ge 0) "show=$capsShowMs held=$capsStillShown hide=$capsHideMs"
+                        Check 'CapsLock: 押して離しても CapsLock はオフのまま (握りつぶしている)' (-not $W::IsToggled(0x14))
+                        Check 'CapsLock: 入力先に何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
+                        # Shift+CapsLock は握りつぶさずに通す (CapsLock を切り替えたいときの逃げ道)
+                        $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
+                        $shiftCapsMs = Wait-Pumping { $W::IsToggled(0x14) } 1000
+                        Check 'CapsLock: Shift+CapsLock では小窓を出さず、CapsLock が切り替わる' ($shiftCapsMs -ge 0 -and -not $W::IsWindowVisible($popup)) "toggled=$($W::IsToggled(0x14))"
+                        $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
+                        [void](Wait-Pumping { -not $W::IsToggled(0x14) } 1000)
+                        [void](Wait-Pumping { $false } 300)
+
+                        # ---- 半角/全角をホットキーにする (このマシンは英語配列なので擬似入力で確かめる。本物の日本語キーボードでは未確認) ----
+                        # IME のオン・オフで 0xF3 と 0xF4 が入れ替わるので、0xF3 で押して 0xF4 で離しても 1 つのキーとして扱う
+                        Restart-Copipe ([System.Windows.Forms.Keys]0xF3) $K::None
+                        $popup = $script:copipeRef.Popup
+                        Check '半角/全角: 起動できる' ($popup -ne [IntPtr]::Zero -and (Find-Dialog $script:copipeRef.Process.Id) -eq [IntPtr]::Zero)
+                        $W::KeyDown(0xF3)
+                        $zkShowMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
+                        [void](Wait-Pumping { $false } 300)
+                        $zkStillShown = $W::IsWindowVisible($popup)
+                        $W::KeyUp(0xF4)
+                        $zkHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check '半角/全角: 押し続けている間だけ小窓が出て、0xF4 で離しても消える' ($zkShowMs -ge 0 -and $zkStillShown -and $zkHideMs -ge 0) "show=$zkShowMs held=$zkStillShown hide=$zkHideMs"
                         $copipe = $script:copipeRef
                         $app = $copipe.Process
                         $popup = $copipe.Popup
@@ -3469,6 +3556,9 @@ try {
             if ($second -and -not $second.HasExited) { $second.Kill(); [void]$second.WaitForExit(5000) }
             # 残っていれば正常終了を依頼する (強制終了はトレイにアイコンの抜け殻を残すため最後の手段)
             & $stopScript -ExePath $exe
+            # CapsLock を元のオン・オフに戻す (Copipe を止めた後なので、握りつぶされない)
+            [System.Windows.Forms.Application]::DoEvents()
+            if ($W::IsToggled(0x14) -ne $savedCapsLock) { $W::KeyDown(0x14); $W::KeyUp(0x14) }
             [void]$W::SetCursorPos($savedCursor.X, $savedCursor.Y)
             # 最小化したウインドウを元に戻す
             $shell.UndoMinimizeALL()

@@ -60,7 +60,7 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(444));
+            ClientSize = new Size(Scaled(380), Scaled(460));
 
             Label hotkeyLabel = new Label();
             hotkeyLabel.Text = Lang.T("ホットキー (押し続けている間、小窓が出ます)", "Hotkey (shows the popup while held)");
@@ -123,30 +123,30 @@ namespace Copipe.UI
 
             _note = new Label();
             _note.Text = GuideNote;
-            // 長い説明が右端で切れないよう、幅を決めて折り返す (3 行まで入る高さにする)
+            // 長い説明が右端で切れないよう、幅を決めて折り返す (4 行まで入る高さにする。CapsLock などの注意が 4 行になる)
             _note.AutoSize = false;
             _note.UseMnemonic = false;
             _note.ForeColor = SystemColors.GrayText;
-            _note.Bounds = new Rectangle(Scaled(16), Scaled(248), Scaled(348), Scaled(52));
+            _note.Bounds = new Rectangle(Scaled(16), Scaled(248), Scaled(348), Scaled(68));
             Controls.Add(_note);
 
 
             Label clickLabel = new Label();
             clickLabel.Text = Lang.T("貼り付けの操作", "Paste with");
             clickLabel.AutoSize = true;
-            clickLabel.Location = new Point(Scaled(16), Scaled(310));
+            clickLabel.Location = new Point(Scaled(16), Scaled(326));
             Controls.Add(clickLabel);
 
             RadioButton doubleClick = new RadioButton();
             doubleClick.Text = Lang.T("ダブルクリック", "Double-click");
             doubleClick.AutoSize = true;
-            doubleClick.Location = new Point(Scaled(120), Scaled(308));
+            doubleClick.Location = new Point(Scaled(120), Scaled(324));
             Controls.Add(doubleClick);
 
             _singleClick = new RadioButton();
             _singleClick.Text = Lang.T("シングルクリック", "Single-click");
             _singleClick.AutoSize = true;
-            _singleClick.Location = new Point(Scaled(236), Scaled(308));
+            _singleClick.Location = new Point(Scaled(236), Scaled(324));
             Controls.Add(_singleClick);
 
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
@@ -156,7 +156,7 @@ namespace Copipe.UI
             Label languageLabel = new Label();
             languageLabel.Text = "Language";
             languageLabel.AutoSize = true;
-            languageLabel.Location = new Point(Scaled(16), Scaled(348));
+            languageLabel.Location = new Point(Scaled(16), Scaled(364));
             Controls.Add(languageLabel);
 
             _language = new ComboBox();
@@ -164,19 +164,19 @@ namespace Copipe.UI
             _language.DropDownStyle = ComboBoxStyle.DropDownList;
             _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
             _language.SelectedIndex = (int)currentLanguage;
-            _language.Bounds = new Rectangle(Scaled(120), Scaled(344), Scaled(244), Scaled(24));
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(394), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(410), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(394), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(410), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -294,7 +294,7 @@ namespace Copipe.UI
 
         private void CaptureHotkey(Keys keys)
         {
-            CaptureKey(keys, Lang.T("ホットキー", "the hotkey"), _hotkeyBox, delegate(Keys code) { _selected = code; });
+            CaptureKey(keys, Lang.T("ホットキー", "the hotkey"), _hotkeyBox, HotkeyText.IsValid, delegate(Keys code) { _selected = code; });
         }
 
         /// <summary>
@@ -333,29 +333,40 @@ namespace Copipe.UI
 
         private void CaptureModeKey(Keys keys)
         {
-            CaptureKey(keys, Lang.T("モードキー", "the mode key"), _modeKeyBox, delegate(Keys code) { _selectedModeKey = code; });
+            CaptureKey(keys, Lang.T("モードキー", "the mode key"), _modeKeyBox, HotkeyText.IsValidModeKey, delegate(Keys code) { _selectedModeKey = code; });
         }
 
         /// <summary>
-        /// ホットキーとモードキーの取り込み (どちらも同じ決まり)。修飾キーは付けずに、キーだけを取る。
+        /// ホットキーとモードキーの取り込み (ほぼ同じ決まり。違いは isValid で渡す)。修飾キーは付けずに、キーだけを取る。
         /// Ctrl などを押したままキーを押しても、キーだけになる。Ctrl や Shift だけを押したときは何もしない。
         /// 使えるキーなら select で選んだことにし、使えないキーなら理由を出して、離すまで OK を押させない。
         /// </summary>
-        private void CaptureKey(Keys keys, string what, Button box, Action<Keys> select)
+        private void CaptureKey(Keys keys, string what, Button box, Func<Keys, bool> isValid, Action<Keys> select)
         {
             Keys code = keys & Keys.KeyCode;
-            if (HotkeyText.IsValid(code))
+            if (isValid(code))
             {
                 _pending = false;
                 // 先に選んだことにしてから確かめる (ホットキーとモードキーの重なりを、新しいキーで判定するため)
                 select(code);
                 box.Text = HotkeyText.Display(code);
-                ShowNote(ConfirmNote, false);
+                // CapsLock・半角/全角をホットキーにすると、そのキー本来の働きが無くなることを知らせる
+                string hookNote = (box == _hotkeyBox) ? HotkeyText.HookKeyNote(code) : null;
+                if (hookNote != null)
+                {
+                    ShowNote(hookNote, true);
+                }
+                else
+                {
+                    ShowNote(ConfirmNote, false);
+                }
                 UpdateState();
                 return;
             }
 
-            if (!HotkeyText.IsDigitKey(code) && !HotkeyText.CannotDetectRelease(code))
+            // ホットキーには使えるが、この欄には使えないキー (モードキーの 半角/全角)
+            bool notForThisBox = HotkeyText.IsValid(code);
+            if (!HotkeyText.IsDigitKey(code) && !HotkeyText.CannotDetectRelease(code) && !notForThisBox)
             {
                 // Ctrl や Shift だけ。キーを押す途中なので、何もしない
                 return;
@@ -370,9 +381,14 @@ namespace Copipe.UI
                 ShowNote(Lang.T("数字キーは一覧から項目を選ぶために使うので、" + what + "にはできません。別のキーを押してください。",
                                 "Number keys select items in the list and cannot be " + what + ". Please press another key."), true);
             }
+            else if (notForThisBox)
+            {
+                ShowNote(Lang.T("このキーは" + what + "にはできません。別のキーを押してください。",
+                                "This key cannot be " + what + ". Please press another key."), true);
+            }
             else
             {
-                // 半角/全角・英数・カタカナ ひらがな。押して離しても「押されたまま」に見えるので、
+                // 英数・カタカナ ひらがな。押して離しても「押されたまま」に見えるので、
                 // 小窓が出たまま消えなくなる
                 ShowNote(Lang.T("このキーは、離したことを判定できないため使えません。別のキーを押してください。",
                                 "This key cannot be used because its release cannot be detected. Please press another key."), true);

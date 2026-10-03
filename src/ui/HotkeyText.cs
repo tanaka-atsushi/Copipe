@@ -19,18 +19,72 @@ namespace Copipe.UI
         private const Keys ImeZenkakuWhenOn = (Keys)0xF4;       // 半角/全角 (IME がオンのとき。VK_OEM_ENLW)
 
         private const string VkPrefix = "VK";
+        private const string CapsLockName = "CapsLock";
 
         /// <summary>
         /// 押している間の判定ができないキー。押して離しても「押されたまま」に見えるので、
-        /// 小窓が出たまま消えなくなる (実測: 半角/全角・英数・カタカナ ひらがな)。
+        /// 小窓が出たまま消えなくなる (実測: 英数・カタカナ ひらがな)。
+        /// 半角/全角も同じだが、ホットキーにしたときはキーボードフックで受け取るので使える (UsesKeyboardHook)。
         /// </summary>
         public static bool CannotDetectRelease(Keys keys)
         {
             Keys code = keys & Keys.KeyCode;
             return code == ImeAlphanumeric
-                || code == ImeKatakanaHiragana
-                || code == ImeZenkakuWhenOff
-                || code == ImeZenkakuWhenOn;
+                || code == ImeKatakanaHiragana;
+        }
+
+        /// <summary>
+        /// ホットキーにしたとき、RegisterHotKey ではなく低レベルのキーボードフックで受け取って握りつぶすキー
+        /// (CapsLock・半角/全角)。RegisterHotKey で受け取っても、CapsLock や日本語入力が切り替わってしまう。
+        /// 半角/全角は、離したことも GetAsyncKeyState では判定できない。修飾キー付きは対象外。
+        /// </summary>
+        public static bool UsesKeyboardHook(Keys keys)
+        {
+            Keys code = keys & Keys.KeyCode;
+            return (keys & Keys.Modifiers) == Keys.None && (code == Keys.Capital || IsZenkaku(code));
+        }
+
+        /// <summary>
+        /// UsesKeyboardHook のキーを、フックで見張る仮想キーの一覧にする。半角/全角は IME のオン・オフで
+        /// 0xF3 と 0xF4 が入れ替わるので、両方を 1 つのキーとして見張る。
+        /// </summary>
+        public static int[] HookVirtualKeys(Keys keys)
+        {
+            Keys code = keys & Keys.KeyCode;
+            if (IsZenkaku(code))
+            {
+                return new[] { (int)ImeZenkakuWhenOff, (int)ImeZenkakuWhenOn };
+            }
+            return new[] { (int)code };
+        }
+
+        private static bool IsZenkaku(Keys code)
+        {
+            return code == ImeZenkakuWhenOff || code == ImeZenkakuWhenOn;
+        }
+
+        /// <summary>
+        /// UsesKeyboardHook のキーをホットキーにすると、そのキーの本来の働きが無くなることの説明
+        /// (設定画面に出す)。それ以外のキーなら null。
+        /// </summary>
+        public static string HookKeyNote(Keys keys)
+        {
+            Keys code = keys & Keys.KeyCode;
+            if (code == Keys.Capital)
+            {
+                return Lang.T("CapsLock を押しても大文字・小文字は切り替わらなくなります (Shift+CapsLock で切り替えられます)。" +
+                              "よければ Enter か OK で確定します。",
+                              "CapsLock will no longer switch upper/lower case (Shift+CapsLock still does). " +
+                              "Press Enter or OK to confirm.");
+            }
+            if (IsZenkaku(code))
+            {
+                return Lang.T("半角/全角 を押しても日本語入力は切り替わらなくなります (Alt+半角/全角 で切り替えられます)。" +
+                              "よければ Enter か OK で確定します。",
+                              "Hankaku/Zenkaku will no longer switch Japanese input (Alt+Hankaku/Zenkaku still does). " +
+                              "Press Enter or OK to confirm.");
+            }
+            return null;
         }
 
         /// <summary>
@@ -78,11 +132,12 @@ namespace Copipe.UI
 
         /// <summary>
         /// モードキー (小窓を出している間に押して、履歴と定型文を切り替えるキー) として使えるか。
-        /// ホットキーと同じ条件 (修飾キーは付けない)。
+        /// ホットキーと同じ条件 (修飾キーは付けない)。ただし半角/全角は使えない
+        /// (モードキーは RegisterHotKey で受け取るので、キーボードフックで受け取るホットキーとは扱いが違う)。
         /// </summary>
         public static bool IsValidModeKey(Keys keys)
         {
-            return IsValid(keys);
+            return IsValid(keys) && !IsZenkaku(keys & Keys.KeyCode);
         }
 
         /// <summary>
@@ -169,7 +224,8 @@ namespace Copipe.UI
         public static string ToSetting(Keys keys)
         {
             Keys code = keys & Keys.KeyCode;
-            string name = ConvertKeyCode(code);
+            // Capital より CapsLock のほうが、メモ帳で開いたときに分かりやすい (どちらも読み戻せる)
+            string name = code == Keys.Capital ? CapsLockName : ConvertKeyCode(code);
             if (name.Length == 0)
             {
                 name = VkPrefix + ((int)code).ToString(CultureInfo.InvariantCulture);
@@ -284,6 +340,9 @@ namespace Copipe.UI
                 case ImeZenkakuWhenOff:
                 case ImeZenkakuWhenOn:
                     return Lang.T("半角/全角", "Hankaku/Zenkaku");
+                case Keys.Capital:
+                    // .NET Framework の KeysConverter は Capital と返す。キートップの刻印に合わせる
+                    return CapsLockName;
             }
 
             string name = ConvertKeyCode(code);
