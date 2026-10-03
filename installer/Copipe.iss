@@ -38,6 +38,8 @@ Name: "ja"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
 Source: "..\bin\Copipe.exe"; DestDir: "{app}"; Flags: ignoreversion
+; GPL-3.0 では、バイナリと一緒にライセンス本文を渡す
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Copipe"; Filename: "{app}\Copipe.exe"
