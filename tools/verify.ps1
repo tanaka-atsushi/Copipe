@@ -381,6 +381,17 @@ namespace CopipeVerify
             return true;
         }
 
+        /// <summary>他のアプリがそのホットキーを使っている状態を作る (ReleaseHotkey で解除する)。</summary>
+        public static bool HoldHotkey(IntPtr window, uint modifiers, uint vk)
+        {
+            return RegisterHotKey(window, 9002, modifiers | 0x4000 /* MOD_NOREPEAT */, vk);
+        }
+
+        public static void ReleaseHotkey(IntPtr window)
+        {
+            UnregisterHotKey(window, 9002);
+        }
+
         /// <summary>画面上の点にあるウインドウのトップレベルウインドウ。</summary>
         public static IntPtr RootWindowAt(int x, int y)
         {
@@ -1986,10 +1997,11 @@ try {
                 Start-Sleep -Milliseconds 50
                 $dialog = Find-Dialog $second.Id
             }
-            Check '二重起動: 2 つ目はエラーのダイアログを出す' ($dialog -ne [IntPtr]::Zero) "exited=$($second.HasExited)"
+            Check '二重起動: 2 つ目はダイアログを出す' ($dialog -ne [IntPtr]::Zero) "exited=$($second.HasExited)"
             if ($dialog -ne [IntPtr]::Zero) {
                 $dialogText = (@($W::Children($dialog) | ForEach-Object { $W::GetText($_) }) -join ' ')
-                Check "二重起動: ダイアログにホットキー名 ($hotkeyName) が書かれている" ($dialogText -like "*$hotkeyName*") $dialogText
+                Check '二重起動: ダイアログは「すでに起動しています」で、ホットキーの登録の失敗ではない' `
+                    (($dialogText -like '*すでに起動しています*' -or $dialogText -like '*already running*') -and $dialogText -notlike "*$hotkeyName*") $dialogText
                 [void]$W::PostMessage($dialog, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
             }
             Check '二重起動: 2 つ目は終了する' ($second.WaitForExit(5000))
@@ -2027,25 +2039,35 @@ try {
             Check '設定したホットキー: 登録に成功している (エラーのダイアログが出ていない)' ($alive -and $noDialog)
             if ($popup -ne [IntPtr]::Zero -and $alive -and $noDialog) {
                 Test-Hold $center ("設定したホットキー (" + $hotkeyName + ")") $popup
-
-                # 2 つ目を起動すると、そのメッセージに今のホットキー名が出る
-                $second = Start-Process -FilePath $exe -PassThru
-                $null = $second.Handle
-                $dialog = [IntPtr]::Zero
-                $deadline = (Get-Date).AddSeconds(5)
-                while ($dialog -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline -and -not $second.HasExited) {
-                    Start-Sleep -Milliseconds 50
-                    $dialog = Find-Dialog $second.Id
-                }
-                if ($dialog -ne [IntPtr]::Zero) {
-                    $dialogText = (@($W::Children($dialog) | ForEach-Object { $W::GetText($_) }) -join ' ')
-                    Check "設定したホットキー: メッセージに設定したキー名 ($hotkeyName) が出る" ($dialogText -like "*$hotkeyName*") $dialogText
-                    [void]$W::PostMessage($dialog, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
-                    [void]$second.WaitForExit(5000)
-                }
             }
             [void]$W::PostMessage($popup, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
             [void]$app.WaitForExit(5000)
+
+            # 他のアプリがそのキーを使っていると、メッセージに設定したキー名が出て終了する
+            if ($W::HoldHotkey($owner, [uint32]0, [uint32]([int]$chosen -band 0xFFFF))) {
+                try {
+                    $blocked = Start-Process -FilePath $exe -PassThru
+                    $null = $blocked.Handle
+                    $dialog = [IntPtr]::Zero
+                    $deadline = (Get-Date).AddSeconds(5)
+                    while ($dialog -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline -and -not $blocked.HasExited) {
+                        Start-Sleep -Milliseconds 50
+                        $dialog = Find-Dialog $blocked.Id
+                    }
+                    Check '他のアプリが使っているキー: 登録できなかったことを知らせる' ($dialog -ne [IntPtr]::Zero) "exited=$($blocked.HasExited)"
+                    if ($dialog -ne [IntPtr]::Zero) {
+                        $dialogText = (@($W::Children($dialog) | ForEach-Object { $W::GetText($_) }) -join ' ')
+                        Check "他のアプリが使っているキー: メッセージに設定したキー名 ($hotkeyName) が出る" ($dialogText -like "*$hotkeyName*") $dialogText
+                        [void]$W::PostMessage($dialog, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
+                    }
+                    Check '他のアプリが使っているキー: 終了する (終了コード 1)' ($blocked.WaitForExit(5000) -and $blocked.ExitCode -eq 1)
+                    if (-not $blocked.HasExited) { $blocked.Kill() }
+                } finally {
+                    $W::ReleaseHotkey($owner)
+                }
+            } else {
+                Info "他のアプリが使っているキーの検証は省略 ($hotkeyName を登録できなかったため)"
+            }
             }
 
             # ---- クリップボードの履歴 ----

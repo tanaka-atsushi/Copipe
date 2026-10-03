@@ -82,6 +82,7 @@ Good to know:
 - **While Copipe is running, other apps do not receive the hotkey.** For example, with F1 VS Code's F1 command palette stops working. Ctrl+Shift+P still works.
 - **F12 cannot be used.** Windows reserves it for debuggers.
 - **If the popup does not appear,** another app may be grabbing the key. Choose a different key.
+- **Only one Copipe runs at a time.** Starting it again just shows "Copipe is already running." and the running one keeps working.
 - **If you use CapsLock as the hotkey,** it no longer toggles Caps Lock. Shift+CapsLock still works as usual.
 - **Copipe cannot type into apps running as administrator.** This is a Windows restriction (UIPI).
 

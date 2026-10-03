@@ -89,7 +89,7 @@ namespace Copipe.Services
                 }
             }
 
-            // フックで受け取るキーも登録はしておく。Copipe の二重起動や、他のアプリが使っているキーを
+            // フックで受け取るキーも登録はしておく。他のアプリが使っているキーを
             // 今までどおり「登録できなかった」と知らせるため (WM_HOTKEY はフックが先に握りつぶすので届かない)
             _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, modifiers, (uint)(keys & Keys.KeyCode));
             if (!_registered && _keyHook != null)

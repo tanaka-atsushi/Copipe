@@ -17,6 +17,26 @@ namespace Copipe
             Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += OnThreadException;
 
+            // 二重起動は、ホットキーの登録に失敗する前にここで見分ける (他のアプリがキーを使っている場合と区別するため)。
+            // Local\ なので、同じサインインの中だけで 1 つにする。終了するまで持ち続ける
+            bool createdNew;
+            using (Mutex single = new Mutex(true, @"Local\Copipe-SingleInstance", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    // 起動中の Copipe と同じ言語で知らせる
+                    Lang.Apply(Services.Settings.Load(Services.Settings.DefaultPath).Language);
+                    MessageBox.Show(
+                        Lang.T("Copipe はすでに起動しています。", "Copipe is already running."),
+                        "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 1;
+                }
+                return Run();
+            }
+        }
+
+        private static int Run()
+        {
             try
             {
                 using (CopipeApp app = new CopipeApp())
@@ -25,9 +45,9 @@ namespace Copipe
                     {
                         MessageBox.Show(
                             Lang.T("ホットキー " + app.HotkeyName + " を登録できませんでした。\n\n" +
-                                   "Copipe がすでに起動しているか、他のアプリまたは Windows が使用中です。",
+                                   "他のアプリまたは Windows が使用中です。",
                                    "Could not register the hotkey " + app.HotkeyName + ".\n\n" +
-                                   "Copipe is already running, or the key is in use by another app or Windows."),
+                                   "The key is in use by another app or Windows."),
                             "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return 1;
                     }
