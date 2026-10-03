@@ -4,12 +4,15 @@
     Windows 標準の csc.exe (.NET Framework 4.8) のみを使う。SDK のインストールも
     管理者権限も不要。UI は WinForms なので XAML の埋め込みは無い。
 
-    使い方:  .\build.ps1          通常ビルド
-             .\build.ps1 -Run     ビルドして起動
+    使い方:  .\build.ps1             通常ビルド
+             .\build.ps1 -Run        ビルドして起動
+             .\build.ps1 -Installer  ビルドして、インストーラー (bin\Copipe-Setup-<版>.exe) も作る
+                                     (Inno Setup 6 が要る: winget install JRSoftware.InnoSetup --scope user)
 #>
 [CmdletBinding()]
 param(
     [switch]$Run,
+    [switch]$Installer,
     # -Debug は PowerShell の共通パラメーターと衝突するため別名にしている
     [switch]$DebugBuild
 )
@@ -98,6 +101,33 @@ if ($exit -ne 0) {
 }
 
 Write-Host "ビルド成功: $outExe" -ForegroundColor Green
+
+# --- インストーラー -------------------------------------------------------
+if ($Installer) {
+    $iscc = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $iscc) {
+        $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+        if ($cmd) { $iscc = $cmd.Source }
+    }
+    if (-not $iscc) {
+        throw 'ISCC.exe (Inno Setup 6) が見つかりません。winget install JRSoftware.InnoSetup --scope user で入れてください'
+    }
+
+    # バージョンは AssemblyInformationalVersion (exe の製品バージョン) を使う
+    $version = (Get-Item -LiteralPath $outExe).VersionInfo.ProductVersion
+    $iss = Join-Path $root 'installer\Copipe.iss'
+    Write-Host "インストーラーを作成中 (バージョン $version)" -ForegroundColor Cyan
+    $isccOutput = & $iscc '/Q' "/DAppVersion=$version" $iss 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $isccOutput | ForEach-Object { Write-Host ([string]$_) -ForegroundColor Red }
+        throw "インストーラーの作成に失敗しました (exit $LASTEXITCODE)"
+    }
+    Write-Host ("インストーラー作成成功: {0}" -f (Join-Path $outDir "Copipe-Setup-$version.exe")) -ForegroundColor Green
+}
 
 if ($Run) {
     Write-Host '起動します...' -ForegroundColor Cyan

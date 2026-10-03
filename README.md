@@ -21,6 +21,26 @@ Windows 11 向けの常駐ツール。**管理者権限もインストールも�
 
 生成物は `bin\Copipe.exe`。単一ファイルでダブルクリック起動できる。
 
+### インストーラー
+
+```powershell
+.\build.ps1 -Installer   # ビルドして bin\Copipe-Setup-<版>.exe も作る
+```
+
+Inno Setup 6 が要る (`winget install JRSoftware.InnoSetup --scope user`。管理者権限は要らない)。
+スクリプトは `installer\Copipe.iss`。バージョンは `bin\Copipe.exe` の製品バージョン (`AssemblyInformationalVersion`) を使う。
+
+- 管理者権限なしで、ユーザーごとに `%LOCALAPPDATA%\Programs\Copipe` へ入れる。スタートメニューにショートカットを作る。
+  アンインストールは Windows の「インストールされているアプリ」から
+- 画面は Windows の表示言語が日本語なら日本語、英語なら英語 (どちらでもなければ選ぶ画面が出る)
+- 上書きインストール・アンインストールの前に、動いている Copipe を終わらせる (`tools\Stop-Copipe.ps1` と同じく、
+  小窓に WM_CLOSE を送る。5 秒で終わらなければ強制終了)。タイトルが「Copipe」の WinForms の窓を探すので、
+  ほかの場所から起動した Copipe (`bin\Copipe.exe` など) も終わる
+- 設定・履歴・定型文 (`%LOCALAPPDATA%\Copipe`) は、アンインストールの最後に消すかどうかを聞く。
+  既定のボタンは「いいえ」(残す)。`/SUPPRESSMSGBOXES` を付けたサイレントのアンインストールでも「いいえ」になり、消さない
+- コード署名はしていないので、ダウンロードしたものを開くと SmartScreen の警告が出る
+- サイレントで入れるとき: `Copipe-Setup-<版>.exe /VERYSILENT` (アンインストールは `unins000.exe /VERYSILENT`)
+
 Windows 標準の `csc.exe` (.NET Framework 4.8) だけでビルドするため、
 .NET SDK も Visual Studio も要らない。
 
@@ -568,7 +588,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -Screen
 ## 構成
 
 ```
-build.ps1                        csc.exe によるビルド
+build.ps1                        csc.exe によるビルド (-Installer でインストーラーも作る)
+installer/Copipe.iss             インストーラー (Inno Setup 6) のスクリプト。BOM 付き UTF-8
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
 tools/Restore-CopipeData.ps1     途中で止まった検証が書き換えたままの設定・履歴・定型文を元に戻す
 tools/verify.ps1                 検証ハーネス

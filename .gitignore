@@ -14,3 +14,6 @@ obj/
 # OS
 Thumbs.db
 desktop.ini
+
+# インストーラー (build.ps1 -Installer で作る)
+bin/Copipe-Setup-*.exe
