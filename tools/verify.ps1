@@ -2286,20 +2286,28 @@ try {
                             }
                             return $false
                         }
-                        # 削除はメニューの中で確認する。「削除」を選ぶと同じ位置にメニューが出し直されて、その項目が確認に変わる。
-                        # もう一度選ぶと消す。確認のメニューを返す (ホットキーは押したまま)
+                        # 削除はメニューの中で確認する。「削除」を選ぶとメニューは閉じずに、その項目が「OK?」に変わる。
+                        # もう一度選ぶと消す。確認のメニューを返す (ホットキーは押したまま)。
+                        # $script:confirmSameMenu: 確認に変わる間、メニューが閉じずに同じウィンドウのままだったか
                         function Open-DeleteConfirm([int]$Index, [switch]$History) {
+                            $script:confirmSameMenu = $false
                             $menu = if ($History) { Open-RowMenu $Index } else { Open-RowMenu $Index -Phrases }
                             if ($null -eq $menu -or -not (Invoke-MenuItem $menu '削除')) { return $null }
-                            [void](Wait-Pumping { $m = Find-RowMenu; $null -ne $m -and (Get-MenuNames $m) -like '*もう一度クリックで削除*' } 1500)
-                            return (Find-RowMenu)
+                            $script:menuStayed = $true
+                            [void](Wait-Pumping {
+                                $m = Find-RowMenu
+                                if ($m -ne $menu) { $script:menuStayed = $false }
+                                $m -eq $menu -and (Get-MenuNames $m).Contains('OK?')
+                            } 1500)
+                            $found = Find-RowMenu
+                            $script:confirmSameMenu = $script:menuStayed -and $found -eq $menu
+                            return $found
                         }
                         # 確認の項目を選び、保存を待つ。選んだ後に小窓が出たまま、元のアプリが前面に戻ったかを返す
                         function Invoke-DeleteConfirm($Confirm, [string]$Path) {
                             if ($null -eq $Confirm) { return $false }
                             $writtenBefore = [System.IO.File]::GetLastWriteTimeUtc($Path)
-                            $label = @($W::MenuItems($Confirm) | Where-Object { $_.Key -like 'もう一度クリックで削除*' })[0].Key
-                            if (-not (Invoke-MenuItem $Confirm $label)) { return $false }
+                            if (-not (Invoke-MenuItem $Confirm 'OK?')) { return $false }
                             [void](Wait-Pumping { [System.IO.File]::GetLastWriteTimeUtc($Path) -ne $writtenBefore } 2000)
                             [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                             return ($W::IsWindowVisible($popup) -and $W::GetForegroundWindow() -eq $target.Handle)
@@ -2800,8 +2808,18 @@ try {
 
                         $confirm = Open-DeleteConfirm 1
                         $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 「削除」を選ぶと、メニューの中で確認に変わる (グループは中の件数も)' ($names -ceq '名前を変更... | もう一度クリックで削除 (中の定型文 1 件・グループ 1 件も)') "names=[$names]"
+                        Check '削除: 「削除」を選ぶと、メニューの中で「OK?」に変わる' ($names -ceq '名前を変更... | OK?') "names=[$names]"
+                        Check '削除: 確認に変わる間、メニューは閉じない (出し直さない)' $script:confirmSameMenu
                         Check '削除: 1 回目の「削除」では消さない' ((Read-Phrases).Slots[1].Name -ceq '社外2')
+                        # 別の項目にマウスを移すと「削除」に戻る (メニューは出たまま)
+                        $other = @($W::MenuItems($confirm) | Where-Object { $_.Key -ceq '名前を変更...' })
+                        if ($other.Count -gt 0) {
+                            $r0 = $other[0].Value
+                            [void]$W::SetCursorPos([int]($r0.X + $r0.Width / 2), [int]($r0.Y + $r0.Height / 2))
+                        }
+                        [void](Wait-Pumping { $m = Find-RowMenu; $null -ne $m -and (Get-MenuNames $m) -ceq '名前を変更... | 削除' } 1500)
+                        $names = if ($m = Find-RowMenu) { Get-MenuNames $m } else { '' }
+                        Check '削除: 確認中に別の項目へマウスを移すと「削除」に戻る' ($names -ceq '名前を変更... | 削除') "names=[$names]"
                         Send-Key 0x1B 1   # Esc
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
                         Check '削除: 確認のメニューを Esc で閉じると消さない' ($null -eq (Find-RowMenu) -and (Read-Phrases).Slots[1].Name -ceq '社外2')
@@ -2817,7 +2835,7 @@ try {
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         $confirm = Open-DeleteConfirm 0
                         $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 定型文も、メニューの中で確認に変わる' ($names -ceq '履歴にピン止め | - | 編集... | もう一度クリックで削除') "names=[$names]"
+                        Check '削除: 定型文も、メニューの中で確認に変わる' ($names -ceq '履歴にピン止め | - | 編集... | OK?' -and $script:confirmSameMenu) "names=[$names] same=$script:confirmSameMenu"
                         [void](Invoke-DeleteConfirm $confirm $phrasesPath)
                         Check '削除: もう一度選ぶと、定型文を消して空きにする' ($null -eq (Read-Phrases).Slots[0])
                         Invoke-HotkeyRelease
@@ -3145,7 +3163,7 @@ try {
                         # 右クリックの「削除」で履歴から消す (メニューの中でもう一度選ぶと消える。後ろが詰まり、空いた番号は空きの枠)
                         $confirm = Open-DeleteConfirm 1 -History
                         $names = if ($confirm) { Get-MenuNames $confirm } else { '' }
-                        Check '削除: 履歴でも「削除」を選ぶと、メニューの中で確認に変わり、まだ消さない' ($names -ceq 'ピン止め | - | もう一度クリックで削除' -and (Get-PopupItems $popup)[1] -ceq 'ピン止め検証 新しいコピー') "names=[$names]"
+                        Check '削除: 履歴でも「削除」を選ぶと、メニューの中で確認に変わり、まだ消さない' ($names -ceq 'ピン止め | - | OK?' -and $script:confirmSameMenu -and (Get-PopupItems $popup)[1] -ceq 'ピン止め検証 新しいコピー') "names=[$names]"
                         $chose = Invoke-DeleteConfirm $confirm $historyPath
                         [void](Wait-Pumping { (Get-PopupItems $popup)[1] -ceq '数字キー検証 11' } 2000)
                         $items = Get-PopupItems $popup

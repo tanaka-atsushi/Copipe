@@ -1166,7 +1166,7 @@ namespace Copipe
                 : _history.IsPinnedFull ? Lang.T("ピン止めは 26 件までです", "Up to 26 pins")
                 : Lang.T("ピン止め", "Pin");
             int chosen = ShowRowMenu(screen, new[] { label, RowMenu.Separator, Lang.T("削除", "Delete") },
-                                     2, ConfirmDeleteLabel(null));
+                                     2);
             if (chosen == 0)
             {
                 ChangePin(text, !pinned);
@@ -1214,24 +1214,15 @@ namespace Copipe
         /// <summary>
         /// 右クリックのメニューを出す。小窓はフォーカスを奪わないので、メニューにはキーが届かない。
         /// メニューを出している間は Esc をホットキーで受け取り、メニューを閉じる (OnEscapePressed)。
-        /// confirmIndex の項目 (削除) は、選ぶとその項目を confirmLabel に変えたメニューを出し直し、
+        /// confirmIndex の項目 (削除) は、選ぶとメニューを開いたままその項目が「OK?」に変わり、
         /// もう一度選んだときだけ confirmIndex を返す。
         /// </summary>
-        private int ShowRowMenu(Point screen, IList<string> labels, int confirmIndex = -1, string confirmLabel = null)
+        private int ShowRowMenu(Point screen, IList<string> labels, int confirmIndex = -1)
         {
             _popupKeys.SetEscapeEnabled(true);
             try
             {
-                int chosen = RowMenu.Show(_popup.Handle, screen, labels);
-                if (chosen < 0 || chosen != confirmIndex || !_popup.Visible)
-                {
-                    return chosen;
-                }
-                // 標準のメニューは選ぶと閉じるので、同じ位置に出し直して、メニューの中で確認する
-                string[] again = new string[labels.Count];
-                labels.CopyTo(again, 0);
-                again[confirmIndex] = confirmLabel;
-                return RowMenu.Show(_popup.Handle, screen, again);
+                return RowMenu.Show(_popup.Handle, screen, labels, confirmIndex, Lang.T("OK?", "Sure?"));
             }
             finally
             {
@@ -1291,7 +1282,7 @@ namespace Copipe
 
             // 削除は最後の項目。メニューの中でもう一度選ぶと消す
             int chosen = node == null ? ShowRowMenu(screen, labels)
-                : ShowRowMenu(screen, labels, labels.Count - 1, ConfirmDeleteLabel(node));
+                : ShowRowMenu(screen, labels, labels.Count - 1);
             if (chosen >= 0 && chosen < actions.Count && actions[chosen] != null)
             {
                 // 右クリックの処理から抜けてからダイアログを出す
@@ -1408,23 +1399,6 @@ namespace Copipe
             });
         }
 
-        /// <summary>
-        /// 右クリックのメニューで「削除」を選んだ後に、同じ項目に出す確認。node がグループなら中の件数も示す
-        /// (null は履歴の項目)。
-        /// </summary>
-        private static string ConfirmDeleteLabel(PhraseNode node)
-        {
-            if (node == null || !node.IsGroup)
-            {
-                return Lang.T("もう一度クリックで削除", "Click again to delete");
-            }
-            int phrases = 0;
-            int groups = 0;
-            CountContents(node, ref phrases, ref groups);
-            return Lang.T("もう一度クリックで削除 (中の定型文 " + phrases + " 件・グループ " + groups + " 件も)",
-                          "Click again to delete (with " + phrases + " snippet(s) and " + groups + " group(s) inside)");
-        }
-
         /// <summary>枠を空きにする (確認は右クリックのメニューの中で済ませてある)。小窓は出したまま。</summary>
         private void DeleteSlot(PhraseNode group, int index)
         {
@@ -1440,26 +1414,6 @@ namespace Copipe
             }
             // メニューを出すと小窓が前面になるので、元のアプリに戻す (続けて入力できるように)
             RestoreTargetWindow();
-        }
-
-        private static void CountContents(PhraseNode group, ref int phrases, ref int groups)
-        {
-            foreach (PhraseNode child in group.Slots)
-            {
-                if (child == null)
-                {
-                    continue;
-                }
-                if (child.IsGroup)
-                {
-                    groups++;
-                    CountContents(child, ref phrases, ref groups);
-                }
-                else
-                {
-                    phrases++;
-                }
-            }
         }
 
         /// <summary>
