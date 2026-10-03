@@ -588,6 +588,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -Screen
 ## 構成
 
 ```
+LICENSE                          GPL-3.0
 build.ps1                        csc.exe によるビルド (-Installer でインストーラーも作る)
 installer/Copipe.iss             インストーラー (Inno Setup 6) のスクリプト。BOM 付き UTF-8
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
@@ -641,3 +642,12 @@ src/
   (ドラッグ中にホットキーを離したとき小窓をどう扱うか、押しっぱなしをやめても小窓を固定する操作を
   入れるかも、このステップで決める)
 - 候補: 自動起動、専用のアイコン、画像やファイルの履歴
+
+## ライセンス
+
+Copyright (C) 2026 Lonesome BBQ
+
+[GNU General Public License v3.0](LICENSE) (GPL-3.0)。使う・改変する・再配布するのは自由だが、
+改変したものを配るときは、同じ GPL-3.0 でソースも公開すること。
+
+役に立ったら [Buy Me a Coffee](https://buymeacoffee.com/bigcomi) でカンパしてもらえるとうれしい。
