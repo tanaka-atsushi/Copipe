@@ -30,19 +30,11 @@ namespace Copipe.UI
             KeyPreview = true;
 
             int y = Scaled(14);
-            Label where = new Label();
-            where.Text = Lang.T("場所: ", "Location: ") + location;
-            where.AutoSize = false;
-            where.UseMnemonic = false;
-            where.ForeColor = SystemColors.GrayText;
-            where.Bounds = new Rectangle(Scaled(16), y, Scaled(428), Scaled(20));
-            Controls.Add(where);
-            y += Scaled(30);
+            y += AddLabel(Lang.T("場所: ", "Location: ") + location, y, true) + Scaled(10);
 
             if (isGroup)
             {
-                AddLabel(Lang.T("グループ名", "Group name"), y);
-                y += Scaled(22);
+                y += AddLabel(Lang.T("グループ名", "Group name"), y, false) + Scaled(6);
                 _nameBox = new TextBox();
                 _nameBox.Name = "nameBox";
                 _nameBox.Text = first ?? string.Empty;
@@ -53,8 +45,7 @@ namespace Copipe.UI
             }
             else
             {
-                AddLabel(Lang.T("表示名 (省略すると、本文の最初の行を一覧に出します)", "Display name (optional; the first line of the text if empty)"), y);
-                y += Scaled(22);
+                y += AddLabel(Lang.T("表示名 (省略すると、本文の最初の行を一覧に出します)", "Display name (optional; the first line of the text if empty)"), y, false) + Scaled(6);
                 _titleBox = new TextBox();
                 _titleBox.Name = "titleBox";
                 _titleBox.Text = first ?? string.Empty;
@@ -62,8 +53,7 @@ namespace Copipe.UI
                 Controls.Add(_titleBox);
                 y += Scaled(38);
 
-                AddLabel(Lang.T("本文 (入力する文字。改行もそのまま入ります)", "Text (inserted as is, including line breaks)"), y);
-                y += Scaled(22);
+                y += AddLabel(Lang.T("本文 (入力する文字。改行もそのまま入ります)", "Text (inserted as is, including line breaks)"), y, false) + Scaled(6);
                 _textBox = new TextBox();
                 _textBox.Name = "textBox";
                 _textBox.Multiline = true;
@@ -77,9 +67,8 @@ namespace Copipe.UI
                 Controls.Add(_textBox);
                 y += Scaled(116);
 
-                AddLabel(Lang.T("ファイル・フォルダー・URI (省略可。指定すると、選んだとき本文の代わりにこれを開きます)",
-                                "File, folder or URI (optional; opened instead of typing the text)"), y);
-                y += Scaled(22);
+                y += AddLabel(Lang.T("ファイル・フォルダー・URI (省略可。指定すると、選んだとき本文の代わりにこれを開きます)",
+                                     "File, folder or URI (optional; opened instead of typing the text)"), y, false) + Scaled(6);
                 _pathBox = new TextBox();
                 _pathBox.Name = "pathBox";
                 _pathBox.Text = path ?? string.Empty;
@@ -111,15 +100,8 @@ namespace Copipe.UI
                 Controls.Add(folder);
                 y += Scaled(40);
 
-                Label note = new Label();
-                note.Text = Lang.T("本文の欄では Enter で改行、Ctrl+Enter で確定します。Esc で取り消します。",
-                                   "In the text box, Enter adds a line break and Ctrl+Enter saves. Esc cancels.");
-                note.AutoSize = false;
-                note.UseMnemonic = false;
-                note.ForeColor = SystemColors.GrayText;
-                note.Bounds = new Rectangle(Scaled(16), y, Scaled(428), Scaled(20));
-                Controls.Add(note);
-                y += Scaled(30);
+                y += AddLabel(Lang.T("本文の欄では Enter で改行、Ctrl+Enter で確定します。Esc で取り消します。",
+                                     "In the text box, Enter adds a line break and Ctrl+Enter saves. Esc cancels."), y, true) + Scaled(10);
             }
 
             _ok = new Button();
@@ -217,14 +199,25 @@ namespace Copipe.UI
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private void AddLabel(string text, int y)
+        /// <summary>
+        /// 欄の幅で折り返すラベルを置き、その高さを返す。長い説明や深い階層の場所でも切れないよう、
+        /// 折り返した高さを測って決める (言語や Windows の文字の大きさで行数が変わる)。gray なら薄い色の説明にする。
+        /// </summary>
+        private int AddLabel(string text, int y, bool gray)
         {
             Label label = new Label();
             label.Text = text;
-            label.AutoSize = true;
+            label.AutoSize = false;
             label.UseMnemonic = false;
-            label.Location = new Point(Scaled(16), y);
+            if (gray)
+            {
+                label.ForeColor = SystemColors.GrayText;
+            }
+            int width = Scaled(428);
+            int height = TextRenderer.MeasureText(text, Font, new Size(width, 0), TextFormatFlags.WordBreak).Height;
+            label.Bounds = new Rectangle(Scaled(16), y, width, height);
             Controls.Add(label);
+            return height;
         }
 
         private void UpdateState()

@@ -562,6 +562,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -SkipE2
 
 # E2E で表示中の小窓を撮影 (見た目の確認用)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -ScreenshotPath $env:TEMP\copipe.png
+
+# ダイアログ (設定・定型文・グループ・Copipe について) を日本語と英語で撮影し、文字の見切れを確かめる
+# (画面の外で撮るので、マウスとキーボードは使わない。png は %TEMP%\CopipeShots に出る)
+.\tools\Shoot-Dialogs.ps1
 ```
 
 `verify.ps1` は .NET Framework 4.8 のアセンブリを読むため **Windows PowerShell 5.1** で実行する。

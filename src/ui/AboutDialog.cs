@@ -24,7 +24,6 @@ namespace Copipe.UI
             MaximizeBox = false;
             ShowInTaskbar = false;
             TopMost = true;
-            ClientSize = new Size(Scaled(300), Scaled(288));
 
             Label version = new Label();
             version.Name = "versionLabel";
@@ -37,12 +36,15 @@ namespace Copipe.UI
             coffee.Text = Lang.T("役に立ったら缶コーヒー１本おごってください。",
                                  "If Copipe helps you, you can buy me a coffee.");
             coffee.TextAlign = ContentAlignment.MiddleCenter;
-            coffee.Bounds = new Rectangle(Scaled(8), Scaled(44), Scaled(284), Scaled(20));
+            // 英語は 1 行に収まらないので、折り返した高さを測って決める
+            int coffeeHeight = Math.Max(Scaled(20),
+                TextRenderer.MeasureText(coffee.Text, Font, new Size(Scaled(284), 0), TextFormatFlags.WordBreak).Height);
+            coffee.Bounds = new Rectangle(Scaled(8), Scaled(44), Scaled(284), coffeeHeight);
             Controls.Add(coffee);
 
             PictureBox qr = new PictureBox();
             qr.SizeMode = PictureBoxSizeMode.Zoom;
-            qr.Bounds = new Rectangle(Scaled(60), Scaled(84), Scaled(180), Scaled(180));
+            qr.Bounds = new Rectangle(Scaled(60), coffee.Bottom + Scaled(20), Scaled(180), Scaled(180));
             qr.Cursor = Cursors.Hand;
             qr.Click += delegate { OpenCoffee(); };
             using (Stream stream = typeof(AboutDialog).Assembly.GetManifestResourceStream(QrResourceName))
@@ -58,6 +60,7 @@ namespace Copipe.UI
                 }
             }
             Controls.Add(qr);
+            ClientSize = new Size(Scaled(300), qr.Bottom + Scaled(24));
 
             // OK ボタンは置かないので、Esc / Enter で閉じられるようにする
             KeyPreview = true;

@@ -1,16 +1,19 @@
 ﻿<#
-    設定画面のスクリーンショットを、日本語と英語の両方で撮る (文字の切れ・はみ出しの確認用)
+    Copipe のダイアログのスクリーンショットを、日本語と英語の両方で撮る (文字の切れ・はみ出しの確認用)
 
-    設定画面を画面の外に出し、DrawToBitmap でウインドウ自身に描かせて png にする。
+    撮るダイアログ: 設定画面・定型文の登録と編集・グループの作成と名前の変更・Copipe について。
+    確認のメッセージ (MessageBox) は Windows が文字に合わせて大きさを決めるので撮らない。
+    ダイアログを画面の外に出し、DrawToBitmap でウインドウ自身に描かせて png にする。
     キーは tools\verify.ps1 の検証 3b と同じく ProcessCmdKey を直接呼んで入れるので、
     マウス・キーボードは使わない (ユーザーに確認せずに実行してよい。CLAUDE.md)。
     撮った画像は自分の目で見て確かめること。下の自動の判定は目安で、見落としもある。
 
-    撮る状態: 開いた直後・CapsLock・半角/全角・英数 (使えないキー)・数字キー・モードキーの 半角/全角・
+    設定画面で撮る状態: 開いた直後・CapsLock・半角/全角・英数 (使えないキー)・数字キー・モードキーの 半角/全角・
     モードキーをホットキーと同じキーにしたとき (どれも、赤字の説明が出る状態)
+    定型文・グループのダイアログは、空のときと、長めの場所・表示名・本文・パスが入っているとき
 
-    使い方:  tools\Shoot-Settings.ps1                  bin\Copipe.exe を撮り、%TEMP%\CopipeShots に保存
-             tools\Shoot-Settings.ps1 -OutDir <フォルダー>
+    使い方:  tools\Shoot-Dialogs.ps1                   bin\Copipe.exe を撮り、%TEMP%\CopipeShots に保存
+             tools\Shoot-Dialogs.ps1 -OutDir <フォルダー>
 
     文字がはみ出していそうなものを見つけたら一覧を出し、終了コード 1 を返す。
 #>
@@ -54,6 +57,9 @@ $DT = $asm.GetType('Copipe.UI.SettingsDialog', $true)
 $LangType = $asm.GetType('Copipe.Lang', $true)
 $UL = $asm.GetType('Copipe.UiLanguage', $true)
 $IC = $asm.GetType('Copipe.Services.InsertClick', $true)
+$PD = $asm.GetType('Copipe.UI.PhraseDialog', $true)
+$AD = $asm.GetType('Copipe.UI.AboutDialog', $true)
+$SF = [Reflection.BindingFlags]'Public,NonPublic,Static'
 $script:problems = 0
 
 function Get-DialogField($d, [string]$Name) { return $DT.GetField($Name, $F).GetValue($d) }
@@ -94,6 +100,27 @@ function Test-TextFit($d, [string]$Name) {
     }
 }
 
+# ダイアログを画面の外に出して png にし、はみ出しの目安を調べる。$Prepare は表示した後に状態を作る (無ければ $null)
+function Save-Shot($d, [string]$Name, [scriptblock]$Prepare) {
+    try {
+        $d.StartPosition = 'Manual'
+        $d.Location = New-Object System.Drawing.Point -4000, 100
+        $d.Show()
+        [System.Windows.Forms.Application]::DoEvents()
+        if ($Prepare) { & $Prepare $d }
+        $bmp = New-Object System.Drawing.Bitmap $d.Width, $d.Height
+        try {
+            $d.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle 0, 0, $d.Width, $d.Height))
+            $bmp.Save((Join-Path $OutDir "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        } finally { $bmp.Dispose() }
+        Write-Host "$Name.png"
+        Test-TextFit $d $Name
+    } finally {
+        $d.Close()
+        $d.Dispose()
+    }
+}
+
 foreach ($langName in 'Japanese', 'English') {
     $LangType.GetMethod('Apply').Invoke($null, @([Enum]::Parse($UL, $langName)))
     # 名前、キーを入れる欄、押すキー
@@ -109,25 +136,38 @@ foreach ($langName in 'Japanese', 'English') {
     foreach ($st in $states) {
         $d = [Activator]::CreateInstance($DT, $F, $null,
             [object[]]@($K::Pause, $K::Tab, [Enum]::Parse($IC, 'Double'), [Enum]::Parse($UL, $langName)), $null)
-        try {
-            $d.StartPosition = 'Manual'
-            $d.Location = New-Object System.Drawing.Point -4000, 100
-            $d.Show()
-            [System.Windows.Forms.Application]::DoEvents()
-            if ($st[1]) { Send-DialogKey $d $st[1] $st[2] }
-            $name = "$langName-$($st[0])"
-            $bmp = New-Object System.Drawing.Bitmap $d.Width, $d.Height
-            try {
-                $d.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle 0, 0, $d.Width, $d.Height))
-                $bmp.Save((Join-Path $OutDir "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-            } finally { $bmp.Dispose() }
-            Write-Host "$name.png"
-            Test-TextFit $d $name
-        } finally {
-            $d.Close()
-            $d.Dispose()
+        $prepare = $null
+        if ($st[1]) {
+            $box = $st[1]; $key = $st[2]
+            $prepare = { param($dlg) Send-DialogKey $dlg $box $key }.GetNewClosure()
         }
+        Save-Shot $d "$langName-settings-$($st[0])" $prepare
     }
+
+    # 定型文・グループのダイアログ (ForPhrase・ForGroup は internal なので、名前で呼ぶ)。題と場所は CopipeApp と同じ形にする
+    $ja = $langName -eq 'Japanese'
+    $forPhrase = $PD.GetMethod('ForPhrase', $SF)
+    $forGroup = $PD.GetMethod('ForGroup', $SF)
+    if ($ja) {
+        $first = '定型文 の 1 番'
+        $deep = '定型文 > 社外のお客さま > 挨拶とお礼の定型文 の 10 番'
+        $title = 'いつもお世話になっております (社外向けの長めの挨拶)'
+        $groupName = '社外のお客さま向けの挨拶とお礼'
+    } else {
+        $first = 'Snippets, slot 1'
+        $deep = 'Snippets > External customers > Greetings and thanks, slot 10'
+        $title = 'Thank you for your continued support (long greeting)'
+        $groupName = 'Greetings and thanks for customers'
+    }
+    $text = "いつもお世話になっております。`r`n株式会社サンプルの山田です。`r`n`r`n先日はありがとうございました。"
+    $path = 'C:\Users\example\Documents\テンプレート\お客さま向け\挨拶とお礼の文例集.docx'
+    Save-Shot ($forPhrase.Invoke($null, [object[]]@($(if ($ja) { '定型文を登録' } else { 'New snippet' }), $first, '', '', ''))) "$langName-phrase-new" $null
+    Save-Shot ($forPhrase.Invoke($null, [object[]]@($(if ($ja) { '定型文を編集' } else { 'Edit snippet' }), $deep, $title, $text, $path))) "$langName-phrase-edit" $null
+    Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループを作成' } else { 'New group' }), $first, ''))) "$langName-group-new" $null
+    Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループの名前を変更' } else { 'Rename group' }), $deep, $groupName))) "$langName-group-rename" $null
+
+    # Copipe について
+    Save-Shot ([Activator]::CreateInstance($AD, $F, $null, [object[]]@(), $null)) "$langName-about" $null
 }
 
 if ($script:problems -gt 0) {
