@@ -32,3 +32,11 @@
   - 書き換えるのは `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の3つ。
   - 指示がなければ末尾の数字を1つ上げる (1.0.0 → 1.0.1)。
   - バージョンの変更は、そのアップデートと同じコミットに入れる。
+
+
+
+
+## 後処理
+
+- ワークツリーを削除するときは、作業フォルダの中から起動されているCopipe.exeがあるかどうかを確認し、ある場合はそれを終了させてから削除する。
+
