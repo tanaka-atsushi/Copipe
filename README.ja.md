@@ -673,7 +673,7 @@ src/
 
 ## ライセンス
 
-Copyright (C) 2026 Lonesome BBQ
+Copyright (C) 2026 bigcomi
 
 [GNU General Public License v3.0](LICENSE) (GPL-3.0)。使う・改変する・再配布するのは自由だが、
 改変したものを配るときは、同じ GPL-3.0 でソースも公開すること。

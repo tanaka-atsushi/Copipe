@@ -121,6 +121,6 @@ Design notes, measurements and the test harness are documented in Japanese in [R
 
 ## License
 
-Copyright (C) 2026 Lonesome BBQ
+Copyright (C) 2026 bigcomi
 
 [GNU General Public License v3.0](LICENSE)

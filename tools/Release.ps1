@@ -103,7 +103,7 @@ $changes
 
 If Copipe saves you time, you can [buy me a coffee](https://buymeacoffee.com/bigcomi) ☕
 
-License: [GPL-3.0](https://github.com/$repo/blob/main/LICENSE) · © 2026 Lonesome BBQ
+License: [GPL-3.0](https://github.com/$repo/blob/main/LICENSE) · © 2026 bigcomi
 "@
     $notesOut = Join-Path $env:TEMP "Copipe-release-notes-$tag.md"
     [IO.File]::WriteAllText($notesOut, $notes.Replace("`r`n", "`n"), (New-Object Text.UTF8Encoding $false))

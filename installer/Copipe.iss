@@ -16,7 +16,6 @@ AppId={{E4D2C626-6C3A-49E5-80BB-E99DE048CA11}
 AppName=Copipe
 AppVersion={#AppVersion}
 AppVerName=Copipe {#AppVersion}
-AppPublisher=Lonesome BBQ
 VersionInfoVersion={#AppVersion}
 PrivilegesRequired=lowest
 DefaultDirName={autopf}\Copipe
