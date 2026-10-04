@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -125,14 +125,16 @@ namespace Copipe.Services
             return _items.Contains(text) || _pinned.Contains(text);
         }
 
-        /// <summary>普通の履歴の項目をピン止めする (ピン止めの先頭に入る)。ピン止めしたなら true。</summary>
-        public bool Pin(string text)
+        /// <summary>
+        /// 普通の履歴の項目をピン止めする。ピン止めの index 番目 (省略すると先頭) に入る。ピン止めしたなら true。
+        /// </summary>
+        public bool Pin(string text, int index = 0)
         {
-            if (IsPinnedFull || !_items.Remove(text))
+            if (IsPinnedFull || index < 0 || index > _pinned.Count || !_items.Remove(text))
             {
                 return false;
             }
-            _pinned.Insert(0, text);
+            _pinned.Insert(index, text);
             return true;
         }
 

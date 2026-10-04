@@ -1252,6 +1252,9 @@ try {
         Check '並べ替え: 同じ位置なら何も変わらない' ((-not $h.Move('i1', 0)) -and ($h.Items -join ',') -ceq 'i1,i2,i4,i3')
         Check '並べ替え: 範囲の外には移さない' ((-not $h.Move('i1', 4)) -and (-not $h.Move('i1', -1)) -and (-not $h.Move('p1', 3)) -and ($h.Items -join ',') -ceq 'i1,i2,i4,i3' -and ($h.Pinned -join ',') -ceq 'p1,p2,p3')
         Check '並べ替え: 無い内容は何もしない' ((-not $h.Move('無い', 0)) -and (-not $h.Move($null, 0)))
+        # 普通の履歴をピン止めの行に落とすと、その位置にピン止めする
+        Check 'ドラッグでピン止め: 位置を指定すると、その位置に入る' ($h.Pin('i2', 1) -and ($h.Pinned -join ',') -ceq 'p1,i2,p2,p3' -and ($h.Items -join ',') -ceq 'i1,i4,i3') "pinned=$($h.Pinned -join ',') items=$($h.Items -join ',')"
+        Check 'ドラッグでピン止め: ピン止めの範囲の外の位置には入れない' ((-not $h.Pin('i1', 5)) -and (-not $h.Pin('i1', -1)) -and ($h.Items -join ',') -ceq 'i1,i4,i3')
 
         # 定型文から履歴にピン止めする (履歴に無い内容でもピン止めできる)
         $h = New-Object Copipe.Services.ClipboardHistory 3
@@ -3259,7 +3262,7 @@ try {
                         Check '削除: 小窓は出たまま、元のアプリが前面のまま、入力はしない' ($fgMs -ge 0 -and $W::IsWindowVisible($popup) -and $box.Text -ceq '前:') ("text=[" + $box.Text + "]")
                         Close-History
 
-                        # ---- 履歴モード: ドラッグ＆ドロップで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中) ----
+                        # ---- 履歴モード: ドラッグ＆ドロップで並べ替える・ピン止めする・ピン止めを外す ----
                         # 決まった中身の履歴で起動し直す。終わったら元の履歴に戻す (後の検証は今の履歴を前提にしている)
                         $historyBeforeDrag = [System.IO.File]::ReadAllBytes($historyPath)
                         function Restart-WithHistory([byte[]]$Bytes) {
@@ -3308,12 +3311,22 @@ try {
                         $items = Get-PopupItems $popup
                         Check '並べ替え: 普通の履歴を下の行に落とすと、その行の位置に移る' ($items[3] -ceq '並べ替えI1' -and $items[5] -ceq '並べ替えI4' -and $items[6] -ceq '並べ替えI3') ("items=" + (Format-Items $items))
 
-                        $before = Format-Items (Get-PopupItems $popup)
-                        Invoke-Drag (Get-RowPoint 0) (Get-RowPoint 4)
+                        # 行: 0 P3、1 P1、2 P2 (ピン止め)、3 I1、4 I2、5 I4、6 I3
                         Invoke-Drag (Get-RowPoint 5) (Get-RowPoint 1)
-                        [void](Wait-Pumping { $false } 300)
-                        $after = Format-Items (Get-PopupItems $popup)
-                        Check '並べ替え: ピン止めと普通の履歴の間では移さない (両方向とも)' ($after -ceq $before) "before=$before after=$after"
+                        [void](Wait-Pumping { ((Read-SavedHistory).Pinned -join ',') -ceq '並べ替えP3,並べ替えI4,並べ替えP1,並べ替えP2' } 2000)
+                        $items = Get-PopupItems $popup
+                        $saved = Read-SavedHistory
+                        Check '境界を越えるドラッグ: 普通の履歴をピン止めの行に落とすと、その位置にピン止めされる' ($items[1] -ceq '📌 並べ替えI4' -and $items[2] -ceq '📌 並べ替えP1' -and $items[4] -ceq '並べ替えI1') ("items=" + (Format-Items $items))
+                        Check '境界を越えるドラッグ: ピン止めが保存され、普通の履歴からは消える' ((($saved.Pinned -join ',') -ceq '並べ替えP3,並べ替えI4,並べ替えP1,並べ替えP2') -and (($saved.Items -join ',') -ceq '並べ替えI1,並べ替えI2,並べ替えI3')) "pinned=$($saved.Pinned -join ',') items=$($saved.Items -join ',')"
+
+                        # 行: 0 P3、1 I4、2 P1、3 P2 (ピン止め)、4 I1、5 I2、6 I3、7〜 空き。空きの行に落としてもよい
+                        Invoke-Drag (Get-RowPoint 1) (Get-RowPoint 8)
+                        [void](Wait-Pumping { ((Read-SavedHistory).Items -join ',') -ceq '並べ替えI4,並べ替えI1,並べ替えI2,並べ替えI3' } 2000)
+                        $items = Get-PopupItems $popup
+                        $saved = Read-SavedHistory
+                        Check '境界を越えるドラッグ: ピン止めを普通の履歴の行に落とすと、ピン止めが外れて普通の履歴の先頭に入る' ($items[2] -ceq '📌 並べ替えP2' -and $items[3] -ceq '並べ替えI4' -and $items[4] -ceq '並べ替えI1') ("items=" + (Format-Items $items))
+                        Check '境界を越えるドラッグ: ピン止めを外したことが保存される' ((($saved.Pinned -join ',') -ceq '並べ替えP3,並べ替えP1,並べ替えP2') -and (($saved.Items -join ',') -ceq '並べ替えI4,並べ替えI1,並べ替えI2,並べ替えI3')) "pinned=$($saved.Pinned -join ',') items=$($saved.Items -join ',')"
+                        Check '境界を越えるドラッグ: ドラッグでは入力しない' ($box.Text -ceq '前:並べ替えI4') ("text=[" + $box.Text + "]")
 
                         # ---- 履歴モード: ドラッグ中にモードキーで定型文に切り替え、空きの枠に落とすと定型文として登録する ----
                         # 登録した定型文は、後で phrases.json ごと元に戻す (後の検証は今の定型文を前提にしている)
@@ -3338,7 +3351,7 @@ try {
                         }
                         # 入力先には、前の検証 (数字キー 1) で入力した文字が残っている。ドラッグで増えないことを見る
                         $textBeforeHistoryDrop = $box.Text
-                        $slot = Invoke-HistoryToPhrase 3
+                        $slot = Invoke-HistoryToPhrase 4
                         Check '履歴→定型文: ドラッグ中でもモードキーで定型文モードに切り替わる' (Test-Title $script:historyDropLabels '定型文') "labels=[$script:historyDropLabels]"
                         $node = (Read-Phrases).Slots[$slot]
                         Check '履歴→定型文: 空きの枠に落とすと、その文字の定型文として登録される' ($null -ne $node -and -not $node.IsGroup -and $node.Text -ceq '並べ替えI1' -and $node.Path -ceq '') "slot=$slot text=[$($node.Text)] path=[$($node.Path)]"
@@ -3354,7 +3367,7 @@ try {
                         $book.Root.Slots[$groupSlot] = [Copipe.Model.PhraseNode]::CreateGroup('履歴の落とし先')
                         $book.Save($phrasesPath)
                         Open-History
-                        [void](Invoke-HistoryToPhrase 4 $groupSlot)
+                        [void](Invoke-HistoryToPhrase 5 $groupSlot)
                         $group = (Read-Phrases).Slots[$groupSlot]
                         Check '履歴→定型文: グループの行に落とすと、そのグループの最初の空きに登録される' ($null -ne $group -and $group.IsGroup -and $null -ne $group.Slots[0] -and $group.Slots[0].Text -ceq '並べ替えI2') "group=[$($group.Name)] first=[$(if ($group -and $group.Slots[0]) { $group.Slots[0].Text })]"
                         Close-History

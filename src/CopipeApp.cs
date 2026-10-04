@@ -810,7 +810,8 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 履歴の行に落とせるか。ピン止めはピン止めの行へ、普通の履歴は普通の履歴の行へだけ。自分の行には落とさない。
+        /// 履歴の行に落とせるか。同じ側 (ピン止め / 普通の履歴) の中では並べ替え (自分の行には落とさない)。
+        /// 普通の履歴からピン止めの行へはピン止め (満杯なら落とせない)、ピン止めから普通の履歴の行 (空きも) へはピン止めを外す。
         /// </summary>
         private bool CanDropHistory(DropTarget target)
         {
@@ -823,6 +824,11 @@ namespace Copipe
             {
                 return false;
             }
+            if (IsCrossPinDrop(target.Index))
+            {
+                return _historyDragPinned ? _history.Pinned.Contains(_historyDragText)
+                    : !_history.IsPinnedFull && _history.Items.Contains(_historyDragText);
+            }
             int toIndex = HistoryDropIndex(target.Index);
             if (toIndex < 0)
             {
@@ -830,6 +836,12 @@ namespace Copipe
             }
             IList<string> list = _historyDragPinned ? _history.Pinned : _history.Items;
             return list.IndexOf(_historyDragText) >= 0 && list.IndexOf(_historyDragText) != toIndex;
+        }
+
+        /// <summary>小窓の行の位置が、ドラッグしている側 (ピン止め / 普通の履歴) の反対側か。</summary>
+        private bool IsCrossPinDrop(int row)
+        {
+            return row >= 0 && (row < _popup.PinnedCount) != _historyDragPinned;
         }
 
         /// <summary>小窓の行の位置を、ドラッグしている側 (ピン止め / 普通の履歴) の中での位置にする。側が違えば -1。</summary>
@@ -843,7 +855,10 @@ namespace Copipe
             return (row >= pinnedCount && row - pinnedCount < _history.Items.Count) ? row - pinnedCount : -1;
         }
 
-        /// <summary>履歴の行のドラッグが終わったとき。落とした行の位置へ移す。</summary>
+        /// <summary>
+        /// 履歴の行のドラッグが終わったとき。同じ側なら落とした行の位置へ移す。普通の履歴をピン止めの行に落としたら
+        /// その位置にピン止めし、ピン止めを普通の履歴の行に落としたらピン止めを外す (📌 のクリックと同じく普通の履歴の先頭へ)。
+        /// </summary>
         private void EndHistoryDrag(DropTarget target)
         {
             string text = _historyDragText;
@@ -867,8 +882,17 @@ namespace Copipe
             {
                 return;
             }
-            int toIndex = HistoryDropIndex(target.Index);
-            if (toIndex >= 0 && _history.Move(text, toIndex))
+            bool changed;
+            if (IsCrossPinDrop(target.Index))
+            {
+                changed = _historyDragPinned ? _history.Unpin(text) : _history.Pin(text, target.Index);
+            }
+            else
+            {
+                int toIndex = HistoryDropIndex(target.Index);
+                changed = toIndex >= 0 && _history.Move(text, toIndex);
+            }
+            if (changed)
             {
                 SaveHistory();
             }

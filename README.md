@@ -35,7 +35,7 @@ Windows 10 or 11.
   - Pinned items stay at the top, are not pushed out by new copies, and survive *Clear history*.
   - You can pin up to 26 items. Click 📌 to unpin.
 - Drop a file, folder or text from another app onto the popup to pin it. Files, folders and URLs open when you select them.
-- Drag rows to reorder them.
+- Drag rows to reorder them. Drag a history row onto a pinned row to pin it there; drag a pinned row onto a history row to unpin it.
 
 > **Note:** The history is saved to disk as plain text. If you copy a password, remove it with *Clear history* in the tray menu.
 
