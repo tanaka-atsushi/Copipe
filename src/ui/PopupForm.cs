@@ -138,6 +138,16 @@ namespace Copipe.UI
             _hint.TextAlign = ContentAlignment.MiddleRight;
             header.Controls.Add(_hint);
 
+            // 見出しの空いたところ (階層名以外) をつかんで、小窓を動かせる。階層名は自分でカーソルを決める
+            header.Cursor = Cursors.SizeAll;
+            _title.Cursor = Cursors.Default;
+            foreach (Control grip in new Control[] { header, _hint })
+            {
+                grip.MouseDown += OnGripMouseDown;
+                grip.MouseMove += OnGripMouseMove;
+                grip.MouseUp += delegate { _moving = false; };
+            }
+
             Controls.Add(header);
 
             Size = new Size(ScaleByDpi(BaseWidth), HeightForItems(1));
@@ -447,8 +457,19 @@ namespace Copipe.UI
 
         private void Place()
         {
-            Rectangle workingArea = Screen.FromPoint(_cursor).WorkingArea;
-            Point location = PopupPlacement.Place(_cursor, Size, workingArea, ScaleByDpi(BaseCursorOffset));
+            Point location;
+            if (_moved)
+            {
+                // 見出しをつかんで動かした後は、カーソルの近くへ置き直さない。行数が変わってはみ出す分だけ押し戻す
+                Rectangle area = Screen.FromControl(this).WorkingArea;
+                location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)),
+                                     Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
+            }
+            else
+            {
+                Rectangle workingArea = Screen.FromPoint(_cursor).WorkingArea;
+                location = PopupPlacement.Place(_cursor, Size, workingArea, ScaleByDpi(BaseCursorOffset));
+            }
 
             // 位置を決めると同時に、後から出た最前面ウインドウより前に出し直す。フォーカスは奪わない
             NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, location.X, location.Y, 0, 0,
@@ -460,7 +481,39 @@ namespace Copipe.UI
             _wheelRemainder = 0;
             CancelDrag();
             StopFlash();
+            // 動かした位置はその回だけ。次に出すときはカーソルの近くに戻す
+            _moving = false;
+            _moved = false;
             Hide();
+        }
+
+        // 見出しをつかんで動かしている間は _moving。この回に一度でも動かしたら _moved
+        private bool _moving;
+        private bool _moved;
+        private Point _moveStart;
+        private Point _moveOrigin;
+
+        private void OnGripMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || _list.IsDragging)
+            {
+                return;
+            }
+            _moving = true;
+            _moveStart = Cursor.Position;
+            _moveOrigin = Location;
+        }
+
+        private void OnGripMouseMove(object sender, MouseEventArgs e)
+        {
+            Point cursor = Cursor.Position;
+            if (!_moving || cursor == _moveStart)
+            {
+                return;
+            }
+            _moved = true;
+            // Location の変更は SWP_NOACTIVATE で動かすので、入力中のアプリが前面のまま
+            Location = new Point(_moveOrigin.X + cursor.X - _moveStart.X, _moveOrigin.Y + cursor.Y - _moveStart.Y);
         }
 
         protected override bool ShowWithoutActivation

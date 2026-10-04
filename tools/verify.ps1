@@ -2479,6 +2479,33 @@ try {
                                 [void](Wait-Pumping { $false } 300)
                             }
                         }
+                        if ($runHistory) {   # 履歴の E2E: 見出しをつかんで小窓を動かす (その回だけ)
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        $moveBefore = $W::GetRect($popup)
+                        # 見出しの真ん中 (左の「クリップボード履歴」と右の案内の間の空いたところ)。見出しは一覧の上にある
+                        $listTop = $moveBefore.Top
+                        foreach ($child in $W::Children($popup)) {
+                            if ($W::GetClass($child) -like '*LISTBOX*') { $listTop = $W::GetRect($child).Top }
+                        }
+                        $grip = Pt ($moveBefore.Left + [int]($moveBefore.Width / 2)) ([int](($moveBefore.Top + $listTop) / 2))
+                        Invoke-Drag $grip (Pt ($grip.X + 120) ($grip.Y + 80))
+                        $moveAfter = $W::GetRect($popup)
+                        $moveDx = $moveAfter.Left - $moveBefore.Left
+                        $moveDy = $moveAfter.Top - $moveBefore.Top
+                        Check '小窓の移動: 見出しの空いたところをドラッグすると、その分だけ動く' ([Math]::Abs($moveDx - 120) -le 2 -and [Math]::Abs($moveDy - 80) -le 2) "dx=$moveDx dy=$moveDy"
+                        Check '小窓の移動: 動かしても、入力先のアプリが前面のまま' ($W::GetForegroundWindow() -eq $target.Handle)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        $moveAgain = $W::GetRect($popup)
+                        Check '小窓の移動: 閉じて出し直すと、カーソルの近くに戻る (動かした位置は覚えない)' ($moveAgain.Left -eq $moveBefore.Left -and $moveAgain.Top -eq $moveBefore.Top) "before=$($moveBefore.Location) again=$($moveAgain.Location)"
+                        Invoke-HotkeyRelease
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        }
                         # 他のアプリ役のドロップ先。落とされたものを $script:dropped に「TEXT:…」か「FILE:…」で残す。
                         # 入力先の下に置く (小窓は入力先の右に出るので重ならない)
                         $dropTarget = New-Object System.Windows.Forms.Form
