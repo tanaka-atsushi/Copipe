@@ -103,7 +103,7 @@ if ($exit -ne 0) {
 Write-Host "ビルド成功: $outExe" -ForegroundColor Green
 
 # --- インストーラー -------------------------------------------------------
-# 作り方は tools\Build-Installer.ps1 (tools\Release.ps1 と共通)
+# 作り方は tools\Build-Installer.ps1
 if ($Installer) {
     & (Join-Path $root 'tools\Build-Installer.ps1') | Out-Null
 }

@@ -26,12 +26,12 @@
   - 今後の候補 (やるかはユーザーに確認): 日本語キーボードの CapsLock の刻印のキーは、そのまま押すと英数 (0xF0)。英数もフックの対象にするか。GetAsyncKeyState では離した後も「押されたまま」に見える (README.ja.md の実測)。フックなら押し上げが来るかは未確認。
   - 今後の候補: モードキーに CapsLock を選ぶと、今も RegisterHotKey のままなので CapsLock が切り替わる。
 
-## 公開 (2026-10-03 に GitHub で Public にした。ライセンスは GPL-3.0、著作権の表示は bigcomi)
+## 公開 (ライセンスは GPL-3.0、著作権の表示は bigcomi)
 
-- 公開する文 (README.md・リリースノート・FUNDING.yml など) は英語で書く。日本以外でも使ってもらうため (ユーザーの指示)。
+- 2026-10-04 に GitHub のリポジトリを削除し、GitHub でのリリースのしくみ (Release.ps1・リリースノート・FUNDING.yml) も消した。GitHub については改めてユーザーが指示する。
+- 公開する文 (README.md など) は英語で書く。日本以外でも使ってもらうため (ユーザーの指示)。
 - README.md は使う人向けの英語の説明、README.ja.md は日本語の詳しい説明と開発メモ。動作を変えたら両方を直す。
-- 本名・勤め先 (大学名など)・勤め先のメールアドレスを、ファイルにもコミットにも書かない (例文も含む)。git の作者 (コミット) は bigcomi <bigcomi@gmail.com>。インストーラーの発行元と exe の会社名は空にする (2026-10-03 にユーザーが決めた)。著作権の表示 (README・リリースノート) は bigcomi。
-- リリースは tools\Release.ps1 で行う (手順は README.ja.md の「リリース」)。release-notes\v<版>.md に変わったことを英語で書く。公開の前に -DryRun で確かめ、公開してよいかユーザーに確認する。試しのタグやリリースは作らない (Public なので見ている人に通知が行く)。
+- 本名・勤め先 (大学名など)・勤め先のメールアドレスを、ファイルにもコミットにも書かない (例文も含む)。git の作者 (コミット) は bigcomi <bigcomi@gmail.com>。インストーラーの発行元と exe の会社名は空にする (2026-10-03 にユーザーが決めた)。著作権の表示 (README) は bigcomi。
 
 ## コミット
 
@@ -39,7 +39,7 @@
   - 書き換えるのは `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の3つ。
   - 指示がなければ末尾の数字を1つ上げる (1.0.0 → 1.0.1)。
   - バージョンの変更は、そのアップデートと同じコミットに入れる。
-  - バージョンを上げてから build.ps1 でビルドし、bin\Copipe.exe も同じコミットに入れる (tools\Release.ps1 は exe のバージョンが AssemblyInfo.cs と違うと止まる)。
+  - バージョンを上げてから build.ps1 でビルドし、bin\Copipe.exe も同じコミットに入れる。
 
 
 

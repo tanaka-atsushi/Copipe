@@ -14,19 +14,9 @@ and Copipe types it at the text cursor of the app you are working in. Let go of 
 - **Light.** A single small `.exe` with no runtime to install. Built on .NET Framework 4.8, which comes with Windows.
 - **English and Japanese.** The app follows the Windows display language, or you can pick one in Settings.
 
-## Download
+## Requirements
 
-**[Download the latest release](../../releases/latest)**
-
-| File | |
-|---|---|
-| `Copipe-Setup-<version>.exe` | Installer. Installs for the current user, no admin rights needed. Adds Copipe to the Start menu. |
-| `Copipe-<version>.zip` | Portable. Unzip anywhere and run `Copipe.exe`. |
-
-Requires Windows 10 or 11.
-
-> **"Windows protected your PC"?** Copipe is not code-signed yet, so SmartScreen may warn you the first time.
-> Click **More info** → **Run anyway**.
+Windows 10 or 11.
 
 ## How to use
 
@@ -100,8 +90,6 @@ For the portable version, exit Copipe and delete the files.
 ## Support
 
 Copipe is free. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/bigcomi) ☕
-
-Bug reports and ideas are welcome in [Issues](../../issues).
 
 ## Building from source
 
