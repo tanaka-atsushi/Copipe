@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Copipe.Interop;
@@ -20,18 +21,74 @@ namespace Copipe
             // 二重起動は、ホットキーの登録に失敗する前にここで見分ける (他のアプリがキーを使っている場合と区別するため)。
             // Local\ なので、同じサインインの中だけで 1 つにする。終了するまで持ち続ける
             bool createdNew;
-            using (Mutex single = new Mutex(true, @"Local\Copipe-SingleInstance", out createdNew))
+            Mutex single;
+            try
+            {
+                single = new Mutex(true, @"Local\Copipe-SingleInstance", out createdNew);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 管理者として起動している Copipe の Mutex は、普通の権限からは開けない (小窓に WM_CLOSE も届かない)
+                Lang.Apply(Services.Settings.Load(Services.Settings.DefaultPath).Language);
+                MessageBox.Show(
+                    Lang.T("管理者として起動している Copipe があるため、入れ替えられませんでした。",
+                           "Could not replace Copipe because it is running as administrator."),
+                    "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return 1;
+            }
+            using (single)
             {
                 if (!createdNew)
                 {
-                    // 起動中の Copipe と同じ言語で知らせる
+                    // 起動中の Copipe と同じ言語で聞く
                     Lang.Apply(Services.Settings.Load(Services.Settings.DefaultPath).Language);
-                    MessageBox.Show(
-                        Lang.T("Copipe はすでに起動しています。", "Copipe is already running."),
-                        "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return 1;
+                    if (MessageBox.Show(
+                            Lang.T("Copipe はすでに起動しています。入れ替えますか？",
+                                   "Copipe is already running. Replace it?"),
+                            "Copipe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    {
+                        return 1;
+                    }
+                    if (!ReplaceRunning(single))
+                    {
+                        MessageBox.Show(
+                            Lang.T("起動中の Copipe を終了できなかったので、入れ替えられませんでした。",
+                                   "Could not replace Copipe because the running one did not exit."),
+                            "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return 1;
+                    }
                 }
                 return Run();
+            }
+        }
+
+        /// <summary>
+        /// 起動中の Copipe に終了を頼み、終わったら Mutex を引き継ぐ。
+        /// インストーラーや tools\Stop-Copipe.ps1 と同じく、小窓 (タイトル "Copipe") に WM_CLOSE を送って正常に終わらせる
+        /// (小窓が閉じると Copipe ごと終了する)。強制終了はしない。
+        /// </summary>
+        private static bool ReplaceRunning(Mutex single)
+        {
+            // このプロセスはまだウインドウを作っていないので、見つかるのは起動中の Copipe の窓だけ
+            IntPtr wnd = IntPtr.Zero;
+            while ((wnd = NativeMethods.FindWindowEx(IntPtr.Zero, wnd, null, "Copipe")) != IntPtr.Zero)
+            {
+                // 同じタイトルのエクスプローラー (Copipe フォルダーを開いた窓) などは除く。小窓は WinForms の窓
+                StringBuilder cls = new StringBuilder(256);
+                NativeMethods.GetClassName(wnd, cls, cls.Capacity);
+                if (cls.ToString().StartsWith("WindowsForms10.", StringComparison.Ordinal))
+                {
+                    NativeMethods.PostMessage(wnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            try
+            {
+                return single.WaitOne(5000);
+            }
+            catch (AbandonedMutexException)
+            {
+                // 起動中の Copipe は Mutex を解放せずに終わるので、こちらになる。引き継げている
+                return true;
             }
         }
 

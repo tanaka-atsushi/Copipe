@@ -262,6 +262,14 @@ namespace Copipe.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool IsWindow(IntPtr hWnd);
 
+        internal const int WM_CLOSE = 0x0010;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern IntPtr FindWindowEx(IntPtr hWndParent, IntPtr hWndChildAfter, string lpszClass, string lpszWindow);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
         /// <summary>
         /// システム DPI 対応を宣言する。ウインドウを 1 つも作る前に呼ぶこと。
         /// 宣言しないと 125% や 150% の画面で文字がぼやける。

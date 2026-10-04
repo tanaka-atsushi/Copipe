@@ -1907,26 +1907,49 @@ try {
             Start-Sleep -Milliseconds 400
             Check '一瞬だけ押した場合も、小窓が出たまま残らない' (-not $W::IsWindowVisible($popup))
 
-            # 二重起動
-            $second = Start-Process -FilePath $exe -PassThru
-            $null = $second.Handle
-            $dialog = [IntPtr]::Zero
+            # 二重起動: 2 つ目は「すでに起動しています。入れ替えますか？」と聞く。ボタンは WM_COMMAND で押す (マウスは使わない)
+            function Start-Second([string]$Label) {
+                $second = Start-Process -FilePath $exe -PassThru
+                $null = $second.Handle
+                $dialog = [IntPtr]::Zero
+                $deadline = (Get-Date).AddSeconds(5)
+                while ($dialog -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline -and -not $second.HasExited) {
+                    Start-Sleep -Milliseconds 50
+                    $dialog = Find-Dialog $second.Id
+                }
+                Check "${Label}: 2 つ目はダイアログを出す" ($dialog -ne [IntPtr]::Zero) "exited=$($second.HasExited)"
+                if ($dialog -ne [IntPtr]::Zero) {
+                    $dialogText = (@($W::Children($dialog) | ForEach-Object { $W::GetText($_) }) -join ' ')
+                    Check "${Label}: ダイアログは「すでに起動しています。入れ替えますか？」で、ホットキーの登録の失敗ではない" `
+                        (($dialogText -like '*すでに起動しています。入れ替えますか*' -or $dialogText -like '*already running. Replace it*') -and $dialogText -notlike "*$hotkeyName*") $dialogText
+                }
+                return @{ Process = $second; Dialog = $dialog }
+            }
+
+            # 「いいえ」: 2 つ目が終わり、1 つ目はそのまま
+            $s = Start-Second '二重起動 (いいえ)'
+            if ($s.Dialog -ne [IntPtr]::Zero) { [void]$W::PostMessage($s.Dialog, 0x0111 <# WM_COMMAND #>, [IntPtr]7 <# IDNO #>, [IntPtr]::Zero) }
+            Check '二重起動 (いいえ): 2 つ目は終了する' ($s.Process.WaitForExit(5000))
+            if ($s.Process.HasExited) { Check '二重起動 (いいえ): 2 つ目の終了コードは 1' ($s.Process.ExitCode -eq 1) "exit=$($s.Process.ExitCode)" }
+            Check '二重起動 (いいえ): 1 つ目は動き続けている' (-not $app.HasExited)
+            if (-not $app.HasExited) { Test-Hold $center '二重起動 (いいえ) の後の 1 つ目' $popup }
+
+            # 「はい」: 1 つ目が正常に終わり、2 つ目がそのまま動く。以降は 2 つ目を使う
+            $s = Start-Second '二重起動 (はい)'
+            if ($s.Dialog -ne [IntPtr]::Zero) { [void]$W::PostMessage($s.Dialog, 0x0111 <# WM_COMMAND #>, [IntPtr]6 <# IDYES #>, [IntPtr]::Zero) }
+            Check '二重起動 (はい): 1 つ目は終了する' ($app.WaitForExit(5000))
+            if ($app.HasExited) { Check '二重起動 (はい): 1 つ目の終了コードは 0 (強制終了ではない)' ($app.ExitCode -eq 0) "exit=$($app.ExitCode)" }
+            $app = $s.Process
+            $popup = [IntPtr]::Zero
             $deadline = (Get-Date).AddSeconds(5)
-            while ($dialog -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline -and -not $second.HasExited) {
+            while ($popup -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline -and -not $app.HasExited) {
                 Start-Sleep -Milliseconds 50
-                $dialog = Find-Dialog $second.Id
+                $popup = Find-Popup $app.Id
             }
-            Check '二重起動: 2 つ目はダイアログを出す' ($dialog -ne [IntPtr]::Zero) "exited=$($second.HasExited)"
-            if ($dialog -ne [IntPtr]::Zero) {
-                $dialogText = (@($W::Children($dialog) | ForEach-Object { $W::GetText($_) }) -join ' ')
-                Check '二重起動: ダイアログは「すでに起動しています」で、ホットキーの登録の失敗ではない' `
-                    (($dialogText -like '*すでに起動しています*' -or $dialogText -like '*already running*') -and $dialogText -notlike "*$hotkeyName*") $dialogText
-                [void]$W::PostMessage($dialog, 0x0010 <# WM_CLOSE #>, [IntPtr]::Zero, [IntPtr]::Zero)
-            }
-            Check '二重起動: 2 つ目は終了する' ($second.WaitForExit(5000))
-            if ($second.HasExited) { Check '二重起動: 2 つ目の終了コードは 1' ($second.ExitCode -eq 1) "exit=$($second.ExitCode)" }
-            Check '二重起動: 1 つ目は動き続けている' (-not $app.HasExited)
-            if (-not $app.HasExited) { Test-Hold $center '二重起動の後の 1 つ目' $popup }
+            Check '二重起動 (はい): 2 つ目は動き続けて、小窓を作る' ($popup -ne [IntPtr]::Zero -and -not $app.HasExited) "exited=$($app.HasExited)"
+            Start-Sleep -Milliseconds 700
+            Check '二重起動 (はい): 2 つ目はエラーのダイアログを出していない (ホットキーを登録できている)' (-not $app.HasExited -and (Find-Dialog $app.Id) -eq [IntPtr]::Zero)
+            if ($popup -ne [IntPtr]::Zero -and -not $app.HasExited) { Test-Hold $center '二重起動 (はい) の後の 2 つ目' $popup }
 
             $app.Refresh()
             Info ("常駐中のメモリ: ワーキングセット {0:N1} MB / プライベート {1:N1} MB" -f ($app.WorkingSet64 / 1MB), ($app.PrivateMemorySize64 / 1MB))
