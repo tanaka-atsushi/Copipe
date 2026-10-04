@@ -117,18 +117,28 @@ namespace Copipe.Services
             return true;
         }
 
-        /// <summary>Ctrl+V を送る。4 つの入力をまとめて送るので、利用者の入力が間に割り込まない。</summary>
+        /// <summary>
+        /// Ctrl+V を送る。入力をまとめて送るので、利用者の入力が間に割り込まない。
+        /// Shift が押されたままだと Ctrl+Shift+V として届いて貼り付けにならないので、先に Shift を離す
+        /// (日本語キーボードの Shift+英数 は CapsLock として届くので、そのホットキーでは Shift を押したままになる)。
+        /// 押し直しはしない。送る間に利用者が離していると、Shift が押されたままになってしまうため。
+        /// </summary>
         private static void SendPaste()
         {
-            NativeMethods.INPUT[] inputs = new NativeMethods.INPUT[]
+            List<NativeMethods.INPUT> inputs = new List<NativeMethods.INPUT>();
+            foreach (ushort shift in new ushort[] { NativeMethods.VK_LSHIFT, NativeMethods.VK_RSHIFT })
             {
-                Key(NativeMethods.VK_CONTROL, false),
-                Key(NativeMethods.VK_V, false),
-                Key(NativeMethods.VK_V, true),
-                Key(NativeMethods.VK_CONTROL, true),
-            };
-            uint sent = NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
-            if (sent != inputs.Length)
+                if ((NativeMethods.GetAsyncKeyState(shift) & 0x8000) != 0)
+                {
+                    inputs.Add(Key(shift, true));
+                }
+            }
+            inputs.Add(Key(NativeMethods.VK_CONTROL, false));
+            inputs.Add(Key(NativeMethods.VK_V, false));
+            inputs.Add(Key(NativeMethods.VK_V, true));
+            inputs.Add(Key(NativeMethods.VK_CONTROL, true));
+            uint sent = NativeMethods.SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+            if (sent != inputs.Count)
             {
                 // 管理者として実行中のアプリが前面にあると、UIPI で送れない
                 SystemSounds.Beep.Play();

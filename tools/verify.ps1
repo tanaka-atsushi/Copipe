@@ -3447,6 +3447,28 @@ try {
                         Check 'CapsLock: Ctrl+CapsLock も握りつぶす (CapsLock はオフのまま)' (-not $W::IsToggled(0x14) -and $W::KeyWatchDowns -eq 0) "toggled=$($W::IsToggled(0x14)) passed=$($W::KeyWatchDowns)"
                         $W::StopKeyWatch()
 
+                        # Shift を押したまま貼り付ける (日本語キーボードの Shift+英数 は CapsLock として届き、Shift は押したままになる)。
+                        # 上のとおり擬似入力の Shift+CapsLock はフックに届かないので、CapsLock の後に Shift を押す。
+                        # テキストボックスは Ctrl+Shift+V でも貼り付けてしまうので、V が Shift なしで届いたかも見る
+                        Reset-Target
+                        $script:shiftOnV = $null
+                        $onKeyDown = [System.Windows.Forms.KeyEventHandler]{ param($s, $e) if ($e.KeyCode -eq 'V') { $script:shiftOnV = $e.Shift } }
+                        $box.add_KeyDown($onKeyDown)
+                        $W::KeyDown(0x14)
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        $W::KeyDown(0xA0)
+                        [void](Wait-Pumping { $false } 100)
+                        $shiftItem = (Get-PopupItems $popup)[0]
+                        $pt = Get-ItemCenter $popup 0
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::DoubleClick()
+                        $shiftPasteMs = Wait-Pumping { $box.Text -ceq ('前:' + $shiftItem) } 3000
+                        $W::KeyUp(0xA0)
+                        $W::KeyUp(0x14)
+                        [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
+                        $box.remove_KeyDown($onKeyDown)
+                        Check 'CapsLock: Shift を押したままでも、選んだ項目を貼り付けられる (Ctrl+Shift+V にならない)' ($shiftItem -and $shiftPasteMs -ge 0 -and $script:shiftOnV -eq $false) "item=[$shiftItem] text=[$($box.Text)] shiftOnV=$($script:shiftOnV)"
+
                         $copipe = $script:copipeRef
                         $app = $copipe.Process
                         $popup = $copipe.Popup
@@ -3466,6 +3488,9 @@ try {
             # 残っていれば正常終了を依頼する (強制終了はトレイにアイコンの抜け殻を残すため最後の手段)
             & $stopScript -ExePath $exe
             $W::StopKeyWatch()
+            # Shift を押したままの貼り付けの途中で止まっても、Shift が押されたままにならないように
+            # (押されていなくても、離す入力を送るだけなので害は無い)
+            $W::KeyUp(0xA0)
             # CapsLock を元のオン・オフに戻す (Copipe を止めた後なので、握りつぶされない)
             [System.Windows.Forms.Application]::DoEvents()
             if ($W::IsToggled(0x14) -ne $savedCapsLock) { $W::KeyDown(0x14); $W::KeyUp(0x14) }

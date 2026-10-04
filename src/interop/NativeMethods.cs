@@ -178,6 +178,8 @@ namespace Copipe.Interop
         internal const uint KEYEVENTF_KEYUP = 0x0002;
         internal const ushort VK_CONTROL = 0x11;
         internal const ushort VK_V = 0x56;
+        internal const ushort VK_LSHIFT = 0xA0;
+        internal const ushort VK_RSHIFT = 0xA1;
         internal const uint MAPVK_VK_TO_VSC = 0;
 
         [StructLayout(LayoutKind.Sequential)]
