@@ -118,12 +118,23 @@ namespace Copipe.Services
         }
 
         /// <summary>
-        /// Ctrl+V を送る。入力をまとめて送るので、利用者の入力が間に割り込まない。
-        /// Shift が押されたままだと Ctrl+Shift+V として届いて貼り付けにならないので、先に Shift を離す
-        /// (日本語キーボードの Shift+英数 は CapsLock として届くので、そのホットキーでは Shift を押したままになる)。
-        /// 押し直しはしない。送る間に利用者が離していると、Shift が押されたままになってしまうため。
+        /// 押されている Shift を離した入力を、前面のアプリに送る。
+        /// 日本語キーボードの Shift+英数 は CapsLock として届くので、そのホットキーでは Shift を押したままになる。
+        /// そのままだと、小窓の数字キーなど (修飾キーなしで RegisterHotKey している) が効かずにアプリへ入力され、
+        /// 貼り付けの Ctrl+V も Ctrl+Shift+V として届く。ホットキーを押したときに呼ぶ。
+        /// 押し直しはしない。後で利用者が離していると、Shift が押されたままになってしまうため。
         /// </summary>
-        private static void SendPaste()
+        public static void ReleaseShift()
+        {
+            List<NativeMethods.INPUT> inputs = ShiftReleases();
+            if (inputs.Count > 0)
+            {
+                NativeMethods.SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+            }
+        }
+
+        /// <summary>押されている Shift (左右) を離す入力。押されていなければ空。</summary>
+        private static List<NativeMethods.INPUT> ShiftReleases()
         {
             List<NativeMethods.INPUT> inputs = new List<NativeMethods.INPUT>();
             foreach (ushort shift in new ushort[] { NativeMethods.VK_LSHIFT, NativeMethods.VK_RSHIFT })
@@ -133,6 +144,16 @@ namespace Copipe.Services
                     inputs.Add(Key(shift, true));
                 }
             }
+            return inputs;
+        }
+
+        /// <summary>
+        /// Ctrl+V を送る。入力をまとめて送るので、利用者の入力が間に割り込まない。
+        /// 小窓を出した後に Shift を押し直していても貼り付けになるよう、ここでも先に Shift を離す (ReleaseShift)。
+        /// </summary>
+        private static void SendPaste()
+        {
+            List<NativeMethods.INPUT> inputs = ShiftReleases();
             inputs.Add(Key(NativeMethods.VK_CONTROL, false));
             inputs.Add(Key(NativeMethods.VK_V, false));
             inputs.Add(Key(NativeMethods.VK_V, true));

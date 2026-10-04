@@ -179,6 +179,9 @@ namespace Copipe.Services
                 _releaseTimer.Start();
             }
 
+            // Shift+英数 (CapsLock として届く) で押したとき、Shift を押したままにしない
+            TextInserter.ReleaseShift();
+
             EventHandler handler = Pressed;
             if (handler != null)
             {

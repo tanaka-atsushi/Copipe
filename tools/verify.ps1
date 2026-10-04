@@ -3449,6 +3449,8 @@ try {
 
                         # Shift を押したまま貼り付ける (日本語キーボードの Shift+英数 は CapsLock として届き、Shift は押したままになる)。
                         # 上のとおり擬似入力の Shift+CapsLock はフックに届かないので、CapsLock の後に Shift を押す。
+                        # そのため確かめられるのは貼り付けのときに Shift を離すほうだけ。ホットキーを押したときに離すほう
+                        # (Shift を押したままでも数字キーで選べる) は確かめられないので、実機で確かめる。
                         # テキストボックスは Ctrl+Shift+V でも貼り付けてしまうので、V が Shift なしで届いたかも見る
                         Reset-Target
                         $script:shiftOnV = $null
