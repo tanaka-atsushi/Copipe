@@ -105,8 +105,3 @@ The installer needs Inno Setup 7 or 6; without it, the script skips the installe
 The source is limited to C# 5 because that is what this compiler supports.
 Design notes, measurements and the test harness are documented in Japanese in [README.ja.md](README.ja.md).
 
-## License
-
-Copyright (C) 2026 bigcomi
-
-[GNU General Public License v3.0](LICENSE)
