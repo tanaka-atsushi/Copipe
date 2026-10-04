@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 1. `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の 3 つを上げる。
    - 引数があればその番号に、なければ末尾の数字を 1 つ上げる (1.0.4 → 1.0.5。4 桁の 2 つは `1.0.5.0`)。
-   - ビルドより先に上げる。bin\Copipe.exe に新しいバージョンを入れるため。
+   - ビルドより先に上げる。bin\Copipe.exe に新しいバージョンが入っていないと、tools\Release.ps1 が止まる。
 2. `.\build.ps1` でビルドする。失敗したら直してからやり直し、成功するまで先に進まない。
 3. `Start-Process bin\Copipe.exe` で起動する (build.ps1 は動いている Copipe を終了させる)。
 4. 機能や動作を変えたのに `tools\verify.ps1` が合わせて更新されていなければ、先に更新する。実行するかどうかはユーザーに聞く (`/verify`)。

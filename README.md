@@ -14,9 +14,19 @@ and Copipe types it at the text cursor of the app you are working in. Let go of 
 - **Light.** A single small `.exe` with no runtime to install. Built on .NET Framework 4.8, which comes with Windows.
 - **English and Japanese.** The app follows the Windows display language, or you can pick one in Settings.
 
-## Requirements
+## Download
 
-Windows 10 or 11.
+**[Download the latest release](../../releases/latest)**
+
+| File | |
+|---|---|
+| `Copipe-Setup-<version>.exe` | Installer. Installs for the current user, no admin rights needed. Adds Copipe to the Start menu. |
+| `Copipe-<version>.zip` | Portable. Unzip anywhere and run `Copipe.exe`. |
+
+Requires Windows 10 or 11.
+
+> **"Windows protected your PC"?** Copipe is not code-signed yet, so SmartScreen may warn you the first time.
+> Click **More info** → **Run anyway**.
 
 ## How to use
 
@@ -91,6 +101,8 @@ For the portable version, exit Copipe and delete the files.
 
 Copipe is free. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/bigcomi) ☕
 
+Bug reports and ideas are welcome in [Issues](../../issues).
+
 ## Building from source
 
 Copipe builds with the C# compiler that ships with Windows (`csc.exe`, .NET Framework 4.8). You do not need Visual Studio or the .NET SDK.
@@ -105,3 +117,8 @@ The installer needs Inno Setup 7 or 6; without it, the script skips the installe
 The source is limited to C# 5 because that is what this compiler supports.
 Design notes, measurements and the test harness are documented in Japanese in [README.ja.md](README.ja.md).
 
+## License
+
+Copyright (C) 2026 Atsushi Tanaka
+
+[GNU General Public License v3.0](LICENSE)

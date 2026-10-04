@@ -42,6 +42,25 @@ Inno Setup 7 または 6 が要る (`winget install JRSoftware.InnoSetup --scope
 - サイレントで入れるとき: `Copipe-Setup-<版>.exe /VERYSILENT` (アンインストールは `unins000.exe /VERYSILENT`)
 - 作り方は `tools\Build-Installer.ps1`
 
+### リリース (GitHub Releases)
+
+```powershell
+.\tools\Release.ps1 -DryRun       # zip を作り、リリースノートを見せるだけ (公開しない)
+.\tools\Release.ps1               # 公開する (タグ v<版> を付けて gh release create)
+.\tools\Release.ps1 -UpdateNotes  # 公開済みのリリースのノートだけを書き直す
+```
+
+前に済ませておくこと: バージョンを上げて `build.ps1` でビルドし、`tools\Build-Installer.ps1` でインストーラーを作り、bin の exe も含めてコミット →
+`release-notes\v<版>.md` に変わったことを**英語**で書いてコミット → main を push。
+
+- **exe もインストーラーも作り直さない**。ビルドのたびに中身が変わる (同じソースでも `bin/Copipe.exe` が変更扱いになる) ので、
+  コミットした `bin\Copipe.exe` と `bin\Copipe-Setup-<版>.exe` をそのまま配る。exe のバージョンが `AssemblyInfo.cs` と違えば止める
+- 止める条件: コミットしていない変更がある、main でない、`origin/main` と違う、タグ `v<版>` がもうある。
+  `-DryRun` では止めずに理由を並べる
+- 配るのは `Copipe-Setup-<版>.exe` と `Copipe-<版>.zip` (`Copipe.exe` と `LICENSE`。GPL-3.0 ではバイナリと一緒に本文を渡す)
+- リリースノートは、ダウンロード・SmartScreen・カンパ・ライセンスの定型の英文の間に `release-notes\v<版>.md` を挟んで作る
+- `gh` (GitHub CLI) にログインしている必要がある
+
 Windows 標準の `csc.exe` (.NET Framework 4.8) だけでビルドするため、
 .NET SDK も Visual Studio も要らない。
 
@@ -581,9 +600,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -Screen
 ```
 README.md                        英語の説明 (使う人向け。公開する文は英語で書く)
 README.ja.md                     この文書 (日本語の詳しい説明と開発メモ)
+LICENSE                          GPL-3.0
+.github/FUNDING.yml              リポジトリのページの Sponsor ボタン (Buy Me a Coffee)
+release-notes/v<版>.md           リリースノートの「What's changed」(英語)
 build.ps1                        csc.exe によるビルド
 installer/Copipe.iss             インストーラー (Inno Setup 7 / 6) のスクリプト。BOM 付き UTF-8
 tools/Build-Installer.ps1        bin\Copipe.exe からインストーラーを作る (コミットの前に使う)
+tools/Release.ps1                GitHub Releases に公開する (コミットした exe とインストーラーを配る)
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
 tools/Restore-CopipeData.ps1     途中で止まった検証が書き換えたままの設定・履歴・定型文を元に戻す
 tools/verify.ps1                 検証ハーネス
@@ -633,3 +656,11 @@ src/
   入れるかも、このステップで決める)
 - 候補: 自動起動、専用のアイコン、画像やファイルの履歴
 
+## ライセンス
+
+Copyright (C) 2026 Atsushi Tanaka
+
+[GNU General Public License v3.0](LICENSE) (GPL-3.0)。使う・改変する・再配布するのは自由だが、
+改変したものを配るときは、同じ GPL-3.0 でソースも公開すること。
+
+役に立ったら [Buy Me a Coffee](https://buymeacoffee.com/bigcomi) でカンパしてもらえるとうれしい。

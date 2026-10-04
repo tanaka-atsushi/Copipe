@@ -34,7 +34,9 @@
 
 ## GitHub
 
-- 2026-10-04 に https://github.com/tanaka-atsushi/Copipe を **Private** で作り、`origin` にした (main は origin/main を追う)。ソースは公開しない (ユーザーの方針)。
+- 2026-10-04 に https://github.com/tanaka-atsushi/Copipe を **Private** で作り、`origin` にした (main は origin/main を追う)。同じ日に **Public** にし、ライセンスを GPL-3.0、著作権の表示を Atsushi Tanaka にした (ユーザーが決めた。履歴の作者の名前・メールアドレスもそのまま公開した)。
+- 公開する文 (README.md・リリースノートなど) は英語で書く。日本以外でも使ってもらうため。README.md は使う人向けの英語の説明、README.ja.md は日本語の詳しい説明と開発メモ。動作を変えたら両方を直す。
+- リリースは tools\Release.ps1 で行う (手順は README.ja.md の「リリース」)。release-notes\v<版>.md に変わったことを英語で書く。公開の前に -DryRun で確かめ、公開してよいかユーザーに確認する。試しのタグやリリースは作らない (Public なので見ている人に通知が行く)。
 - gh には tanaka-atsushi と bigcomi の 2 つのアカウントでログインしている。このリポジトリは tanaka-atsushi で操作する。
 
 ## 後処理
