@@ -98,7 +98,7 @@ Copipe builds with the C# compiler that ships with Windows (`csc.exe`, .NET Fram
 ```powershell
 .\build.ps1              # build bin\Copipe.exe
 .\build.ps1 -Run         # build and start
-.\build.ps1 -Installer   # also build the installer (needs Inno Setup 6)
+.\build.ps1 -Installer   # also build the installer (needs Inno Setup 7 or 6)
 ```
 
 The source is limited to C# 5 because that is what this compiler supports.

@@ -1,4 +1,4 @@
-﻿; Copipe のインストーラー (Inno Setup 6)
+﻿; Copipe のインストーラー (Inno Setup 7 / 6)
 ;
 ; build.ps1 -Installer から呼ぶ。バージョンは bin\Copipe.exe から読んで /DAppVersion=1.0.9 で渡す。
 ; 管理者権限なしで、ユーザーごとに %LOCALAPPDATA%\Programs\Copipe へ入れる。

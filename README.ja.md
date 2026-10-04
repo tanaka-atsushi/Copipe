@@ -29,7 +29,7 @@ Windows 11 向けの常駐ツール。**管理者権限もインストールも�
 .\build.ps1 -Installer   # ビルドして bin\Copipe-Setup-<版>.exe も作る
 ```
 
-Inno Setup 6 が要る (`winget install JRSoftware.InnoSetup --scope user`。管理者権限は要らない)。
+Inno Setup 7 または 6 が要る (`winget install JRSoftware.InnoSetup --scope user`。管理者権限は要らない)。
 スクリプトは `installer\Copipe.iss`。バージョンは `bin\Copipe.exe` の製品バージョン (`AssemblyInformationalVersion`) を使う。
 
 - 管理者権限なしで、ユーザーごとに `%LOCALAPPDATA%\Programs\Copipe` へ入れる。スタートメニューにショートカットを作る。
@@ -582,7 +582,7 @@ README.md                        英語の説明 (使う人向け。公開する
 README.ja.md                     この文書 (日本語の詳しい説明と開発メモ)
 LICENSE                          GPL-3.0
 build.ps1                        csc.exe によるビルド (-Installer でインストーラーも作る)
-installer/Copipe.iss             インストーラー (Inno Setup 6) のスクリプト。BOM 付き UTF-8
+installer/Copipe.iss             インストーラー (Inno Setup 7 / 6) のスクリプト。BOM 付き UTF-8
 tools/Build-Installer.ps1        bin\Copipe.exe からインストーラーを作る (build.ps1 -Installer から使う)
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
 tools/Restore-CopipeData.ps1     途中で止まった検証が書き換えたままの設定・履歴・定型文を元に戻す

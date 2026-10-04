@@ -1,8 +1,8 @@
-﻿<#
+<#
     bin\Copipe.exe からインストーラー (bin\Copipe-Setup-<版>.exe) を作る (build.ps1 -Installer から呼ぶ)
 
     exe はビルドし直さない。バージョンは exe の製品バージョン (AssemblyInformationalVersion) を使う。
-    Inno Setup 6 が要る: winget install JRSoftware.InnoSetup --scope user
+    Inno Setup 7 (または 6) が要る: winget install JRSoftware.InnoSetup --scope user
 
     使い方:  & tools\Build-Installer.ps1     作ったインストーラーのフルパスを返す
 #>
@@ -14,17 +14,18 @@ $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $exe  = Join-Path $root 'bin\Copipe.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw "exe がありません: $exe" }
 
-$iscc = @(
-    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
-    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
-    (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
-) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$iscc = foreach ($v in 7, 6) {
+    (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup $v\ISCC.exe")
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup $v\ISCC.exe")
+    (Join-Path $env:ProgramFiles "Inno Setup $v\ISCC.exe")
+}
+$iscc = $iscc | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $iscc) {
     $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($cmd) { $iscc = $cmd.Source }
 }
 if (-not $iscc) {
-    throw 'ISCC.exe (Inno Setup 6) が見つかりません。winget install JRSoftware.InnoSetup --scope user で入れてください'
+    throw 'ISCC.exe (Inno Setup 7 / 6) が見つかりません。winget install JRSoftware.InnoSetup --scope user で入れてください'
 }
 
 $version = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion

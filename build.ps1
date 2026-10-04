@@ -7,7 +7,7 @@
     使い方:  .\build.ps1             通常ビルド
              .\build.ps1 -Run        ビルドして起動
              .\build.ps1 -Installer  ビルドして、インストーラー (bin\Copipe-Setup-<版>.exe) も作る
-                                     (Inno Setup 6 が要る: winget install JRSoftware.InnoSetup --scope user)
+                                     (Inno Setup 7 または 6 が要る: winget install JRSoftware.InnoSetup --scope user)
 #>
 [CmdletBinding()]
 param(
