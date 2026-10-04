@@ -1067,7 +1067,7 @@ try {
                     # ShowDialog の中から閉じる (閉じないと検証が止まるので、何があっても閉じる)
                     foreach ($f in @([System.Windows.Forms.Application]::OpenForms)) {
                         if ($f.GetType().Name -eq 'AboutDialog') {
-                            try { $script:aboutSeen = @{ Owner = ($f.Owner -eq $d); Visible = $f.Visible; Text = $f.Text } } catch { }
+                            try { $script:aboutSeen = @{ Owner = ($f.Owner -eq $d); Visible = $f.Visible; Text = $f.Text; Repo = $(if ($f.Controls['repoLink'] -is [System.Windows.Forms.LinkLabel]) { $f.Controls['repoLink'].Text }) } } catch { }
                             $f.Close()
                         }
                     }
@@ -1078,6 +1078,9 @@ try {
                 Check '設定画面: About ボタンを押すと、設定画面を親にして「Copipe について」が出る' `
                     ($null -ne $script:aboutSeen -and $script:aboutSeen.Owner -and $script:aboutSeen.Visible) `
                     "seen=$(if ($script:aboutSeen) { $script:aboutSeen.Text + ' owner=' + $script:aboutSeen.Owner })"
+                Check '設定画面: 「Copipe について」にリポジトリへのリンクがある' `
+                    ($null -ne $script:aboutSeen -and $script:aboutSeen.Repo -ceq 'github.com/tanaka-atsushi/Copipe') `
+                    "repo=[$(if ($script:aboutSeen) { $script:aboutSeen.Repo })]"
                 Check '設定画面: 「Copipe について」を閉じても設定画面は開いたまま' ($d.Visible -and -not $d.IsDisposed)
             }
         } finally { $d.Close(); $d.Dispose() }

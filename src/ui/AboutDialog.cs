@@ -7,10 +7,11 @@ using System.Windows.Forms;
 
 namespace Copipe.UI
 {
-    /// <summary>Copipe について。バージョンと、Buy Me a Coffee のカンパの QR コードを出す (クリックでも開く)。</summary>
+    /// <summary>Copipe について。バージョン、リポジトリへのリンクと、Buy Me a Coffee のカンパの QR コードを出す (クリックでも開く)。</summary>
     internal sealed class AboutDialog : Form
     {
         public const string CoffeeUrl = "https://buymeacoffee.com/bigcomi";
+        public const string RepoUrl = "https://github.com/tanaka-atsushi/Copipe";
         private const string QrResourceName = "Copipe.bmc-qr.png";
 
         private readonly Image _qr;
@@ -32,6 +33,14 @@ namespace Copipe.UI
             version.Bounds = new Rectangle(Scaled(8), Scaled(20), Scaled(284), Scaled(20));
             Controls.Add(version);
 
+            LinkLabel repo = new LinkLabel();
+            repo.Name = "repoLink";
+            repo.Text = RepoUrl.Substring("https://".Length);
+            repo.TextAlign = ContentAlignment.MiddleCenter;
+            repo.Bounds = new Rectangle(Scaled(8), version.Bottom, Scaled(284), Scaled(20));
+            repo.LinkClicked += delegate { OpenUrl(RepoUrl); };
+            Controls.Add(repo);
+
             Label coffee = new Label();
             coffee.Text = Lang.T("もしこのツールがあなたの役に立っているなら、\nコーヒーを一杯ご馳走してもらえるとうれしいです。",
                                  "If Copipe helps you, you can buy me a coffee.");
@@ -39,14 +48,14 @@ namespace Copipe.UI
             // 日本語も英語も 1 行に収まらないので、折り返した高さを測って決める
             int coffeeHeight = Math.Max(Scaled(20),
                 TextRenderer.MeasureText(coffee.Text, Font, new Size(Scaled(284), 0), TextFormatFlags.WordBreak).Height);
-            coffee.Bounds = new Rectangle(Scaled(8), Scaled(44), Scaled(284), coffeeHeight);
+            coffee.Bounds = new Rectangle(Scaled(8), repo.Bottom + Scaled(8), Scaled(284), coffeeHeight);
             Controls.Add(coffee);
 
             PictureBox qr = new PictureBox();
             qr.SizeMode = PictureBoxSizeMode.Zoom;
             qr.Bounds = new Rectangle(Scaled(60), coffee.Bottom + Scaled(20), Scaled(180), Scaled(180));
             qr.Cursor = Cursors.Hand;
-            qr.Click += delegate { OpenCoffee(); };
+            qr.Click += delegate { OpenUrl(CoffeeUrl); };
             using (Stream stream = typeof(AboutDialog).Assembly.GetManifestResourceStream(QrResourceName))
             {
                 if (stream != null)
@@ -83,15 +92,15 @@ namespace Copipe.UI
             }
         }
 
-        private static void OpenCoffee()
+        private static void OpenUrl(string url)
         {
             try
             {
-                Process.Start(CoffeeUrl);
+                Process.Start(url);
             }
             catch (Exception)
             {
-                // 既定のブラウザーが無いなど。QR をスマホで読んでもらう
+                // 既定のブラウザーが無いなど。コーヒーは QR をスマホで読んでもらう
             }
         }
 

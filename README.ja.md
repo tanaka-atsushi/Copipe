@@ -643,7 +643,7 @@ src/
     PopupPlacement.cs            表示位置の計算 (純粋関数)
     PreviewText.cs               一覧の 1 行の文字列 (純粋関数)
     AppIcon.cs                   埋め込んだ copipe.ico から、トレイの大きさのアイコンを読む
-    AboutDialog.cs               Copipe について (バージョン、Buy Me a Coffee の QR コードとリンク)
+    AboutDialog.cs               Copipe について (バージョン、リポジトリへのリンク、Buy Me a Coffee の QR コードとリンク)
     SettingsDialog.cs            設定画面 (ホットキー・モードキーの取り込み、貼り付けの操作)
     HotkeyText.cs                キーの表示名・保存形式・使えるキーかの判定 (純粋関数)
     ItemNumber.cs                一覧の番号 (1〜9、0) と数字キーの対応 (純粋関数)
