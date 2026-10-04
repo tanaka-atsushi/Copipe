@@ -33,7 +33,7 @@
 - 実際にコミットをする前にexeのバージョンを上げるかどうかをユーザーに確認する。
   - 書き換えるのは `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の3つ。
   - 指示がなければ末尾の数字を1つ上げる (1.0.0 → 1.0.1)。
-  - バージョンを上げてから build.ps1 でビルドし、続けて `tools\Build-Installer.ps1` でインストーラーを作る。bin\\Copipe.exe とインストーラー (bin\\Copipe-Setup-&lt;版&gt;.exe) も同じコミットに入れる (2026-10-04 にユーザーが決めた)。
+  - バージョンを上げてから build.ps1 でビルドし、続けて `tools\Build-Installer.ps1` でインストーラーを作る。
   - インストーラーは最新の 1 つだけ残す (Build-Installer.ps1 が古い版を消すので、その削除もコミットに入れる)。
 
 - バージョンを上げない場合は、再ビルドやインストーラの作成はしなくてよい。
