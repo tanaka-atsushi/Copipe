@@ -49,6 +49,17 @@ namespace Copipe.UI
 
         private static readonly Color DropSwapColor = Color.FromArgb(0xCC, 0xE4, 0xF7);
 
+        // 入力した行を点滅させる (FlashItem)。点滅させている行と今の段階 (奇数のとき選択の色)、
+        // ↑↓ で続きから動かすための基準の行
+        private readonly Timer _flashTimer;
+        private int _flashIndex = -1;
+        private int _flashStep;
+        private int _anchorIndex = -1;
+
+        /// <summary>点滅の 1 段階 (消える・点く) の時間。消える→点く→消える の 2 段階で終わる。</summary>
+        private const int FlashStepMs = 50;
+        private const int FlashSteps = 2;
+
         public PopupForm()
         {
             // 画面には出ないが、ウインドウの名前として残る (検証ハーネスが小窓を見つける目印)
@@ -89,6 +100,10 @@ namespace Copipe.UI
             _springTimer = new Timer();
             _springTimer.Interval = SpringOpenMs;
             _springTimer.Tick += OnSpringTimerTick;
+
+            _flashTimer = new Timer();
+            _flashTimer.Interval = FlashStepMs;
+            _flashTimer.Tick += OnFlashTimerTick;
 
             // 見出し: 左に今のモード、右に切り替え方。一覧より後に追加して、先に上へ寄せる
             // (Dock は後から追加したものから順に場所を取る)
@@ -402,6 +417,8 @@ namespace Copipe.UI
             }
 
             _list.SelectedIndex = -1;
+            _anchorIndex = -1;
+            StopFlash();
             // 中身が変わったら、前の一覧での落とす先は無効 (ドラッグは続ける)
             _hover = DropTarget.Nowhere;
             _dropTarget = DropTarget.Nowhere;
@@ -442,6 +459,7 @@ namespace Copipe.UI
         {
             _wheelRemainder = 0;
             CancelDrag();
+            StopFlash();
             Hide();
         }
 
@@ -884,6 +902,12 @@ namespace Copipe.UI
                     }
                 }
             }
+            else if (e.Index == _flashIndex && _flashStep % 2 == 1)
+            {
+                // 点滅の点いている段階: 選んだときと同じ色で出す
+                selected = true;
+                e.Graphics.FillRectangle(SystemBrushes.Highlight, e.Bounds);
+            }
             Color color = selected ? SystemColors.HighlightText : _list.ForeColor;
             // 空きの枠と、ドラッグしている項目の元の行は灰色で出す
             Color textColor = ((row.Kind == PopupRowKind.Empty || (dragging && e.Index == _dragSource)) && !selected)
@@ -944,13 +968,53 @@ namespace Copipe.UI
             return (row != null && row.Kind == PopupRowKind.Item) ? row.Text : null;
         }
 
-        /// <summary>一覧の index 番目を選んだ状態 (強調表示) にする。数字キーで選んだときの目印。</summary>
+        /// <summary>一覧の index 番目を選んだ状態 (強調表示) にする。</summary>
         public void SelectItem(int index)
         {
             if (!_empty && index >= 0 && index < _list.Items.Count)
             {
                 _list.SelectedIndex = index;
             }
+        }
+
+        /// <summary>
+        /// 入力した行の選択を外し、選択の色で短く 1 回点滅させて消す。選んだ色のまま残すと、止まっているように見えるため。
+        /// 続けて ↑↓ を押したときは、この行から動かす。
+        /// </summary>
+        public void FlashItem(int index)
+        {
+            if (_empty || index < 0 || index >= _list.Items.Count)
+            {
+                return;
+            }
+            StopFlash();
+            _list.SelectedIndex = -1;
+            _anchorIndex = index;
+            _flashIndex = index;
+            _flashStep = 0;
+            _list.Invalidate(_list.GetItemRectangle(index));
+            _flashTimer.Start();
+        }
+
+        private void OnFlashTimerTick(object sender, EventArgs e)
+        {
+            _flashStep++;
+            if (_flashStep >= FlashSteps)
+            {
+                StopFlash();
+                return;
+            }
+            _list.Invalidate(_list.GetItemRectangle(_flashIndex));
+        }
+
+        private void StopFlash()
+        {
+            _flashTimer.Stop();
+            if (_flashIndex >= 0 && _flashIndex < _list.Items.Count)
+            {
+                _list.Invalidate(_list.GetItemRectangle(_flashIndex));
+            }
+            _flashIndex = -1;
         }
 
         /// <summary>今選んでいる (強調表示している) 行の位置。無ければ -1。</summary>
@@ -961,7 +1025,7 @@ namespace Copipe.UI
 
         /// <summary>
         /// 選択を step (上なら -1、下なら +1) 行動かす。空きの枠は飛ばし、端まで来たら反対側へ回る。
-        /// 何も選んでいないときは、下なら最初の行、上なら最後の行を選ぶ。
+        /// 何も選んでいないときは、直前に入力した行から動かす。それも無ければ、下なら最初の行、上なら最後の行を選ぶ。
         /// </summary>
         public void MoveSelection(int step)
         {
@@ -973,7 +1037,7 @@ namespace Copipe.UI
             int start = _list.SelectedIndex;
             if (start < 0)
             {
-                start = step > 0 ? -1 : count;
+                start = _anchorIndex >= 0 ? _anchorIndex : (step > 0 ? -1 : count);
             }
             for (int n = 1; n <= count; n++)
             {
@@ -997,6 +1061,10 @@ namespace Copipe.UI
             if (disposing && _springTimer != null)
             {
                 _springTimer.Dispose();
+            }
+            if (disposing && _flashTimer != null)
+            {
+                _flashTimer.Dispose();
             }
             base.Dispose(disposing);
         }

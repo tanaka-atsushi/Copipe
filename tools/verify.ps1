@@ -2321,7 +2321,7 @@ try {
                         Check '数字キー: 小窓を消した後は、数字キー (上段・テンキー) が普通に入力できる' ($freeMs -ge 0) ("text=[" + $box.Text + "]")
 
                         }
-                        # ---- 矢印キーと Enter は横取りしない。数字キーで選んだ項目は強調表示する ----
+                        # ---- 矢印キーと Enter は横取りしない。入力した項目は点滅して選択が外れ、↑↓ はその行から動く ----
                         function Get-Selected {
                             foreach ($child in $W::Children($popup)) {
                                 if ($W::GetClass($child) -like '*LISTBOX*') { return $W::ListSelectedIndex($child) }
@@ -2433,7 +2433,9 @@ try {
                         Send-Key 0x33 1   # 3
                         $numMs = Wait-Pumping { $box.Text -ceq "前:`r`n後:数字キー検証 10数字キー検証 09" } 3000
                         Check '数字キー: 選んでいる項目があっても、数字キーの項目が入力される' ($numMs -ge 0) ("text=[" + $box.Text + "]")
-                        Check '強調表示: 数字キーで入力した項目 (3 件目) が選ばれた状態 (強調表示) になる' ((Get-Selected) -eq 2) "selected=$(Get-Selected)"
+                        Check '強調表示: 数字キーで入力した後は、選んだ色のまま残らない (どの項目も選ばれていない)' ((Get-Selected) -eq -1) "selected=$(Get-Selected)"
+                        Send-Key 0x28 1   # ↓
+                        Check '矢印キー: 入力した後の ↓ は、入力した項目 (3 件目) の次を選ぶ' ((Get-Selected) -eq 3) "selected=$(Get-Selected)"
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
 

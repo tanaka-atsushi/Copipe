@@ -315,7 +315,7 @@ namespace Copipe
                     // 項目が無い番号 (履歴が 3 件のときの 7 など) は何もしない
                     return;
                 }
-                _popup.SelectItem(index);
+                _popup.FlashItem(index);
                 UseEntry(text);
                 return;
             }
@@ -333,7 +333,7 @@ namespace Copipe
                 ShowMode();
                 return;
             }
-            _popup.SelectItem(index);
+            _popup.FlashItem(index);
             // 入力した文字・開いたものは履歴にも入れる (次から履歴モードでも使える)
             string entry = HistoryEntry(node);
             if (_history.Add(entry))
