@@ -1,5 +1,5 @@
 <#
-    bin\Copipe.exe からインストーラー (bin\Copipe-Setup-<版>.exe) を作る (build.ps1 から毎回呼ぶ)
+    bin\Copipe.exe からインストーラー (bin\Copipe-Setup-<版>.exe) を作る (コミットの前に、build.ps1 の後で実行する)
 
     exe はビルドし直さない。バージョンは exe の製品バージョン (AssemblyInformationalVersion) を使う。
     Inno Setup 7 (または 6) が要る: winget install JRSoftware.InnoSetup --scope user

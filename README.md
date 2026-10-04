@@ -96,11 +96,12 @@ Copipe is free. If it saves you time, you can [buy me a coffee](https://buymeaco
 Copipe builds with the C# compiler that ships with Windows (`csc.exe`, .NET Framework 4.8). You do not need Visual Studio or the .NET SDK.
 
 ```powershell
-.\build.ps1              # build bin\Copipe.exe and the installer
+.\build.ps1              # build bin\Copipe.exe
+.\tools\Build-Installer.ps1   # build the installer from bin\Copipe.exe
 .\build.ps1 -Run         # build and start
 ```
 
-The installer needs Inno Setup 7 or 6; without it, the build skips the installer with a warning.
+The installer needs Inno Setup 7 or 6; without it, the script skips the installer with a warning.
 The source is limited to C# 5 because that is what this compiler supports.
 Design notes, measurements and the test harness are documented in Japanese in [README.ja.md](README.ja.md).
 

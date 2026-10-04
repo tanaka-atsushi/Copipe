@@ -17,7 +17,7 @@ Windows 11 向けの常駐ツール。**管理者権限もインストールも�
 ## ビルドと起動
 
 ```powershell
-.\build.ps1          # ビルドしてインストーラーも作る (起動中の Copipe があれば先に正常終了させる)
+.\build.ps1          # ビルドする (起動中の Copipe があれば先に正常終了させる)
 .\build.ps1 -Run     # ビルドして起動
 ```
 
@@ -25,7 +25,7 @@ Windows 11 向けの常駐ツール。**管理者権限もインストールも�
 
 ### インストーラー
 
-`.\build.ps1` は exe に続けて `bin\Copipe-Setup-<版>.exe` も作る (`-DebugBuild` のときは作らない)。
+`tools\Build-Installer.ps1` で、`bin\Copipe.exe` から `bin\Copipe-Setup-<版>.exe` を作る (ビルドのたびには作らず、コミットの前に作る)。
 Inno Setup 7 または 6 が要る (`winget install JRSoftware.InnoSetup --scope user`。管理者権限は要らない)。
 無ければ警告を出してインストーラーだけ飛ばす。インストーラーも git に入れる。`bin` には最新の 1 つだけ残し、古い版は消す (git の履歴から取り出せる)。
 スクリプトは `installer\Copipe.iss`。バージョンは `bin\Copipe.exe` の製品バージョン (`AssemblyInformationalVersion`) を使う。
@@ -581,9 +581,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1 -Screen
 README.md                        英語の説明 (使う人向け。公開する文は英語で書く)
 README.ja.md                     この文書 (日本語の詳しい説明と開発メモ)
 LICENSE                          GPL-3.0
-build.ps1                        csc.exe によるビルド (インストーラーも作る)
+build.ps1                        csc.exe によるビルド
 installer/Copipe.iss             インストーラー (Inno Setup 7 / 6) のスクリプト。BOM 付き UTF-8
-tools/Build-Installer.ps1        bin\Copipe.exe からインストーラーを作る (build.ps1 から使う)
+tools/Build-Installer.ps1        bin\Copipe.exe からインストーラーを作る (コミットの前に使う)
 tools/Stop-Copipe.ps1            起動中の Copipe の正常終了 (build.ps1 と verify.ps1 から使う)
 tools/Restore-CopipeData.ps1     途中で止まった検証が書き換えたままの設定・履歴・定型文を元に戻す
 tools/verify.ps1                 検証ハーネス
