@@ -39,6 +39,11 @@
 - バージョンを上げない場合は、再ビルドやインストーラの作成はしなくてよい。
 - コミット後に、Githubのリモートレポジトリがある場合は、pushするかどうかをユーザーに確認する。
 
+## GitHub
+
+- 2026-10-04 に https://github.com/tanaka-atsushi/Copipe を **Private** で作り、`origin` にした (main は origin/main を追う)。ソースは公開しない (ユーザーの方針)。
+- gh には tanaka-atsushi と bigcomi の 2 つのアカウントでログインしている。このリポジトリは tanaka-atsushi で操作する。
+
 ## 後処理
 
 - ワークツリーを削除するときは、作業フォルダの中から起動されているCopipe.exeがあるかどうかを確認し、ある場合はそれを終了させてから削除する。
