@@ -65,11 +65,11 @@ Settings opens automatically the first time you start Copipe.
 
 Good to know:
 
-- **While Copipe is running, other apps do not receive the hotkey.** With the default CapsLock, CapsLock no longer switches upper/lower case (Shift+CapsLock still works). With F1, VS Code's F1 command palette stops working (Ctrl+Shift+P still works).
+- **While Copipe is running, other apps do not receive the hotkey.** With the default CapsLock, CapsLock no longer switches upper/lower case, even with Shift held. With F1, VS Code's F1 command palette stops working (Ctrl+Shift+P still works).
 - **F12 cannot be used.** Windows reserves it for debuggers.
 - **If the popup does not appear,** another app may be grabbing the key. Choose a different key.
 - **Only one Copipe runs at a time.** Starting it again just shows "Copipe is already running." and the running one keeps working.
-- **If you use CapsLock as the hotkey,** it no longer toggles Caps Lock. Shift+CapsLock still works as usual.
+- **If you use CapsLock as the hotkey,** it no longer toggles Caps Lock, even with Shift, Ctrl or Alt held: the popup appears instead. On a Japanese keyboard, Shift+英数 (Eisu) also works as the hotkey.
 - **Copipe cannot type into apps running as administrator.** This is a Windows restriction (UIPI).
 
 ## Your data

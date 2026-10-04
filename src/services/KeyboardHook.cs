@@ -119,11 +119,7 @@ namespace Copipe.Services
                     {
                         if (!_swallowing)
                         {
-                            // Ctrl・Shift・Alt・Windows キーと一緒なら通す (Shift+CapsLock (英語配列なら CapsLock、日本語入力を使っていると入力の切り替え) など。F1 のホットキーでも Ctrl+F1 は他のアプリに届くのと同じ)
-                            if (IsModifierHeld())
-                            {
-                                return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
-                            }
+                            // Ctrl・Shift などと一緒でも受け取る。日本語キーボードでは Shift+英数 が CapsLock (0x14) として届くので、それでも小窓を出せる (実測)
                             _swallowing = true;
                             NativeMethods.PostMessage(_target, PressedMessage, IntPtr.Zero, IntPtr.Zero);
                         }
@@ -152,17 +148,6 @@ namespace Copipe.Services
                 }
             }
             return false;
-        }
-
-        private static bool IsModifierHeld()
-        {
-            return IsDown(NativeMethods.VK_CONTROL) || IsDown(NativeMethods.VK_SHIFT) || IsDown(NativeMethods.VK_MENU) ||
-                   IsDown(NativeMethods.VK_LWIN) || IsDown(NativeMethods.VK_RWIN);
-        }
-
-        private static bool IsDown(int vk)
-        {
-            return (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
         }
 
         /// <summary>

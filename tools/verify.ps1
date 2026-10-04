@@ -3444,16 +3444,17 @@ try {
                         Check 'CapsLock: 押し続けている間だけ小窓が出て、離すと消える' ($capsShowMs -ge 0 -and $capsStillShown -and $capsHideMs -ge 0) "show=$capsShowMs held=$capsStillShown hide=$capsHideMs"
                         Check 'CapsLock: 押して離しても CapsLock はオフのまま (握りつぶしている)' (-not $W::IsToggled(0x14) -and $W::KeyWatchDowns -eq 0) "toggled=$($W::IsToggled(0x14)) passed=$($W::KeyWatchDowns)"
                         Check 'CapsLock: 入力先に何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
-                        # Shift+CapsLock では小窓を出さない。Copipe は Shift などと一緒なら通すが、通したかどうかはここでは見ない。
-                        # 日本語入力を使っていると、Shift+CapsLock は低レベルのフックに届く前に日本語入力が受け取る
-                        # (Copipe を止めていても検証のフックに届かなかった。実測) ので、通したかを確かめられない。
-                        # 2 回送って、切り替わったもの (CapsLock か日本語入力) を元に戻す
-                        $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
-                        [void](Wait-Pumping { $false } 500)
-                        $shiftCapsShown = $W::IsWindowVisible($popup)
-                        $W::KeyDown(0x10); $W::KeyDown(0x14); $W::KeyUp(0x14); $W::KeyUp(0x10)
-                        [void](Wait-Pumping { $false } 500)
-                        Check 'CapsLock: Shift+CapsLock では小窓を出さない' (-not $shiftCapsShown -and -not $W::IsWindowVisible($popup))
+                        # 修飾キーと一緒でも受け取って握りつぶす。Shift では確かめない: 日本語入力を使っていると、Shift+CapsLock は
+                        # 低レベルのフックに届く前に日本語入力が受け取る (Copipe を止めていても検証のフックに届かなかった。実測)
+                        $W::ResetKeyWatch()
+                        $W::KeyDown(0x11); $W::KeyDown(0x14)
+                        $ctrlCapsShowMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
+                        $W::KeyUp(0x14)
+                        $ctrlCapsHideMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        $W::KeyUp(0x11)
+                        [void](Wait-Pumping { $false } 200)
+                        Check 'CapsLock: Ctrl+CapsLock でも小窓が出て、離すと消える' ($ctrlCapsShowMs -ge 0 -and $ctrlCapsHideMs -ge 0) "show=$ctrlCapsShowMs hide=$ctrlCapsHideMs"
+                        Check 'CapsLock: Ctrl+CapsLock も握りつぶす (CapsLock はオフのまま)' (-not $W::IsToggled(0x14) -and $W::KeyWatchDowns -eq 0) "toggled=$($W::IsToggled(0x14)) passed=$($W::KeyWatchDowns)"
                         $W::StopKeyWatch()
 
                         $copipe = $script:copipeRef

@@ -116,10 +116,6 @@ namespace Copipe.Interop
         internal const int WM_APP = 0x8000;
         internal const uint PM_NOREMOVE = 0x0000;
         internal const int VK_CAPITAL = 0x14;
-        internal const int VK_SHIFT = 0x10;
-        internal const int VK_MENU = 0x12;
-        internal const int VK_LWIN = 0x5B;
-        internal const int VK_RWIN = 0x5C;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct KBDLLHOOKSTRUCT
