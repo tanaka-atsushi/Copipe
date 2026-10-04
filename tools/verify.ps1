@@ -3444,8 +3444,9 @@ try {
                         Check 'CapsLock: 押し続けている間だけ小窓が出て、離すと消える' ($capsShowMs -ge 0 -and $capsStillShown -and $capsHideMs -ge 0) "show=$capsShowMs held=$capsStillShown hide=$capsHideMs"
                         Check 'CapsLock: 押して離しても CapsLock はオフのまま (握りつぶしている)' (-not $W::IsToggled(0x14) -and $W::KeyWatchDowns -eq 0) "toggled=$($W::IsToggled(0x14)) passed=$($W::KeyWatchDowns)"
                         Check 'CapsLock: 入力先に何も入力しない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
-                        # 修飾キーと一緒でも受け取って握りつぶす。Shift では確かめない: 日本語入力を使っていると、Shift+CapsLock は
-                        # 低レベルのフックに届く前に日本語入力が受け取る (Copipe を止めていても検証のフックに届かなかった。実測)
+                        # 修飾キーと一緒でも受け取って握りつぶす。Shift では確かめない: 日本語入力を使っていると、擬似入力の Shift+CapsLock は
+                        # 低レベルのフックに届く前に日本語入力が受け取る (Copipe を止めていても検証のフックに届かなかった。実測)。
+                        # 本物のキーの Shift+CapsLock はフックに届き、ホットキーとして働く (ユーザーが実機で確かめた)
                         $W::ResetKeyWatch()
                         $W::KeyDown(0x11); $W::KeyDown(0x14)
                         $ctrlCapsShowMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
