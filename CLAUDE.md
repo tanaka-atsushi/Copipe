@@ -39,7 +39,7 @@
   - 書き換えるのは `src/AssemblyInfo.cs` の AssemblyVersion / AssemblyFileVersion / AssemblyInformationalVersion の3つ。
   - 指示がなければ末尾の数字を1つ上げる (1.0.0 → 1.0.1)。
   - バージョンの変更は、そのアップデートと同じコミットに入れる。
-  - バージョンを上げてから build.ps1 でビルドし、bin\Copipe.exe も同じコミットに入れる。
+  - バージョンを上げてから build.ps1 でビルドし、bin\Copipe.exe とインストーラー (bin\Copipe-Setup-<版>.exe) も同じコミットに入れる (2026-10-04 にユーザーが決めた)。インストーラーは最新の 1 つだけ残す (build が古い版を消すので、その削除もコミットに入れる)。
 
 
 

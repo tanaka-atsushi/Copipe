@@ -1,13 +1,13 @@
 ﻿; Copipe のインストーラー (Inno Setup 7 / 6)
 ;
-; build.ps1 -Installer から呼ぶ。バージョンは bin\Copipe.exe から読んで /DAppVersion=1.0.9 で渡す。
+; build.ps1 から呼ぶ。バージョンは bin\Copipe.exe から読んで /DAppVersion=1.0.9 で渡す。
 ; 管理者権限なしで、ユーザーごとに %LOCALAPPDATA%\Programs\Copipe へ入れる。
 ; 設定・履歴・定型文 (%LOCALAPPDATA%\Copipe) は、アンインストールのときに消すかどうかを聞く (既定は消さない)。
 ;
 ; このファイルは BOM 付き UTF-8 (BOM が無いと ISCC は ANSI として読む)。
 
 #ifndef AppVersion
-  #error AppVersion が渡されていません (build.ps1 -Installer から呼ぶ)
+  #error AppVersion が渡されていません (build.ps1 から呼ぶ)
 #endif
 
 [Setup]

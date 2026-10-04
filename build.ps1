@@ -4,15 +4,14 @@
     Windows 標準の csc.exe (.NET Framework 4.8) のみを使う。SDK のインストールも
     管理者権限も不要。UI は WinForms なので XAML の埋め込みは無い。
 
-    使い方:  .\build.ps1             通常ビルド
+    使い方:  .\build.ps1             ビルドして、インストーラー (bin\Copipe-Setup-<版>.exe) も作る
+                                     (Inno Setup 7 または 6 が無ければインストーラーは飛ばす:
+                                      winget install JRSoftware.InnoSetup --scope user)
              .\build.ps1 -Run        ビルドして起動
-             .\build.ps1 -Installer  ビルドして、インストーラー (bin\Copipe-Setup-<版>.exe) も作る
-                                     (Inno Setup 7 または 6 が要る: winget install JRSoftware.InnoSetup --scope user)
 #>
 [CmdletBinding()]
 param(
     [switch]$Run,
-    [switch]$Installer,
     # -Debug は PowerShell の共通パラメーターと衝突するため別名にしている
     [switch]$DebugBuild
 )
@@ -103,8 +102,8 @@ if ($exit -ne 0) {
 Write-Host "ビルド成功: $outExe" -ForegroundColor Green
 
 # --- インストーラー -------------------------------------------------------
-# 作り方は tools\Build-Installer.ps1
-if ($Installer) {
+# 作り方は tools\Build-Installer.ps1。デバッグ用の exe は入れない
+if (-not $DebugBuild) {
     & (Join-Path $root 'tools\Build-Installer.ps1') | Out-Null
 }
 

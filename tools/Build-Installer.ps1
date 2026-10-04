@@ -1,8 +1,9 @@
 <#
-    bin\Copipe.exe からインストーラー (bin\Copipe-Setup-<版>.exe) を作る (build.ps1 -Installer から呼ぶ)
+    bin\Copipe.exe からインストーラー (bin\Copipe-Setup-<版>.exe) を作る (build.ps1 から毎回呼ぶ)
 
     exe はビルドし直さない。バージョンは exe の製品バージョン (AssemblyInformationalVersion) を使う。
     Inno Setup 7 (または 6) が要る: winget install JRSoftware.InnoSetup --scope user
+    見つからなければ警告を出して何もしない (Inno Setup の無い PC でもビルドは通す)。
 
     使い方:  & tools\Build-Installer.ps1     作ったインストーラーのフルパスを返す
 #>
@@ -25,7 +26,8 @@ if (-not $iscc) {
     if ($cmd) { $iscc = $cmd.Source }
 }
 if (-not $iscc) {
-    throw 'ISCC.exe (Inno Setup 7 / 6) が見つかりません。winget install JRSoftware.InnoSetup --scope user で入れてください'
+    Write-Warning 'ISCC.exe (Inno Setup 7 / 6) が見つからないので、インストーラーは作りません。winget install JRSoftware.InnoSetup --scope user で入れてください'
+    return
 }
 
 $version = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
@@ -38,4 +40,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 $setup = Join-Path $root "bin\Copipe-Setup-$version.exe"
 Write-Host "インストーラー作成成功: $setup" -ForegroundColor Green
+
+# 最新の 1 つだけ残す (古い版は git の履歴から取り出せる)
+Get-ChildItem -LiteralPath (Join-Path $root 'bin') -Filter 'Copipe-Setup-*.exe' |
+    Where-Object { $_.FullName -ne $setup } |
+    ForEach-Object { Write-Host "古いインストーラーを削除: $($_.Name)" -ForegroundColor DarkGray; Remove-Item -LiteralPath $_.FullName }
 $setup
