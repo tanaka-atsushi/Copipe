@@ -6,9 +6,9 @@ using Copipe.Interop;
 namespace Copipe.Services
 {
     /// <summary>
-    /// 決まったキー (CapsLock・半角/全角) だけを、低レベルのキーボードフック (WH_KEYBOARD_LL) で受け取って握りつぶす。
-    /// RegisterHotKey で受け取っても、これらのキーは CapsLock や日本語入力が切り替わってしまう。
-    /// 半角/全角は離したことを GetAsyncKeyState で判定できない (実測) が、フックなら離した瞬間も届く (未確認)。
+    /// 決まったキー (CapsLock) だけを、低レベルのキーボードフック (WH_KEYBOARD_LL) で受け取って握りつぶす。
+    /// RegisterHotKey で受け取っても、CapsLock は切り替わってしまう。
+    /// (半角/全角はフックでも押し上げを感知できなかった (実機で確認) ので、対象にしない。)
     /// 押した・離したは、target のウインドウに PostMessage (PressedMessage・ReleasedMessage) で知らせる。
     ///
     /// フックは専用のスレッドで動かす。フックは全アプリのキー入力をこちらの返事まで待たせるので、
@@ -57,8 +57,7 @@ namespace Copipe.Services
         }
 
         /// <summary>
-        /// フックを付ける。vks のどれかを押す・離すと target に知らせる。vks は 1 つのキーとして扱う
-        /// (半角/全角は IME の状態で 0xF3 と 0xF4 が入れ替わり、押したときと離したときで違うことがあるため)。
+        /// フックを付ける。vks のどれかを押す・離すと target に知らせる。vks は 1 つのキーとして扱う。
         /// 付けられなければ null。
         /// </summary>
         public static KeyboardHook Start(IntPtr target, int[] vks)
@@ -120,8 +119,7 @@ namespace Copipe.Services
                     {
                         if (!_swallowing)
                         {
-                            // Ctrl・Shift・Alt・Windows キーと一緒なら通す (Shift+CapsLock (英語配列なら CapsLock、日本語入力を使っていると入力の切り替え)、
-                            // Alt+半角/全角 で日本語入力を切り替えるなど。F1 のホットキーでも Ctrl+F1 は他のアプリに届くのと同じ)
+                            // Ctrl・Shift・Alt・Windows キーと一緒なら通す (Shift+CapsLock (英語配列なら CapsLock、日本語入力を使っていると入力の切り替え) など。F1 のホットキーでも Ctrl+F1 は他のアプリに届くのと同じ)
                             if (IsModifierHeld())
                             {
                                 return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);

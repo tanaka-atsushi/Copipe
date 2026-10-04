@@ -9,7 +9,7 @@ namespace Copipe.Services
     /// 「押し続けている間」を知らせるホットキー。
     /// 押した瞬間は RegisterHotKey の WM_HOTKEY で受け取り、離した瞬間は押されている間だけ
     /// GetAsyncKeyState を短い間隔で調べて検知する。キーボードフック (全キー入力の監視) は使わない。
-    /// ただし CapsLock・半角/全角だけは、RegisterHotKey で受け取っても CapsLock や日本語入力が切り替わってしまうので、
+    /// ただし CapsLock だけは、RegisterHotKey で受け取っても CapsLock が切り替わってしまうので、
     /// そのキーだけを低レベルのキーボードフック (KeyboardHook) で受け取って握りつぶす。
     /// UI スレッドで作り、UI スレッドで使うこと (イベントも UI スレッドで発生する)。
     /// </summary>
@@ -24,7 +24,7 @@ namespace Copipe.Services
         private Keys _keys;
         private bool _registered;
         private bool _held;
-        // CapsLock・半角/全角のときだけ。押す・離すはフックから届くので、WM_HOTKEY と離したことの見回りは使わない
+        // CapsLock のときだけ。押す・離すはフックから届くので、WM_HOTKEY と離したことの見回りは使わない
         private KeyboardHook _keyHook;
 
         public HoldHotkey()

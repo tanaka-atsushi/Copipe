@@ -280,7 +280,7 @@ namespace Copipe.UI
                 // 先に選んだことにしてから確かめる (ホットキーとモードキーの重なりを、新しいキーで判定するため)
                 select(code);
                 box.Text = HotkeyText.Display(code);
-                // CapsLock・半角/全角をホットキーにすると、そのキー本来の働きが無くなることを知らせる
+                // CapsLock をホットキーにすると、そのキー本来の働きが無くなることを知らせる
                 string hookNote = (box == _hotkeyBox) ? HotkeyText.HookKeyNote(code) : null;
                 if (hookNote != null)
                 {
@@ -294,9 +294,7 @@ namespace Copipe.UI
                 return;
             }
 
-            // ホットキーには使えるが、この欄には使えないキー (モードキーの 半角/全角)
-            bool notForThisBox = HotkeyText.IsValid(code);
-            if (!HotkeyText.IsDigitKey(code) && !HotkeyText.CannotDetectRelease(code) && !notForThisBox)
+            if (!HotkeyText.IsDigitKey(code) && !HotkeyText.CannotDetectRelease(code))
             {
                 // Ctrl や Shift だけ。キーを押す途中なので、何もしない
                 return;
@@ -311,14 +309,9 @@ namespace Copipe.UI
                 ShowNote(Lang.T("数字キーは一覧から項目を選ぶために使うので、" + what + "にはできません。別のキーを押してください。",
                                 "Number keys select items in the list and cannot be " + what + ". Please press another key."), true);
             }
-            else if (notForThisBox)
-            {
-                ShowNote(Lang.T("このキーは" + what + "にはできません。別のキーを押してください。",
-                                "This key cannot be " + what + ". Please press another key."), true);
-            }
             else
             {
-                // 英数・カタカナ ひらがな。押して離しても「押されたまま」に見えるので、
+                // 英数・カタカナ ひらがな・半角/全角。押して離しても「押されたまま」に見えるので、
                 // 小窓が出たまま消えなくなる
                 ShowNote(Lang.T("このキーは、離したことを判定できないため使えません。別のキーを押してください。",
                                 "This key cannot be used because its release cannot be detected. Please press another key."), true);

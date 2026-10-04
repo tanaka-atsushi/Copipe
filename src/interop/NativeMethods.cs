@@ -6,7 +6,7 @@ namespace Copipe.Interop
 {
     /// <summary>
     /// Win32 API の宣言。すべて通常ユーザー権限で使えるもの。キーボードフックは、
-    /// RegisterHotKey では扱えないキー (CapsLock・半角/全角) をホットキーにしたときだけ使う。
+    /// RegisterHotKey では扱えないキー (CapsLock) をホットキーにしたときだけ使う。
     /// </summary>
     internal static class NativeMethods
     {
@@ -108,7 +108,7 @@ namespace Copipe.Interop
         [DllImport("user32.dll")]
         internal static extern short GetKeyState(int vKey);
 
-        // ---- 低レベルのキーボードフック (CapsLock・半角/全角をホットキーにしたときだけ) ----
+        // ---- 低レベルのキーボードフック (CapsLock をホットキーにしたときだけ) ----
 
         internal const int WH_KEYBOARD_LL = 13;
         internal const uint LLKHF_UP = 0x80;

@@ -24,43 +24,31 @@ namespace Copipe.UI
         /// <summary>
         /// 押している間の判定ができないキー。押して離しても「押されたまま」に見えるので、
         /// 小窓が出たまま消えなくなる (実測: 英数・カタカナ ひらがな)。
-        /// 半角/全角も同じだが、ホットキーにしたときはキーボードフックで受け取るので使える (UsesKeyboardHook)。
+        /// 半角/全角も同じ (実機で確かめた。キーボードフックでも押し上げを感知できなかった)。
         /// </summary>
         public static bool CannotDetectRelease(Keys keys)
         {
             Keys code = keys & Keys.KeyCode;
             return code == ImeAlphanumeric
-                || code == ImeKatakanaHiragana;
+                || code == ImeKatakanaHiragana
+                || code == ImeZenkakuWhenOff
+                || code == ImeZenkakuWhenOn;
         }
 
         /// <summary>
         /// ホットキーにしたとき、RegisterHotKey ではなく低レベルのキーボードフックで受け取って握りつぶすキー
-        /// (CapsLock・半角/全角)。RegisterHotKey で受け取っても、CapsLock や日本語入力が切り替わってしまう。
-        /// 半角/全角は、離したことも GetAsyncKeyState では判定できない。修飾キー付きは対象外。
+        /// (CapsLock だけ)。RegisterHotKey で受け取っても、CapsLock が切り替わってしまう。修飾キー付きは対象外。
         /// </summary>
         public static bool UsesKeyboardHook(Keys keys)
         {
             Keys code = keys & Keys.KeyCode;
-            return (keys & Keys.Modifiers) == Keys.None && (code == Keys.Capital || IsZenkaku(code));
+            return (keys & Keys.Modifiers) == Keys.None && (code == Keys.Capital);
         }
 
-        /// <summary>
-        /// UsesKeyboardHook のキーを、フックで見張る仮想キーの一覧にする。半角/全角は IME のオン・オフで
-        /// 0xF3 と 0xF4 が入れ替わるので、両方を 1 つのキーとして見張る。
-        /// </summary>
+        /// <summary>UsesKeyboardHook のキーを、フックで見張る仮想キーの一覧にする。</summary>
         public static int[] HookVirtualKeys(Keys keys)
         {
-            Keys code = keys & Keys.KeyCode;
-            if (IsZenkaku(code))
-            {
-                return new[] { (int)ImeZenkakuWhenOff, (int)ImeZenkakuWhenOn };
-            }
-            return new[] { (int)code };
-        }
-
-        private static bool IsZenkaku(Keys code)
-        {
-            return code == ImeZenkakuWhenOff || code == ImeZenkakuWhenOn;
+            return new[] { (int)(keys & Keys.KeyCode) };
         }
 
         /// <summary>
@@ -76,13 +64,6 @@ namespace Copipe.UI
                 return Lang.T("CapsLock を押しても大文字・小文字は切り替わらなくなります (Shift などと一緒に押したときは、今までどおり働きます)。" +
                               "よければ Enter か OK で確定します。",
                               "CapsLock will no longer switch upper/lower case (it still works with Shift etc. held). " +
-                              "Press Enter or OK to confirm.");
-            }
-            if (IsZenkaku(code))
-            {
-                return Lang.T("半角/全角 を押しても日本語入力は切り替わらなくなります (Alt+半角/全角 で切り替えられます)。" +
-                              "よければ Enter か OK で確定します。",
-                              "Hankaku/Zenkaku will no longer switch Japanese input (Alt+Hankaku/Zenkaku still does). " +
                               "Press Enter or OK to confirm.");
             }
             return null;
@@ -133,12 +114,11 @@ namespace Copipe.UI
 
         /// <summary>
         /// モードキー (小窓を出している間に押して、履歴と定型文を切り替えるキー) として使えるか。
-        /// ホットキーと同じ条件 (修飾キーは付けない)。ただし半角/全角は使えない
-        /// (モードキーは RegisterHotKey で受け取るので、キーボードフックで受け取るホットキーとは扱いが違う)。
+        /// ホットキーと同じ条件 (修飾キーは付けない)。
         /// </summary>
         public static bool IsValidModeKey(Keys keys)
         {
-            return IsValid(keys) && !IsZenkaku(keys & Keys.KeyCode);
+            return IsValid(keys);
         }
 
         /// <summary>
