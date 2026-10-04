@@ -668,11 +668,9 @@ function Invoke-ClipboardOpen {
 #                (NULL で開くと他プロセスの OpenClipboard(NULL) を妨げない (実測) ので、ウインドウを指定する)
 #   unrendered : テキスト (CF_UNICODETEXT) を遅延レンダリングで置き、要求されても描画しないまま
 #                HoldMs の間メッセージを処理し続ける
-#   settext-hold : Text を置いて閉じ (変化の通知が飛ぶ)、すぐ開き直して HoldMs 持ち続ける。
-#                コピー直後に CopyQ などがクリップボードを開いたままにする状況を再現する
 # 準備できなければ $null を返す。
 function Start-ClipboardHelper {
-    param([ValidateSet('hold', 'unrendered', 'settext-hold')][string]$Mode, [int]$HoldMs, [string]$Text = '')
+    param([ValidateSet('hold', 'unrendered')][string]$Mode, [int]$HoldMs)
     $signal = Join-Path $tempDir ('helper-' + [Guid]::NewGuid().ToString('N') + '.txt')
     $script = @'
 Add-Type -AssemblyName System.Windows.Forms
@@ -687,29 +685,13 @@ if ('__MODE__' -eq 'unrendered') {
     [IO.File]::WriteAllText('__SIGNAL__', 'ready')
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt __HOLDMS__) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 5 }
-} elseif ('__MODE__' -eq 'settext-hold') {
-    $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__TEXT64__'))
-    $bytes = [Text.Encoding]::Unicode.GetBytes($text + [char]0)
-    $mem = [H.N]::GlobalAlloc(2 <# GMEM_MOVEABLE #>, [UIntPtr][uint32]$bytes.Length)
-    $ptr = [H.N]::GlobalLock($mem)
-    [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
-    [void][H.N]::GlobalUnlock($mem)
-    [void][H.N]::EmptyClipboard()
-    [void][H.N]::SetClipboardData(13, $mem)
-    [void][H.N]::CloseClipboard()
-    # 閉じた瞬間に変化の通知が飛ぶ。Copipe が読みに来る前に開き直して持ち続ける
-    while (-not [H.N]::OpenClipboard($form.Handle)) { }
-    [IO.File]::WriteAllText('__SIGNAL__', 'ready')
-    Start-Sleep -Milliseconds __HOLDMS__
-    [void][H.N]::CloseClipboard()
 } else {
     [IO.File]::WriteAllText('__SIGNAL__', 'ready')
     Start-Sleep -Milliseconds __HOLDMS__
     [void][H.N]::CloseClipboard()
 }
 '@
-    $text64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Text))
-    $script = $script.Replace('__MODE__', $Mode).Replace('__SIGNAL__', $signal).Replace('__HOLDMS__', [string]$HoldMs).Replace('__TEXT64__', $text64)
+    $script = $script.Replace('__MODE__', $Mode).Replace('__SIGNAL__', $signal).Replace('__HOLDMS__', [string]$HoldMs)
     $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
     $proc = Start-Process powershell.exe -ArgumentList '-NoProfile', '-EncodedCommand', $enc -WindowStyle Hidden -PassThru
     $deadline = (Get-Date).AddSeconds(15)
@@ -1925,30 +1907,6 @@ try {
             Start-Sleep -Milliseconds 400
             Check '一瞬だけ押した場合も、小窓が出たまま残らない' (-not $W::IsWindowVisible($popup))
 
-            # コピー直後に他のアプリがクリップボードを開いたままにして、変化の通知では読めなかった場合。
-            # 別プロセスが「文字を置く → すぐ開き直して持ち続ける」ことで、CopyQ などの割り込みを再現する
-            $marker = 'Copipe再試行検証 ' + [Guid]::NewGuid().ToString('N')
-            $helper = Start-ClipboardHelper -Mode settext-hold -HoldMs 1200 -Text $marker
-            Check '(準備) 別プロセスが文字を置いて、クリップボードを開いたままにした' ($null -ne $helper)
-            if ($helper) {
-                Invoke-HotkeyPress
-                $shownMs = Wait-Until { $W::IsWindowVisible($popup) } 1000
-                Check '読めない状態で押す: 小窓は表示される (今ある履歴を出す)' ($shownMs -ge 0)
-                $first = Get-PopupItems $popup
-                if ($first.Count -ge 1 -and $first[0] -ceq $marker) {
-                    # Copipe が先に読めてしまい、競合を再現できなかった (失敗ではない)
-                    Info '読めない状態を再現できなかったので、押している間の読み直しの検査は省略'
-                } else {
-                    $updatedMs = Wait-Until { $cur = Get-PopupItems $popup; $cur.Count -ge 1 -and $cur[0] -ceq $marker } 5000
-                    Check '押している間に読めるようになったら、一覧の先頭に加わる' ($updatedMs -ge 0) ("items=" + (Format-Items (Get-PopupItems $popup)))
-                    if ($updatedMs -ge 0) { Info "読めるようになってから一覧に加わるまで (押してからの時間): $updatedMs ms" }
-                }
-                Invoke-HotkeyRelease
-                Check '読み直しの後も、離すと小窓が消える' ((Wait-Until { -not $W::IsWindowVisible($popup) } 1000) -ge 0)
-                Stop-ClipboardHelper $helper
-                $helper = $null
-            }
-
             # 二重起動
             $second = Start-Process -FilePath $exe -PassThru
             $null = $second.Handle
@@ -2033,7 +1991,7 @@ try {
 
             # ---- クリップボードの履歴 ----
             # ここまでの検証でコピーした目印が残っているので、空の履歴から始める。
-            # Copipe は起動時に今のクリップボードも拾うので、クリップボードも空にしておく
+            # Copipe は起動時にクリップボードを拾わないが、念のためクリップボードも空にしておく
             if (Test-Path -LiteralPath $historyPath) { Remove-Item -LiteralPath $historyPath -Force }
             Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
             Use-Hotkey $mainHotkey
@@ -2124,6 +2082,24 @@ try {
                     Start-Sleep -Milliseconds 400
                     $items = Read-History $copipe
                     Check '履歴: 画像のコピーは履歴に入れない' ($items[0] -ceq '📄 コピー履歴.txt' -and $items[3] -ceq 'う 3件目' -and $items[5] -ceq '') "got=[$($items -join '] [')]"
+
+                    # 履歴を消去した直後 (クリップボードにはコピーした内容が残っている) に開いても、0 件のまま。
+                    # トレイのメニューは外から操作しにくいので、消去と同じ Clear → Save で history.json を空にして起動し直す
+                    Set-ClipboardText ('え 消去前のコピー')
+                    Start-Sleep -Milliseconds 400
+                    Stop-Copipe $copipe
+                    $cleared = [Copipe.Services.ClipboardHistory]::Load($historyPath, 10)
+                    $cleared.Clear()
+                    $cleared.Save($historyPath)
+                    $copipe = Start-Copipe
+                    $app = $copipe.Process
+                    $popup = $copipe.Popup
+                    if ($popup -ne [IntPtr]::Zero) {
+                        $items = Read-History $copipe
+                        Check '履歴: 消去した後は、クリップボードに残っている内容も起動時・ホットキーで拾わず 0 件のまま' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '' }).Count -eq 0) "got=[$($items -join '] [')]"
+                    } else {
+                        Check '履歴: 消去した後に起動し直せる' $false "exited=$($app.HasExited)"
+                    }
                 }
             }
             }
@@ -2857,7 +2833,7 @@ try {
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check '定型文のピン止め: 履歴モードの一番上に 📌 付きで出る' ($items.Count -gt 0 -and $items[0] -like '📌 *E2E編集後*') ("items=" + (Format-Items $items))
                         Stop-Copipe $copipe
-                        # Copipe は起動時に今のクリップボードも拾うので、空にしておく (直前に入力した定型文が残っている)
+                        # Copipe は起動時にクリップボードを拾わないが、念のため空にしておく (直前に入力した定型文が残っている)
                         Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
                         if ($null -ne $historyBeforePin) { [System.IO.File]::WriteAllBytes($historyPath, $historyBeforePin) } else { [System.IO.File]::Delete($historyPath) }
                         $copipe = Start-Copipe
@@ -3278,7 +3254,7 @@ try {
                         foreach ($t in '並べ替えI4', '並べ替えI3', '並べ替えI2', '並べ替えI1') { [void]$dragHistory.Add($t) }
                         foreach ($t in '並べ替えP3', '並べ替えP2', '並べ替えP1') { [void]$dragHistory.PinText($t) }
                         $dragHistory.Save($historyPath)
-                        # Copipe は起動時に今のクリップボードも拾うので、空にしておく
+                        # Copipe は起動時にクリップボードを拾わないが、念のため空にしておく
                         Invoke-ClipboardOpen { [void][CopipeVerify.Native]::EmptyClipboard() }
                         $script:dragCopipe = $copipe
                         Restart-WithHistory ([System.IO.File]::ReadAllBytes($historyPath))

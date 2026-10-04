@@ -17,9 +17,6 @@ namespace Copipe
     /// </summary>
     internal sealed class CopipeApp : ApplicationContext
     {
-        /// <summary>押した瞬間に読めなかったとき、押している間に読み直す間隔。</summary>
-        private const int RetryIntervalMs = 100;
-
         /// <summary>NotifyIcon.Text の上限 (.NET Framework の制限)。</summary>
         private const int TrayTextLimit = 63;
 
@@ -58,7 +55,6 @@ namespace Copipe
         private readonly ClipboardMonitor _monitor;
         private readonly TextInserter _inserter;
         private readonly PopupKeys _popupKeys;
-        private readonly Timer _retryTimer;
         private readonly ContextMenuStrip _trayMenu;
         private readonly ToolStripMenuItem _settingsItem;
         private readonly ToolStripMenuItem _clearItem;
@@ -130,10 +126,6 @@ namespace Copipe
             _monitor = new ClipboardMonitor();
             _monitor.Changed += OnClipboardChanged;
 
-            _retryTimer = new Timer();
-            _retryTimer.Interval = RetryIntervalMs;
-            _retryTimer.Tick += OnRetryTimerTick;
-
             _ownerHideTimer.Interval = OwnerHideIntervalMs;
             _ownerHideTimer.Tick += OnOwnerHideTimerTick;
 
@@ -188,9 +180,6 @@ namespace Copipe
                     "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 
-            // 起動する前にコピーしていた内容も拾う
-            CaptureClipboard(false);
-
             _trayIcon.Visible = true;
             if (_firstRun)
             {
@@ -213,29 +202,17 @@ namespace Copipe
             }
         }
 
-        private void OnClipboardChanged(object sender, EventArgs e)
-        {
-            // 本当にコピーされたとき。前にコピーした内容なら先頭へ移動する
-            CaptureClipboard(true);
-        }
-
         /// <summary>
-        /// 今のクリップボードを読み、テキストなら履歴に加える。ファイル・フォルダーなら 1 つずつ開く項目として加える
-        /// (コピーした並びの先頭が履歴の先頭に来る)。画像などは加えない。読めた種類を返す。
+        /// コピーされたとき。テキストなら履歴に加える。ファイル・フォルダーなら 1 つずつ開く項目として加える
+        /// (コピーした並びの先頭が履歴の先頭に来る)。画像などは加えない。前にコピーした内容なら先頭へ移動する。
         /// </summary>
-        /// <param name="promoteExisting">
-        /// すでに履歴にある内容を先頭へ移動するか。変化の通知 (本当のコピー) のときだけ true にする。
-        /// 起動時やホットキーを押した時の拾い直しは取りこぼしの保険なので、並びは変えない。
-        /// そうしないと、再起動の前に Copipe が貼り付けに使った内容 (持ち主の小窓はもう無いので、
-        /// 自分の書き込みと見分けられない) が、起動し直すたびに先頭へ戻ってきてしまう
-        /// </param>
-        private ClipboardKind CaptureClipboard(bool promoteExisting)
+        private void OnClipboardChanged(object sender, EventArgs e)
         {
             // Copipe 自身が入力のために置いた内容は、履歴に加えない (並びも変えない)。
             // 持ち主が小窓なら自分の書き込み
             if (ClipboardWriter.IsOwnedBy(_popup.Handle))
             {
-                return ClipboardKind.Text;
+                return;
             }
 
             ClipboardSnapshot snapshot = ClipboardReader.Read(_popup.Handle);
@@ -257,10 +234,7 @@ namespace Copipe
             bool added = false;
             foreach (string entry in entries)
             {
-                if (promoteExisting || !_history.Contains(entry))
-                {
-                    added |= _history.Add(entry);
-                }
+                added |= _history.Add(entry);
             }
             if (added)
             {
@@ -270,7 +244,6 @@ namespace Copipe
                     ShowHistory();
                 }
             }
-            return snapshot.Kind;
         }
 
         private void OnHotkeyPressed(object sender, EventArgs e)
@@ -288,7 +261,6 @@ namespace Copipe
             }
             _trigger = trigger;
             _targetWindow = NativeMethods.GetForegroundWindow();
-            _retryTimer.Stop();
 
             // 小窓を出している間だけ、数字キーで一覧から選び、モードキーで履歴と定型文を切り替えられるようにする。
             // 小窓が見えているのにキーが入力中のアプリに届いてしまう隙間が無いよう、小窓を出す前に登録する
@@ -297,29 +269,11 @@ namespace Copipe
             Keys modeKey = HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey;
             _popupKeys.Enable(modeKey);
 
-            // 通知を取りこぼしていた場合の保険として、押した時点の内容も拾う
-            ClipboardKind kind = CaptureClipboard(false);
             // 開くときはいつもクリップボード履歴から。定型文も一番上の階層から
             _mode = PopupMode.History;
             _phrasePath.Clear();
             ShowMode();
             _popup.ShowAt(Cursor.Position);
-
-            // コピーした直後は、CopyQ などの履歴ツールやエクスプローラーが一瞬クリップボードを
-            // 開いていて読めないことがある (実測)。押している間は読み直す
-            if (kind == ClipboardKind.Unavailable)
-            {
-                _retryTimer.Start();
-            }
-        }
-
-        private void OnRetryTimerTick(object sender, EventArgs e)
-        {
-            if (CaptureClipboard(false) == ClipboardKind.Unavailable)
-            {
-                return;
-            }
-            _retryTimer.Stop();
         }
 
         /// <summary>数字キー (1〜9、0) で一覧から選んだとき。クリックと同じ扱い。</summary>
@@ -1015,8 +969,6 @@ namespace Copipe
             _trigger = PopupTrigger.None;
             // 数字キーやモードキーを横取りしたままにすると、どのアプリでも打てなくなる。真っ先に解除する
             _popupKeys.Disable();
-            // 離した後に遅れて表示が変わらないよう、先に読み直しを止める
-            _retryTimer.Stop();
             // 右クリックのメニューも小窓と一緒に閉じる (項目を選ぶ前に離したとき)
             RowMenu.Close();
             // メニューを出すと小窓が前面になる。前面のまま隠すと Windows が別のアプリ (実測では CLaunch) を
@@ -1355,7 +1307,6 @@ namespace Copipe
             try
             {
                 _popupKeys.Disable();
-                _retryTimer.Stop();
                 _ownerHideTimer.Stop();
                 // 持ち主を先に出して前面にしておく。小窓を隠しても前面が他のアプリへ移らない
                 _dialogOwner.Show();
@@ -1684,7 +1635,6 @@ namespace Copipe
                 _popupKeys.Dispose();
                 _inserter.Dispose();
                 _hotkey.Dispose();
-                _retryTimer.Dispose();
                 _trayIcon.Dispose();
                 // Dispose は終了時に 2 回呼ばれることがある。Icon は 2 回解放しても例外にならない
                 _trayImage.Dispose();

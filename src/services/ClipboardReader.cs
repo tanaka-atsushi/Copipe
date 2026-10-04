@@ -65,8 +65,7 @@ namespace Copipe.Services
         private static bool TryOpen(IntPtr window)
         {
             // コピー直後の約 200 ms の間は、CopyQ や Clibor などの履歴ツールやエクスプローラーが
-            // 断続的にクリップボードを開いている (実測)。短い間なら待ち、開いたままなら
-            // 小窓の表示を遅らせないようにあきらめる (押している間の読み直しは CopipeApp が行う)。
+            // 断続的にクリップボードを開いている (実測)。短い間なら待ち、開いたままならあきらめる。
             return TryOpen(window, OpenAttempts);
         }
 
