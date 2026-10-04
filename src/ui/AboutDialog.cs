@@ -33,10 +33,10 @@ namespace Copipe.UI
             Controls.Add(version);
 
             Label coffee = new Label();
-            coffee.Text = Lang.T("役に立ったら缶コーヒー１本おごってください。",
+            coffee.Text = Lang.T("もしこのツールがあなたの役に立ったら\nコーヒーを一杯おごってもらえるとうれしいです。",
                                  "If Copipe helps you, you can buy me a coffee.");
             coffee.TextAlign = ContentAlignment.MiddleCenter;
-            // 英語は 1 行に収まらないので、折り返した高さを測って決める
+            // 日本語も英語も 1 行に収まらないので、折り返した高さを測って決める
             int coffeeHeight = Math.Max(Scaled(20),
                 TextRenderer.MeasureText(coffee.Text, Font, new Size(Scaled(284), 0), TextFormatFlags.WordBreak).Height);
             coffee.Bounds = new Rectangle(Scaled(8), Scaled(44), Scaled(284), coffeeHeight);
