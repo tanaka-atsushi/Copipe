@@ -54,7 +54,8 @@ namespace Copipe.UI
                 y += Scaled(38);
 
                 y += AddLabel(Lang.T("本文 (入力する文字。改行もそのまま入ります)", "Text (inserted as is, including line breaks)"), y, false) + Scaled(6);
-                _textBox = new TextBox();
+                // Outlook・Word から貼り付けた文は、段落の字下げを行頭の全角スペースにして入れる
+                _textBox = new IndentPasteTextBox();
                 _textBox.Name = "textBox";
                 _textBox.Multiline = true;
                 _textBox.AcceptsReturn = true;

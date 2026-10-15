@@ -36,6 +36,10 @@ namespace Copipe.Interop
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern IntPtr GetClipboardData(uint uFormat);
 
+        /// <summary>名前の付いたクリップボードの形式 ("HTML Format" など) の ID。無ければ作る。</summary>
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        internal static extern uint RegisterClipboardFormat(string lpszFormat);
+
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern uint EnumClipboardFormats(uint format);
 

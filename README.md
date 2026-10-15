@@ -57,6 +57,9 @@ Press the **mode key** (Tab by default), or turn the mouse wheel over the popup,
 - Select a snippet to type it. Select a group to open it. **Esc** goes back up one level, and you can click a level name in the header to jump to it.
 - Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first). Drag slots to move them, or drop one on a group to put it inside.
 - A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
+- When you copy text from Outlook or Word, paragraph indents (such as the indent Outlook makes when you type a space at the start of a line)
+  are kept as full-width spaces at the start of the line, in the history and when you paste into the snippet text box.
+  Lines that wrap still start at the left edge.
 
 ### Tray menu
 

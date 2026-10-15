@@ -1550,6 +1550,43 @@ try {
     }
 
     # ==========================================================================
+    Section '検証 5b: Outlook・Word の字下げ (WordIndent)' {
+    # ==========================================================================
+        # クリップボードは使わず、Outlook が書く形をまねた HTML Format の文字列で確かめる
+        $WI = [Copipe.Model.WordIndent]
+        ${Z} = [string][char]0x3000
+        $head = "Version:0.9`r`nStartHTML:0000000105`r`nEndHTML:0000009999`r`nStartFragment:0000000999`r`nEndFragment:0000009000`r`n" +
+            '<html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">' +
+            "`r`n<head><meta name=Generator content=""Microsoft Word 15 (filtered medium)""><style><!-- p.MsoNormal {margin:0mm;font-size:10.5pt;} --></style></head>`r`n" +
+            '<body lang=JA><!--StartFragment-->'
+        $tail = '<!--EndFragment--></body></html>'
+        $body = "<p class=MsoNormal>お世話になっております。<o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal style='text-indent:10.5pt;mso-char-indent-count:1.0'>一字下げた段落です。<o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal style='text-indent:21.0pt;mso-char-indent-count:2.0'>二字下げ<o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal style='margin-left:21.0pt;mso-para-margin-left:2.0gd'>左に二字<br>`r`n改行後の行<o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal><o:p>&nbsp;</o:p></p>`r`n" +
+            "<p class=MsoNormal style='margin-left:31.5pt'><span lang=EN-US>three</span><span lang=EN-US>`r`nchars &amp; more</span><o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal style='margin-left:21.0pt;text-indent:-10.5pt;mso-list:l0 level1 lfo1'><![if !supportLists]><span>・<span style='font:7.0pt ""Times New Roman""'>&nbsp;&nbsp; </span></span><![endif]>箇条書き<o:p></o:p></p>`r`n" +
+            "<p class=MsoNormal style='margin:0mm 0mm 0mm 10.5pt'>margin の 4 つ目<o:p></o:p></p>`r`n"
+        $html = $head + $body + $tail
+        $plain = "お世話になっております。`r`n一字下げた段落です。`r`n二字下げ`r`n左に二字`r`n改行後の行`r`n`r`nthree chars & more`r`n・`t箇条書き`r`nmargin の 4 つ目`r`n"
+        $expected = "お世話になっております。`r`n${Z}一字下げた段落です。`r`n${Z}${Z}二字下げ`r`n${Z}${Z}左に二字`r`n${Z}${Z}改行後の行`r`n`r`n${Z}${Z}${Z}three chars & more`r`n${Z}・`t箇条書き`r`n${Z}margin の 4 つ目`r`n"
+        $got = $WI::Apply($plain, $html)
+        Check '字下げ: 1 字・2 字・左の余白・段落の中の改行・箇条書き・margin の 4 つ目を全角スペースにする' ($got -ceq $expected) ("got=" + $got.Replace(${Z}, '□').Replace("`r`n", '⏎'))
+
+        $web = "Version:0.9`r`n<html><body><!--StartFragment--><p style='margin-left:40px'>web</p><!--EndFragment--></body></html>"
+        Check '字下げ: ブラウザーの HTML は変えない' ($WI::Apply('web', $web) -ceq 'web')
+        Check '字下げ: HTML が無ければ変えない' ($WI::Apply("abc`r`ndef", [NullString]::Value) -ceq "abc`r`ndef")
+        $flat = $head + "<p class=MsoNormal>abc<o:p></o:p></p><p class=MsoNormal>def</p>" + $tail
+        Check '字下げ: 字下げの無い Word の HTML は変えない' ($WI::Apply("abc`r`ndef", $flat) -ceq "abc`r`ndef")
+        $skip = $head + "<p class=MsoNormal>見出し</p><p class=MsoNormal>表のセル1</p><p class=MsoNormal>表のセル2</p><p class=MsoNormal style='text-indent:10.5pt'>後ろ</p>" + $tail
+        Check '字下げ: 文字に対応しない段落 (表など) を読み飛ばして、後ろの行に付ける' ($WI::Apply("見出し`r`n表のセル1`t表のセル2`r`n後ろ", $skip) -ceq "見出し`r`n表のセル1`t表のセル2`r`n${Z}後ろ")
+        $same = $head + "<p class=MsoNormal>同じ</p><p class=MsoNormal style='text-indent:21pt'>同じ</p>" + $tail
+        Check '字下げ: 同じ文の行は前から順に対応させる' ($WI::Apply("同じ`r`n同じ", $same) -ceq "同じ`r`n${Z}${Z}同じ")
+        Check '字下げ: 改行が LF だけでも付ける' ($WI::Apply("お世話になっております。`n一字下げた段落です。", $html) -ceq "お世話になっております。`n${Z}一字下げた段落です。")
+    }
+
+    # ==========================================================================
     Section '検証 6: E2E (bin\Copipe.exe を起動してホットキーを擬似入力)' {
     # ==========================================================================
         if ($SkipE2E) { Info '-SkipE2E が指定されたので省略'; return }
