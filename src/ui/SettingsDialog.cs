@@ -57,7 +57,7 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(450));
+            ClientSize = new Size(Scaled(380), Scaled(500));
 
             Label hotkeyLabel = new Label();
             hotkeyLabel.Text = Lang.T("ホットキー (小窓を出すキー)", "Hotkey (shows the popup)");
@@ -185,11 +185,32 @@ namespace Copipe.UI
             _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
+            Label phrasesLabel = new Label();
+            phrasesLabel.Text = Lang.T("定型文", "Snippets");
+            phrasesLabel.AutoSize = true;
+            phrasesLabel.Location = new Point(Scaled(16), Scaled(404));
+            Controls.Add(phrasesLabel);
+
+            // 定型文の一括登録・一括編集の画面を開く (開くのは CopipeApp。BulkEditRequested で頼む)
+            Button bulk = new Button();
+            bulk.Name = "bulkEditButton";
+            bulk.Text = Lang.T("まとめて編集...", "Edit in bulk...");
+            bulk.Bounds = new Rectangle(Scaled(120), Scaled(398), Scaled(160), Scaled(30));
+            bulk.Click += delegate
+            {
+                Action<IWin32Window> handler = BulkEditRequested;
+                if (handler != null)
+                {
+                    handler(this);
+                }
+            };
+            Controls.Add(bulk);
+
             // 設定画面からもバージョンなどを見られるように (トレイのメニューの「Copipe について」と同じ画面)
             Button about = new Button();
             about.Name = "aboutButton";
             about.Text = "About...";
-            about.Bounds = new Rectangle(Scaled(16), Scaled(400), Scaled(84), Scaled(30));
+            about.Bounds = new Rectangle(Scaled(16), Scaled(450), Scaled(84), Scaled(30));
             about.Click += delegate
             {
                 using (AboutDialog dialog = new AboutDialog())
@@ -202,19 +223,22 @@ namespace Copipe.UI
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(400), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(450), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(400), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(450), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
             CancelButton = cancel;
             UpdateState();
         }
+
+        /// <summary>「まとめて編集...」が押されたとき。引数は、開く画面の持ち主 (この設定画面)。</summary>
+        public event Action<IWin32Window> BulkEditRequested;
 
         /// <summary>OK で閉じたときに選ばれたホットキー。</summary>
         public Keys SelectedHotkey

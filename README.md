@@ -93,13 +93,17 @@ Press the **mode key** (Tab by default), or turn the mouse wheel over the popup,
 - A snippet uses either its text or a file, folder or URI. When the dialog opens, neither is marked.
   The box you put the cursor in gets a red **●** and a red frame; the other is grayed out (**○**) and is not saved.
   You can still click in the gray one to switch to it.
+- **Edit in bulk...** (in the right-click menu, the tray menu and Settings) opens an editor laid out like the popup:
+  groups on the left, the 10 slots of the chosen group in the middle, and the chosen slot on the right.
+  Pick a type (type text / open a file, folder or URL / group) and fill in the field for it; typing in an empty slot adds a snippet.
+  *Paste from Excel etc.* puts copied rows (name, contents) into the free slots of the current group. Nothing is saved until you click OK. **Esc** goes back up one level, and you can click a level name in the header to jump to it.
 - Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first).
   With *Show popup* set to *Until used*, the popup comes back at the same level after the dialog closes. Drag slots to move them, or drop one on a group to put it inside.
 - A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
 
 ### Tray menu
 
-Right-click the tray icon to open *Settings...*, *Clear history*, *About Copipe...* (version and donation link) or *Exit*. The *About...* button in the bottom left of Settings opens the same About window.
+Right-click the tray icon to open *Settings...*, *Edit snippets in bulk...*, *Clear history*, *About Copipe...* (version and donation link) or *Exit*. The *About...* button in the bottom left of Settings opens the same About window.
 
 ### Settings
 

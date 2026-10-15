@@ -60,6 +60,7 @@ namespace Copipe
         private readonly ToolStripMenuItem _settingsItem;
         private readonly ToolStripMenuItem _clearItem;
         private readonly ToolStripMenuItem _aboutItem;
+        private readonly ToolStripMenuItem _bulkItem;
         private readonly ToolStripMenuItem _exitItem;
         private readonly NotifyIcon _trayIcon;
         // トレイのアイコンの画像。NotifyIcon は閉じても画像を解放しないので、自分で解放する
@@ -144,9 +145,11 @@ namespace Copipe
             _settingsItem = new ToolStripMenuItem(string.Empty, null, OnSettingsClick);
             _clearItem = new ToolStripMenuItem(string.Empty, null, OnClearHistoryClick);
             _aboutItem = new ToolStripMenuItem(string.Empty, null, OnAboutClick);
+            _bulkItem = new ToolStripMenuItem(string.Empty, null, OnBulkEditClick);
             _exitItem = new ToolStripMenuItem(string.Empty, null, OnExitClick);
             _trayMenu = new ContextMenuStrip();
             _trayMenu.Items.Add(_settingsItem);
+            _trayMenu.Items.Add(_bulkItem);
             _trayMenu.Items.Add(_clearItem);
             _trayMenu.Items.Add(new ToolStripSeparator());
             _trayMenu.Items.Add(_aboutItem);
@@ -1553,7 +1556,7 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 定型文の枠のメニュー (登録・編集・削除・ピン止め) を出す。
+        /// 定型文の枠のメニュー (登録・編集・削除・ピン止め・まとめて編集) を出す。
         /// parents は枠のあるグループまでの並び (一番上の階層なら空)。
         /// </summary>
         private void ShowPhraseMenu(PhraseNode[] parents, int index, Point screen)
@@ -1593,6 +1596,12 @@ namespace Copipe
                 labels.Add(Lang.T("削除", "Delete"));
                 actions.Add(delegate { DeleteSlot(group, index); });
             }
+
+            // どの枠でも、定型文の一括登録・一括編集の画面を開ける
+            labels.Add(RowMenu.Separator);
+            actions.Add(null);
+            labels.Add(Lang.T("まとめて編集...", "Edit in bulk..."));
+            actions.Add(delegate { RunPhraseDialog(delegate { OpenBulkEditor(_dialogOwner); }); });
 
             int chosen = ShowRowMenu(screen, labels);
             if (chosen >= 0 && chosen < actions.Count && actions[chosen] != null)
@@ -1954,6 +1963,8 @@ namespace Copipe
                         _settings.Hotkey, _settings.HotkeyStyle, _settings.ModeKey, _settings.PopupLayout, _settings.InsertClick,
                         _settings.Language))
                     {
+                        // 設定画面の「まとめて編集...」。設定画面を持ち主にして、その上に出す
+                        dialog.BulkEditRequested += OpenBulkEditor;
                         if (dialog.ShowDialog() != DialogResult.OK)
                         {
                             RestoreHotkey();
@@ -2031,6 +2042,61 @@ namespace Copipe
                        "Could not register the hotkey " + HotkeyName + ".\n\n" +
                        "It is in use by another app or Windows. Please exit Copipe and try again."),
                 "Copipe", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        /// <summary>
+        /// 定型文の一括登録・一括編集の画面を出し、OK なら保存する。owner は画面の持ち主 (null ならなし)。
+        /// phrases.json を手で書き換えていれば、読み直してから出す。
+        /// </summary>
+        private void OpenBulkEditor(IWin32Window owner)
+        {
+            ReloadPhrasesIfChanged();
+            using (BulkPhraseDialog dialog = new BulkPhraseDialog(_phrases.Root))
+            {
+                if (dialog.ShowDialog(owner) != DialogResult.OK)
+                {
+                    return;
+                }
+                dialog.ApplyTo(_phrases.Root);
+                // 開いていた階層を、編集後のグループに置き換える (消した・種類を変えたグループがあれば、その手前まで)
+                List<PhraseNode> path = new List<PhraseNode>();
+                PhraseNode parent = _phrases.Root;
+                foreach (PhraseNode group in _phrasePath)
+                {
+                    PhraseNode mapped = dialog.Map(group);
+                    if (mapped == null || !mapped.IsGroup || Array.IndexOf(parent.Slots, mapped) < 0)
+                    {
+                        break;
+                    }
+                    path.Add(mapped);
+                    parent = mapped;
+                }
+                _phrasePath.Clear();
+                _phrasePath.AddRange(path);
+                SavePhrases();
+            }
+        }
+
+        /// <summary>トレイのメニューの「定型文をまとめて編集...」。</summary>
+        private void OnBulkEditClick(object sender, EventArgs e)
+        {
+            if (_dialogOpen)
+            {
+                return;
+            }
+            // 出している間は、小窓を出さない (設定画面と同じ扱い)
+            _dialogOpen = true;
+            try
+            {
+                _popupKeys.Disable();
+                _trigger = PopupTrigger.None;
+                _popup.HidePopup();
+                OpenBulkEditor(null);
+            }
+            finally
+            {
+                _dialogOpen = false;
+            }
         }
 
         private void OnAboutClick(object sender, EventArgs e)
@@ -2116,6 +2182,7 @@ namespace Copipe
             _settingsItem.Text = Lang.T("設定... (", "Settings... (") + triggers + ")";
             _clearItem.Text = Lang.T("履歴を消去", "Clear history");
             _aboutItem.Text = Lang.T("Copipe について...", "About Copipe...");
+            _bulkItem.Text = Lang.T("定型文をまとめて編集...", "Edit snippets in bulk...");
             _exitItem.Text = Lang.T("終了", "Exit");
 
             string tip = Lang.T("Copipe（" + triggers + "）", "Copipe (" + triggers + ")");
