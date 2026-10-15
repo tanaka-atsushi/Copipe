@@ -18,7 +18,8 @@ namespace Copipe.Services
         private const int FirstId = 100;
         private const int ModeKeyId = 200;
         private const int EscapeId = 201;
-        private static readonly Keys[] ArrowKeys = { Keys.Up, Keys.Down, Keys.Left, Keys.Right, Keys.Return };
+        // 矢印キーと Enter、編集の画面を開く F2
+        private static readonly Keys[] ArrowKeys = { Keys.Up, Keys.Down, Keys.Left, Keys.Right, Keys.Return, Keys.F2 };
         private const int ArrowId = 210; // ArrowId + ArrowKeys の位置
         private const int LetterId = 300; // LetterId + (A からの位置)。ピン止めを選ぶ a〜z
         private const int LetterCount = 26;
@@ -46,7 +47,7 @@ namespace Copipe.Services
         /// <summary>a〜z が押されたとき (SetLettersEnabled(true) にしている間だけ)。引数は 0 始まり (a なら 0)。</summary>
         public event Action<int> LetterPressed;
 
-        /// <summary>矢印キー (Up・Down・Left・Right) と Enter (Return) が押されたとき。</summary>
+        /// <summary>矢印キー (Up・Down・Left・Right) と Enter (Return)、F2 が押されたとき。</summary>
         public event Action<Keys> ArrowPressed;
 
         /// <summary>

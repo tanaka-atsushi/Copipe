@@ -6,7 +6,7 @@ using Copipe.Services;
 namespace Copipe.UI
 {
     /// <summary>
-    /// 設定画面。ホットキー・モードキー・貼り付けの操作を変える。
+    /// 設定画面。ホットキー・小窓の出し方・モードキー・小窓の中身・貼り付けの操作を変える。
     /// キーは押されたキーをその場で取り込む。表示している間、呼び出し側は今のホットキーを
     /// 解除しておくこと (解除しないと、今のキーを押してもここには届かない)。
     /// </summary>
@@ -30,6 +30,8 @@ namespace Copipe.UI
         private readonly Button _hotkeyBox;
         private readonly Button _modeKeyBox;
         private readonly Label _note;
+        private readonly RadioButton _toggle;
+        private readonly RadioButton _sideBySide;
         private readonly RadioButton _singleClick;
         private readonly ComboBox _language;
         private readonly Button _ok;
@@ -37,7 +39,8 @@ namespace Copipe.UI
         private Keys _selectedModeKey;
         private bool _pending;
 
-        public SettingsDialog(Keys currentHotkey, Keys currentModeKey, InsertClick currentInsertClick, UiLanguage currentLanguage)
+        public SettingsDialog(Keys currentHotkey, HotkeyStyle currentStyle, Keys currentModeKey, PopupLayout currentLayout,
+                              InsertClick currentInsertClick, UiLanguage currentLanguage)
         {
             _selected = currentHotkey;
             _selectedModeKey = currentModeKey;
@@ -54,10 +57,10 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(384));
+            ClientSize = new Size(Scaled(380), Scaled(450));
 
             Label hotkeyLabel = new Label();
-            hotkeyLabel.Text = Lang.T("ホットキー (押し続けている間、小窓が出ます)", "Hotkey (shows the popup while held)");
+            hotkeyLabel.Text = Lang.T("ホットキー (小窓を出すキー)", "Hotkey (shows the popup)");
             hotkeyLabel.AutoSize = true;
             hotkeyLabel.Location = new Point(Scaled(16), Scaled(14));
             Controls.Add(hotkeyLabel);
@@ -92,22 +95,76 @@ namespace Copipe.UI
             Controls.Add(_note);
 
 
+            Label styleLabel = new Label();
+            styleLabel.Text = Lang.T("小窓の出し方", "Show popup");
+            styleLabel.AutoSize = true;
+            styleLabel.Location = new Point(Scaled(16), Scaled(250));
+            Controls.Add(styleLabel);
+
+            // 同じ入れ物のラジオボタンは 1 つしか選べないので、貼り付けの操作とは別の入れ物に入れる
+            Panel stylePanel = new Panel();
+            stylePanel.Bounds = new Rectangle(Scaled(120), Scaled(246), Scaled(244), Scaled(24));
+            Controls.Add(stylePanel);
+
+            RadioButton hold = new RadioButton();
+            hold.Text = Lang.T("押している間", "While held");
+            hold.AutoSize = true;
+            hold.Location = new Point(0, Scaled(2));
+            stylePanel.Controls.Add(hold);
+
+            // 項目を使う・Esc・もう一度ホットキーを押すと消える
+            _toggle = new RadioButton();
+            _toggle.Text = Lang.T("押したら出したまま", "Until used");
+            _toggle.AutoSize = true;
+            _toggle.Location = new Point(Scaled(116), Scaled(2));
+            stylePanel.Controls.Add(_toggle);
+
+            hold.Checked = (currentStyle != HotkeyStyle.Toggle);
+            _toggle.Checked = (currentStyle == HotkeyStyle.Toggle);
+
+            Label layoutLabel = new Label();
+            layoutLabel.Text = Lang.T("小窓の中身", "Popup layout");
+            layoutLabel.AutoSize = true;
+            layoutLabel.Location = new Point(Scaled(16), Scaled(288));
+            Controls.Add(layoutLabel);
+
+            Panel layoutPanel = new Panel();
+            layoutPanel.Bounds = new Rectangle(Scaled(120), Scaled(284), Scaled(244), Scaled(24));
+            Controls.Add(layoutPanel);
+
+            // 履歴と定型文をモードキーで切り替える
+            RadioButton switchLayout = new RadioButton();
+            switchLayout.Text = Lang.T("切り替え", "Switch");
+            switchLayout.AutoSize = true;
+            switchLayout.Location = new Point(0, Scaled(2));
+            layoutPanel.Controls.Add(switchLayout);
+
+            // 左に履歴、右に定型文
+            _sideBySide = new RadioButton();
+            _sideBySide.Text = Lang.T("並べて表示", "Side by side");
+            _sideBySide.AutoSize = true;
+            _sideBySide.Location = new Point(Scaled(116), Scaled(2));
+            layoutPanel.Controls.Add(_sideBySide);
+
+            switchLayout.Checked = (currentLayout != PopupLayout.SideBySide);
+            _sideBySide.Checked = (currentLayout == PopupLayout.SideBySide);
+
             Label clickLabel = new Label();
             clickLabel.Text = Lang.T("貼り付けの操作", "Paste with");
             clickLabel.AutoSize = true;
-            clickLabel.Location = new Point(Scaled(16), Scaled(250));
+            clickLabel.Location = new Point(Scaled(16), Scaled(326));
             Controls.Add(clickLabel);
 
             RadioButton doubleClick = new RadioButton();
             doubleClick.Text = Lang.T("ダブルクリック", "Double-click");
             doubleClick.AutoSize = true;
-            doubleClick.Location = new Point(Scaled(120), Scaled(248));
+            doubleClick.Location = new Point(Scaled(120), Scaled(324));
             Controls.Add(doubleClick);
 
             _singleClick = new RadioButton();
             _singleClick.Text = Lang.T("シングルクリック", "Single-click");
             _singleClick.AutoSize = true;
-            _singleClick.Location = new Point(Scaled(236), Scaled(248));
+            _singleClick.Location = new Point(Scaled(236), Scaled(324));
             Controls.Add(_singleClick);
 
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
@@ -117,7 +174,7 @@ namespace Copipe.UI
             Label languageLabel = new Label();
             languageLabel.Text = "Language";
             languageLabel.AutoSize = true;
-            languageLabel.Location = new Point(Scaled(16), Scaled(288));
+            languageLabel.Location = new Point(Scaled(16), Scaled(364));
             Controls.Add(languageLabel);
 
             _language = new ComboBox();
@@ -125,14 +182,14 @@ namespace Copipe.UI
             _language.DropDownStyle = ComboBoxStyle.DropDownList;
             _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
             _language.SelectedIndex = (int)currentLanguage;
-            _language.Bounds = new Rectangle(Scaled(120), Scaled(284), Scaled(244), Scaled(24));
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
             // 設定画面からもバージョンなどを見られるように (トレイのメニューの「Copipe について」と同じ画面)
             Button about = new Button();
             about.Name = "aboutButton";
             about.Text = "About...";
-            about.Bounds = new Rectangle(Scaled(16), Scaled(334), Scaled(84), Scaled(30));
+            about.Bounds = new Rectangle(Scaled(16), Scaled(400), Scaled(84), Scaled(30));
             about.Click += delegate
             {
                 using (AboutDialog dialog = new AboutDialog())
@@ -145,13 +202,13 @@ namespace Copipe.UI
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(334), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(400), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(334), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(400), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -165,12 +222,24 @@ namespace Copipe.UI
             get { return _selected; }
         }
 
+        /// <summary>OK で閉じたときに選ばれた小窓の出し方。</summary>
+        public HotkeyStyle SelectedHotkeyStyle
+        {
+            get { return _toggle.Checked ? HotkeyStyle.Toggle : HotkeyStyle.Hold; }
+        }
+
         /// <summary>OK で閉じたときに選ばれたモードキー。</summary>
         public Keys SelectedModeKey
         {
             get { return _selectedModeKey; }
         }
 
+
+        /// <summary>OK で閉じたときに選ばれた小窓の中身 (切り替え / 並べて表示)。</summary>
+        public PopupLayout SelectedPopupLayout
+        {
+            get { return _sideBySide.Checked ? PopupLayout.SideBySide : PopupLayout.Switch; }
+        }
 
         /// <summary>OK で閉じたときに選ばれた貼り付けの操作。</summary>
         public InsertClick SelectedInsertClick

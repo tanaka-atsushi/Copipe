@@ -16,6 +16,24 @@ namespace Copipe.Services
         Single
     }
 
+    /// <summary>ホットキーで小窓を出す方法。</summary>
+    public enum HotkeyStyle
+    {
+        /// <summary>押している間だけ出す (既定)。離すと消える。</summary>
+        Hold,
+        /// <summary>押したら出したままにする。項目を使う・Esc・もう一度ホットキーを押すと消える。</summary>
+        Toggle
+    }
+
+    /// <summary>小窓に履歴と定型文をどう出すか。</summary>
+    public enum PopupLayout
+    {
+        /// <summary>どちらか一方を出し、モードキーで切り替える (既定)。</summary>
+        Switch,
+        /// <summary>左に履歴、右に定型文を並べて出す。モードキーは数字キーが効く側を切り替える。</summary>
+        SideBySide
+    }
+
     /// <summary>
     /// 設定の読み書き。中身は「項目名=値」の行が並ぶだけのテキストで、メモ帳でも直せる。
     /// 読めない値は既定に戻す (設定が壊れていても起動できるようにする)。
@@ -30,20 +48,27 @@ namespace Copipe.Services
 
 
         private const string HotkeyName = "Hotkey";
+        private const string HotkeyStyleName = "HotkeyStyle";
 
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
+        private const string PopupLayoutName = "PopupLayout";
         private const string LanguageName = "Language";
 
         public Settings()
         {
             Hotkey = DefaultHotkey;
+            HotkeyStyle = HotkeyStyle.Hold;
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
+            PopupLayout = PopupLayout.Switch;
             Language = UiLanguage.Auto;
         }
 
         public Keys Hotkey { get; set; }
+
+        /// <summary>ホットキーで小窓を出す方法 (押している間だけ / 押したら出したまま)。</summary>
+        public HotkeyStyle HotkeyStyle { get; set; }
 
 
         /// <summary>履歴の項目を貼り付ける操作 (ダブルクリック / シングルクリック)。</summary>
@@ -54,6 +79,9 @@ namespace Copipe.Services
         /// (ホットキーに Ctrl などが付いていれば、押したままなので自動で同じ修飾キー付きで受け取る)。
         /// </summary>
         public Keys ModeKey { get; set; }
+
+        /// <summary>小窓に履歴と定型文をどう出すか (切り替える / 並べる)。</summary>
+        public PopupLayout PopupLayout { get; set; }
 
         /// <summary>画面の言葉 (Windows に合わせる / 日本語 / 英語)。</summary>
         public UiLanguage Language { get; set; }
@@ -106,12 +134,36 @@ namespace Copipe.Services
                             settings.Hotkey = keys;
                         }
                     }
+                    else if (string.Equals(name, HotkeyStyleName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
+                        if (string.Equals(value, "Toggle", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.HotkeyStyle = HotkeyStyle.Toggle;
+                        }
+                        else if (string.Equals(value, "Hold", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.HotkeyStyle = HotkeyStyle.Hold;
+                        }
+                    }
                     else if (string.Equals(name, ModeKeyName, StringComparison.OrdinalIgnoreCase))
                     {
                         Keys keys;
                         if (HotkeyText.TryParse(value, out keys) && HotkeyText.IsValidModeKey(keys))
                         {
                             settings.ModeKey = keys;
+                        }
+                    }
+                    else if (string.Equals(name, PopupLayoutName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
+                        if (string.Equals(value, "SideBySide", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.PopupLayout = PopupLayout.SideBySide;
+                        }
+                        else if (string.Equals(value, "Switch", StringComparison.OrdinalIgnoreCase))
+                        {
+                            settings.PopupLayout = PopupLayout.Switch;
                         }
                     }
                     else if (string.Equals(name, LanguageName, StringComparison.OrdinalIgnoreCase))
@@ -158,10 +210,14 @@ namespace Copipe.Services
 
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(Lang.T("# Copipe の設定 (メモ帳で編集できます)", "# Copipe settings (you can edit this file in Notepad)"));
-            sb.AppendLine(Lang.T("# Hotkey: 押している間だけ小窓を出すキー。修飾キー (Ctrl など) は付けられない。例: F1、Pause、IMENonconvert (無変換)",
-                                 "# Hotkey: key that shows the popup while held. No modifiers (Ctrl etc.). e.g. F1, Pause"));
+            sb.AppendLine(Lang.T("# Hotkey: 小窓を出すキー。修飾キー (Ctrl など) は付けられない。例: F1、Pause、IMENonconvert (無変換)",
+                                 "# Hotkey: key that shows the popup. No modifiers (Ctrl etc.). e.g. F1, Pause"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", HotkeyName, HotkeyText.ToSetting(Hotkey)));
+            sb.AppendLine(Lang.T("# HotkeyStyle: 小窓の出し方。Hold (押している間だけ) か Toggle (押したら出したまま。項目を使う・Esc・もう一度押すと消える)",
+                                 "# HotkeyStyle: how the hotkey shows the popup. Hold (while held) or Toggle (stays open until you use an item, press Esc or press the hotkey again)"));
+            sb.AppendLine(string.Format(
+                CultureInfo.InvariantCulture, "{0}={1}", HotkeyStyleName, HotkeyStyle));
             sb.AppendLine(Lang.T("# InsertClick: 履歴の項目を貼り付ける操作。Double (ダブルクリック) か Single (シングルクリック)",
                                  "# InsertClick: click to paste an item. Double or Single"));
             sb.AppendLine(string.Format(
@@ -170,6 +226,10 @@ namespace Copipe.Services
                                  "# ModeKey: key that switches between clipboard history and snippets in the popup. e.g. Tab, F2"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", ModeKeyName, HotkeyText.ToSetting(ModeKey)));
+            sb.AppendLine(Lang.T("# PopupLayout: 小窓の中身。Switch (履歴と定型文をモードキーで切り替える) か SideBySide (左に履歴、右に定型文を並べる)",
+                                 "# PopupLayout: popup layout. Switch (switch history / snippets with the mode key) or SideBySide (history on the left, snippets on the right)"));
+            sb.AppendLine(string.Format(
+                CultureInfo.InvariantCulture, "{0}={1}", PopupLayoutName, PopupLayout));
             sb.AppendLine(Lang.T("# Language: 画面の言葉。Auto (Windows の表示言語に合わせる)、Japanese、English",
                                  "# Language: display language. Auto (follow Windows), Japanese or English"));
             sb.AppendLine(string.Format(
