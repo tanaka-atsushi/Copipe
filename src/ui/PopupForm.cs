@@ -7,8 +7,10 @@ using Copipe.Interop;
 namespace Copipe.UI
 {
     /// <summary>
-    /// ホットキーを押している間だけ出す小窓。見出しと一覧 (クリップボードの履歴か、定型文の 1 つの階層) を表示する。
-    /// 入力中のアプリからフォーカスを奪わず、タスクバーや Alt+Tab にも出ない。
+    /// ホットキーで出す小窓。中に一覧の欄 (PopupPane) を置く。押したら出したままの設定では、上に検索窓も置く。
+    /// 履歴と定型文を切り替えて出すときは欄 1 つ (Primary)、並べて出すとき (SideBySide) は
+    /// 左に履歴の欄 (Primary)、右に定型文の欄 (Secondary) の 2 つ。
+    /// 入力中のアプリからフォーカスを奪わず (検索窓を出すときだけは奪う)、タスクバーや Alt+Tab にも出ない。
     /// 表示のたびに作り直さず、表示・非表示を切り替えて使う。
     /// </summary>
     internal sealed class PopupForm : Form
@@ -16,49 +18,16 @@ namespace Copipe.UI
         // 96 DPI (拡大率 100%) のときの大きさ。実際の DPI に合わせて拡大する
         private const int BaseWidth = 420;
         private const int BasePadding = 8;
-        private const int BaseItemHeight = 22;
-        private const int BaseHeaderHeight = 24;
         private const int BaseCursorOffset = 16;
 
-        /// <summary>一度に見せる行数の上限。これを超える分はスクロールで見る。</summary>
-        private const int MaxVisibleItems = 15;
+        private static readonly Color PopupBackColor = Color.FromArgb(0xF9, 0xF9, 0xF9);
 
-        private readonly DragListBox _list;
-        private readonly BreadcrumbLabel _title;
-        private readonly Label _hint;
+        private readonly PopupPane _primary;
+        // 並べて出すときだけの右の欄と、左の欄との間のすき間 (切り替えて出すときは null)
+        private PopupPane _secondary;
+        private Panel _gap;
+        private PopupPane _active;
         private Point _cursor;
-        private bool _empty = true;
-
-        // 一覧の上部にあるピン止めの行数 (履歴モードだけ。定型文モードでは 0)
-        private int _pinnedCount;
-        // 最後に 📌 をクリックした時刻。直後のダブルクリック (2 回目のクリック) を入力として扱わないため
-        private DateTime _pinClickedAt = DateTime.MinValue;
-
-        /// <summary>ピン止めの行の右端にある 📌 の幅 (96 DPI のとき)。ここをクリックするとピン止めを外す。</summary>
-        private const int BasePinIconWidth = 24;
-
-        // ドラッグ中の状態。_hover はマウスの下にある先 (落とせるかは問わない)、
-        // _dropTarget は実際に落とせる先 (落とせなければ Nowhere)
-        private readonly Timer _springTimer;
-        private int _dragSource = -1;
-        private DropTarget _hover = DropTarget.Nowhere;
-        private DropTarget _dropTarget = DropTarget.Nowhere;
-
-        /// <summary>ドラッグした項目を止めたままにすると、グループ (階層) を開くまでの時間。</summary>
-        private const int SpringOpenMs = 1000;
-
-        private static readonly Color DropSwapColor = Color.FromArgb(0xCC, 0xE4, 0xF7);
-
-        // 入力した行を点滅させる (FlashItem)。点滅させている行と今の段階 (奇数のとき選択の色)、
-        // ↑↓ で続きから動かすための基準の行
-        private readonly Timer _flashTimer;
-        private int _flashIndex = -1;
-        private int _flashStep;
-        private int _anchorIndex = -1;
-
-        /// <summary>点滅の 1 段階 (消える・点く) の時間。消える→点く→消える の 2 段階で終わる。</summary>
-        private const int FlashStepMs = 50;
-        private const int FlashSteps = 2;
 
         public PopupForm()
         {
@@ -67,164 +36,608 @@ namespace Copipe.UI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(0xF9, 0xF9, 0xF9);
+            BackColor = PopupBackColor;
             Padding = new Padding(ScaleByDpi(BasePadding));
 
-            // 将来、項目のダブルクリックやドラッグ＆ドロップを足せるよう、Label ではなく ListBox で作る
-            _list = new DragListBox();
-            _list.Dock = DockStyle.Fill;
-            _list.BorderStyle = BorderStyle.None;
-            _list.BackColor = BackColor;
-            _list.ForeColor = Color.FromArgb(0x1A, 0x1A, 0x1A);
-            _list.Font = SystemFonts.MessageBoxFont;
-            _list.DrawMode = DrawMode.OwnerDrawFixed;
-            _list.ItemHeight = ScaleByDpi(BaseItemHeight);
-            _list.IntegralHeight = false;
-            _list.SelectionMode = SelectionMode.One;
-            _list.DrawItem += OnDrawItem;
-            // ListBox は、1 回目のクリックで MouseClick、ダブルクリックの 2 回目で MouseDoubleClick を出す
-            // (2 回目で MouseClick は出ない)。設定に応じてどちらか一方だけで選ぶので、
-            // シングルクリックの設定でうっかりダブルクリックしても選ぶのは 1 回だけになる
-            _list.MouseClick += OnListMouseClick;
-            _list.MouseDoubleClick += OnListMouseDoubleClick;
-            _list.MouseUp += OnListMouseUp;
-            _list.MouseMove += OnListMouseMove;
-            _list.DraggableRowAt = DraggableRowAt;
-            _list.DragBegan += OnDragBegan;
-            _list.DragMoved += OnDragMoved;
-            _list.DragDropped += OnDragDropped;
-            _list.DragAborted += delegate { EndDrag(DropTarget.Nowhere); };
-            _list.WheelTurned += OnWheel;
-            Controls.Add(_list);
+            _primary = CreatePane();
+            _primary.Dock = DockStyle.Fill;
+            Controls.Add(_primary);
+            _active = _primary;
 
-            _springTimer = new Timer();
-            _springTimer.Interval = SpringOpenMs;
-            _springTimer.Tick += OnSpringTimerTick;
+            UpdateSize();
+        }
 
-            _flashTimer = new Timer();
-            _flashTimer.Interval = FlashStepMs;
-            _flashTimer.Tick += OnFlashTimerTick;
-
-            // 見出し: 左に今のモード、右に切り替え方。一覧より後に追加して、先に上へ寄せる
-            // (Dock は後から追加したものから順に場所を取る)
-            Panel header = new Panel();
-            header.Dock = DockStyle.Top;
-            header.Height = ScaleByDpi(BaseHeaderHeight);
-            header.BackColor = BackColor;
-
-            _title = new BreadcrumbLabel();
-            _title.SegmentClicked += delegate(int level)
+        private PopupPane CreatePane()
+        {
+            PopupPane pane = new PopupPane(BackColor);
+            pane.InsertOnSingleClick = _insertOnSingleClick;
+            pane.DropValidator = _dropValidator;
+            pane.OutsideDragData = _outsideDragData;
+            pane.Engaged += OnPaneEngaged;
+            pane.ContentChanged += delegate { UpdateSize(); };
+            KeepSearchFocus(pane);
+            pane.WheelTurned += OnWheel;
+            // 数字キーが効く欄 (_active) の操作だけを知らせる。もう一方の欄は、押した時点で Engaged から _active になる
+            pane.RowActivated += delegate(int index) { if (pane == _active) { Raise(RowActivated, index); } };
+            pane.RowContextRequested += delegate(int index, Point screen)
             {
-                Action<int> handler = LevelClicked;
-                if (handler != null && !_list.IsDragging)
+                Action<int, Point> handler = RowContextRequested;
+                if (pane == _active && handler != null)
                 {
-                    handler(level);
+                    handler(index, screen);
                 }
             };
-            _title.Dock = DockStyle.Left;
-            _title.AutoSize = true;
-            _title.UseMnemonic = false;
-            _title.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
-            _title.ForeColor = _list.ForeColor;
-            _title.TextAlign = ContentAlignment.MiddleLeft;
-            header.Controls.Add(_title);
-
-            _hint = new HeaderLabel();
-            _hint.Dock = DockStyle.Right;
-            _hint.AutoSize = true;
-            _hint.UseMnemonic = false;
-            _hint.Font = SystemFonts.MessageBoxFont;
-            _hint.ForeColor = SystemColors.GrayText;
-            _hint.TextAlign = ContentAlignment.MiddleRight;
-            header.Controls.Add(_hint);
-
-            // 見出しの空いたところ (階層名以外) をつかんで、小窓を動かせる。階層名は自分でカーソルを決める
-            header.Cursor = Cursors.SizeAll;
-            _title.Cursor = Cursors.Default;
-            foreach (Control grip in new Control[] { header, _hint })
+            pane.EmptyRowClicked += delegate(int index) { if (pane == _active) { Raise(EmptyRowClicked, index); } };
+            pane.RowDragStarted += delegate(int index) { if (pane == _active) { Raise(RowDragStarted, index); } };
+            pane.DragOpenRequested += delegate(DropTarget target) { if (pane == _active) { Raise(DragOpenRequested, target); } };
+            pane.LevelClicked += delegate(int level) { if (pane == _active) { Raise(LevelClicked, level); } };
+            pane.PinIconClicked += delegate(int index) { if (pane == _active) { Raise(PinIconClicked, index); } };
+            pane.RowDragEnded += delegate(DropTarget target) { if (pane == _active) { Raise(RowDragEnded, target); } };
+            pane.ExternalDropped += delegate(int index, string path, string text)
+            {
+                Action<int, string, string> handler = ExternalDropped;
+                if (pane == _active && handler != null)
+                {
+                    handler(index, path, text);
+                }
+            };
+            foreach (Control grip in pane.Grips)
             {
                 grip.MouseDown += OnGripMouseDown;
                 grip.MouseMove += OnGripMouseMove;
                 grip.MouseUp += delegate { _moving = false; };
             }
+            return pane;
+        }
 
-            Controls.Add(header);
+        private void OnPaneEngaged(object sender, EventArgs e)
+        {
+            PopupPane pane = (PopupPane)sender;
+            Action<PopupPane> handler = PaneEngaged;
+            if (pane != _active && handler != null)
+            {
+                handler(pane);
+            }
+        }
 
-            Size = new Size(ScaleByDpi(BaseWidth), HeightForItems(1));
+        /// <summary>
+        /// 数字キーが効いていない欄 (並べて出しているときのもう一方) が押された・ドラッグされてきたとき。
+        /// 受け取る側が ActivePane をその欄にすると、続く行の操作 (クリック・ドラッグ・右クリック) が届く。
+        /// </summary>
+        public event Action<PopupPane> PaneEngaged;
 
-            AcceptExternalDrops(this);
+        /// <summary>切り替えて出すときの唯一の欄。並べて出すときは左の欄 (履歴)。</summary>
+        public PopupPane Primary
+        {
+            get { return _primary; }
+        }
+
+        /// <summary>並べて出すときの右の欄 (定型文)。切り替えて出すときは null。</summary>
+        public PopupPane Secondary
+        {
+            get { return _secondary; }
+        }
+
+        /// <summary>履歴と定型文を並べて出すか (false なら、切り替えて 1 つずつ出す)。</summary>
+        public bool SideBySide
+        {
+            get { return _secondary != null; }
+            set
+            {
+                if (value == SideBySide)
+                {
+                    return;
+                }
+                if (value)
+                {
+                    _secondary = CreatePane();
+                    _secondary.Dock = DockStyle.Fill;
+                    Controls.Add(_secondary);
+                    _gap = new Panel();
+                    _gap.Dock = DockStyle.Left;
+                    _gap.Width = ScaleByDpi(BasePadding) * 2;
+                    _gap.BackColor = BackColor;
+                    Controls.Add(_gap);
+                    _primary.Dock = DockStyle.Left;
+                    _primary.Width = ScaleByDpi(BaseWidth);
+                    ArrangeDock();
+                }
+                else
+                {
+                    if (_active == _secondary)
+                    {
+                        _active = _primary;
+                    }
+                    Controls.Remove(_secondary);
+                    Controls.Remove(_gap);
+                    _secondary.Dispose();
+                    _gap.Dispose();
+                    _secondary = null;
+                    _gap = null;
+                    _primary.Dock = DockStyle.Fill;
+                }
+                UpdateMarks();
+                UpdateSize();
+            }
+        }
+
+        /// <summary>
+        /// Dock は並びの後ろのものから順に場所を取る。検索窓 (上)、左の欄、すき間、右の欄 (Fill) の順に取らせる。
+        /// </summary>
+        private void ArrangeDock()
+        {
+            if (_gap != null)
+            {
+                _gap.SendToBack();
+                _primary.SendToBack();
+            }
+            if (_searchPanel != null)
+            {
+                _searchPanel.SendToBack();
+            }
+        }
+
+        // ---- 検索窓 (押したら出したままの設定のとき) ------------------------------------
+
+        /// <summary>候補を一度に見せる行数の上限。これを超える分はスクロールで見る。</summary>
+        private const int MaxVisibleCandidates = 8;
+
+        // 検索窓の右の、入力のしかたの印 (A・あ) の幅 (96 dpi のとき)
+        private const int BaseIndicatorWidth = 24;
+
+        // 検索窓と候補の一覧 (検索窓を出さないときは null)
+        private Panel _searchPanel;
+        // 検索窓と、その右の入力のしかたの印 (A・あ) を並べる行
+        private Panel _searchRow;
+        private TextBox _search;
+        private ListBox _candidates;
+        // 検索窓は英字に固定 (半角/全角 で日本語も打てる)
+        private EnglishTyping _english;
+
+        /// <summary>
+        /// 小窓の上に検索窓を出すか。出すときは、小窓を出したら前面にして検索窓に入力カーソルを置く
+        /// (このときだけは入力中のアプリからフォーカスを取る)。打てるのは英字と空白だけ。
+        /// 数字・矢印・Enter・Esc はホットキー (PopupKeys) で受け取るので、検索窓には届かない。
+        /// </summary>
+        public bool SearchEnabled
+        {
+            get { return _searchPanel != null; }
+            set
+            {
+                if (value == SearchEnabled)
+                {
+                    return;
+                }
+                if (value)
+                {
+                    CreateSearch();
+                }
+                else
+                {
+                    Controls.Remove(_searchPanel);
+                    _english.Dispose();
+                    _english = null;
+                    _searchPanel.Dispose();
+                    _searchPanel = null;
+                    _searchRow = null;
+                    _search = null;
+                    _candidates = null;
+                }
+                UpdateSize();
+            }
+        }
+
+        private void CreateSearch()
+        {
+            _searchPanel = new Panel();
+            _searchPanel.Dock = DockStyle.Top;
+            _searchPanel.BackColor = BackColor;
+            _searchPanel.Padding = new Padding(0, 0, 0, ScaleByDpi(BasePadding));
+
+            // 中も Dock は後ろのものから場所を取る。候補を先に、検索窓を後に追加して、検索窓を上にする
+            _candidates = new ListBox();
+            _candidates.Dock = DockStyle.Top;
+            _candidates.Font = SystemFonts.MessageBoxFont;
+            _candidates.IntegralHeight = false;
+            _candidates.Visible = false;
+            _candidates.MouseClick += OnCandidateClick;
+            _candidates.MouseDoubleClick += OnCandidateDoubleClick;
+            _candidates.MouseUp += OnCandidateMouseUp;
+            _searchPanel.Controls.Add(_candidates);
+
+            _search = new TextBox();
+            _search.Dock = DockStyle.Fill;
+            _search.Font = SystemFonts.MessageBoxFont;
+            _search.KeyPress += OnSearchKeyPress;
+            _search.TextChanged += OnSearchTextChanged;
+            // 名前は英字で探すので、英字のキーはキーボードフックで先に受け取って入れる (日本語入力や Meltype などがオンでも英字になる)。
+            // 日本語で探したいときは、半角/全角 キーか右の印のクリックで普通の入力にする
+            _english = new EnglishTyping(_search);
+            _english.Typed = OnEnglishTyped;
+            _searchRow = new Panel();
+            _searchRow.Dock = DockStyle.Top;
+            _searchRow.Height = _search.PreferredHeight;
+            _english.Indicator.Dock = DockStyle.Right;
+            _english.Indicator.Width = ScaleByDpi(BaseIndicatorWidth);
+            _english.Indicator.Font = SystemFonts.MessageBoxFont;
+            _searchRow.Controls.Add(_search);
+            _searchRow.Controls.Add(_english.Indicator);
+            _searchPanel.Controls.Add(_searchRow);
+
+            KeepSearchFocus(_candidates);
+            Controls.Add(_searchPanel);
+            ArrangeDock();
+            UpdateSearchHeight();
+        }
+
+        /// <summary>検索窓の文字が変わったとき。</summary>
+        public event EventHandler SearchChanged;
+
+        /// <summary>候補の行がクリック (ダブルクリック) されたとき。引数は候補の位置。</summary>
+        public event Action<int> CandidateActivated;
+
+        /// <summary>検索窓の文字 (検索窓を出していなければ空)。</summary>
+        public string SearchText
+        {
+            get { return _search == null ? string.Empty : _search.Text; }
+        }
+
+        /// <summary>候補を出しているか。</summary>
+        public bool HasCandidates
+        {
+            get { return _candidates != null && _candidates.Items.Count > 0; }
+        }
+
+        /// <summary>選んでいる候補の位置 (候補が無ければ -1)。</summary>
+        public int CandidateIndex
+        {
+            get { return HasCandidates ? _candidates.SelectedIndex : -1; }
+        }
+
+        /// <summary>候補の一覧を入れる。空なら一覧を隠す。最初の候補を選んでおく (Enter でそれを使う)。</summary>
+        public void SetCandidates(IList<string> labels)
+        {
+            if (_candidates == null)
+            {
+                return;
+            }
+            _candidates.BeginUpdate();
+            try
+            {
+                _candidates.Items.Clear();
+                foreach (string label in labels)
+                {
+                    _candidates.Items.Add(label);
+                }
+            }
+            finally
+            {
+                _candidates.EndUpdate();
+            }
+            _candidates.Visible = labels.Count > 0;
+            if (labels.Count > 0)
+            {
+                _candidates.SelectedIndex = 0;
+            }
+            // 上下の枠線の分も足す。足さないと最後の行が切れる (ウインドウを作る前は大きさの差では測れない)
+            int border = SystemInformation.Border3DSize.Height * 2;
+            _candidates.Height = Math.Max(1, Math.Min(labels.Count, MaxVisibleCandidates)) * _candidates.ItemHeight + border;
+            UpdateSearchHeight();
+        }
+
+        /// <summary>選んでいる候補を step (上なら -1、下なら +1) 動かす。端まで来たら反対側へ回る。</summary>
+        public void MoveCandidate(int step)
+        {
+            if (!HasCandidates)
+            {
+                return;
+            }
+            int count = _candidates.Items.Count;
+            _candidates.SelectedIndex = ((_candidates.SelectedIndex + step) % count + count) % count;
+        }
+
+        /// <summary>
+        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。英字のキーはキーボードフックで受け取って、ここで入れる
+        /// (キーを検索窓に届けると、日本語入力や Meltype などの入力ソフトがオンのとき、かなになるため)。
+        /// </summary>
+        public void TypeSearch(char c)
+        {
+            if (_search == null || !IsAllowedSearchChar(c))
+            {
+                return;
+            }
+            if (!_search.Focused)
+            {
+                FocusSearch();
+            }
+            _search.SelectedText = c.ToString();
+        }
+
+        /// <summary>検索窓を空にする (候補も消える)。</summary>
+        public void ClearSearch()
+        {
+            if (_search != null)
+            {
+                _search.Text = string.Empty;
+            }
+        }
+
+        private void UpdateSearchHeight()
+        {
+            // 小窓を隠している間は Visible が false を返すので、候補の有無は件数で見る
+            int height = _searchRow.Height + _searchPanel.Padding.Bottom + (_candidates.Items.Count > 0 ? _candidates.Height : 0);
+            if (_searchPanel.Height != height)
+            {
+                _searchPanel.Height = height;
+            }
+            UpdateSize();
+        }
+
+        private static bool IsAllowedSearchChar(char c)
+        {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == ' ';
+        }
+
+        private void OnSearchKeyPress(object sender, KeyPressEventArgs e)
+        {
+            // 英字に固定の間は、英字と空白のほかは入れない (Backspace などの制御文字は通す)。
+            // 普通の入力 (あ) では日本語も入れる (日本語の名前でも探せる)。貼り付けたものは、どちらでもそのまま入る
+            if (!_english.Japanese && !char.IsControl(e.KeyChar) && !IsAllowedSearchChar(e.KeyChar))
+            {
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>フックが受け取った英字・空白を検索窓に入れる。右クリックのメニューやドラッグの間は入れない。</summary>
+        private void OnEnglishTyped(char c)
+        {
+            if (RowMenu.IsOpen || IsDragging || !Visible)
+            {
+                return;
+            }
+            TypeSearch(c);
+        }
+
+        /// <summary>
+        /// 検索窓で IME が変換中なら、その文字を確定 (complete) か取り消し (cancel) して true を返す。
+        /// 小窓を出している間は Enter・Esc をホットキーで受け取るので、IME に届かない。代わりにここで確定・取り消しする。
+        /// </summary>
+        public bool FinishImeComposition(bool complete)
+        {
+            if (_search == null || !_english.Japanese || !_search.IsHandleCreated)
+            {
+                return false;
+            }
+            IntPtr context = NativeMethods.ImmGetContext(_search.Handle);
+            if (context == IntPtr.Zero)
+            {
+                return false;
+            }
+            try
+            {
+                if (NativeMethods.ImmGetCompositionStringW(context, NativeMethods.GCS_COMPSTR, IntPtr.Zero, 0) <= 0)
+                {
+                    return false;
+                }
+                NativeMethods.ImmNotifyIME(context, NativeMethods.NI_COMPOSITIONSTR,
+                                           complete ? NativeMethods.CPS_COMPLETE : NativeMethods.CPS_CANCEL, 0);
+                return true;
+            }
+            finally
+            {
+                NativeMethods.ImmReleaseContext(_search.Handle, context);
+            }
+        }
+
+        private void OnSearchTextChanged(object sender, EventArgs e)
+        {
+            EventHandler handler = SearchChanged;
+            if (handler != null)
+            {
+                handler(this, EventArgs.Empty);
+            }
+        }
+
+        /// <summary>候補の index 番目が、1 回のクリックで開くもの (グループ) か。受け取る側が決める。</summary>
+        public Func<int, bool> CandidateOpensOnClick { get; set; }
+
+        // 最後に候補を 1 回のクリックで使った時刻。直後のダブルクリックの 2 回目を使わないため
+        private DateTime _candidateClickedAt = DateTime.MinValue;
+
+        private int CandidateAt(MouseEventArgs e)
+        {
+            int index = _candidates.IndexFromPoint(e.Location);
+            return (e.Button == MouseButtons.Left && index >= 0 && index < _candidates.Items.Count) ? index : -1;
+        }
+
+        private void OnCandidateClick(object sender, MouseEventArgs e)
+        {
+            int index = CandidateAt(e);
+            Func<int, bool> opensOnClick = CandidateOpensOnClick;
+            // グループは「貼り付けの操作」の設定によらず、1 回のクリックで開く
+            if (index >= 0 && (InsertOnSingleClick || (opensOnClick != null && opensOnClick(index))))
+            {
+                _candidateClickedAt = DateTime.UtcNow;
+                Raise(CandidateActivated, index);
+            }
+        }
+
+        private void OnCandidateDoubleClick(object sender, MouseEventArgs e)
+        {
+            int index = CandidateAt(e);
+            if (index >= 0 && !InsertOnSingleClick &&
+                (DateTime.UtcNow - _candidateClickedAt).TotalMilliseconds > SystemInformation.DoubleClickTime)
+            {
+                Raise(CandidateActivated, index);
+            }
+        }
+
+        /// <summary>候補を右クリックしたとき (一覧の行と同じく、編集・削除などのメニューを出すため)。</summary>
+        public event Action<int, Point> CandidateContextRequested;
+
+        private void OnCandidateMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right)
+            {
+                return;
+            }
+            int index = _candidates.IndexFromPoint(e.Location);
+            if (index < 0 || index >= _candidates.Items.Count)
+            {
+                return;
+            }
+            // どの候補のメニューか分かるよう、メニューを出す前に選択状態にする
+            _candidates.SelectedIndex = index;
+            Action<int, Point> handler = CandidateContextRequested;
+            if (handler != null)
+            {
+                handler(index, _candidates.PointToScreen(e.Location));
+            }
+        }
+
+        /// <summary>
+        /// 一覧をクリックすると入力カーソルが一覧に移り、打った英字が検索窓に入らなくなる。
+        /// 検索窓を出しているときは、マウスのボタンを離してから検索窓に戻す。
+        /// 押している間に戻すと、一覧がマウスの捕捉を失い、クリック・ダブルクリックが届かなくなる
+        /// (グループをクリックしても中に入らなかった)。
+        /// </summary>
+        private void KeepSearchFocus(Control control)
+        {
+            control.GotFocus += delegate
+            {
+                if (_search != null && control != _search)
+                {
+                    if (_refocusTimer == null)
+                    {
+                        _refocusTimer = new Timer();
+                        _refocusTimer.Interval = RefocusPollMs;
+                        _refocusTimer.Tick += OnRefocusTimerTick;
+                    }
+                    _refocusTimer.Start();
+                }
+            };
+            foreach (Control child in control.Controls)
+            {
+                KeepSearchFocus(child);
+            }
+        }
+
+        /// <summary>検索窓に入力カーソルを戻す前に、マウスのボタンが離されたかを調べる間隔。</summary>
+        private const int RefocusPollMs = 30;
+
+        private Timer _refocusTimer;
+
+        private void OnRefocusTimerTick(object sender, EventArgs e)
+        {
+            if (Control.MouseButtons != MouseButtons.None)
+            {
+                return;
+            }
+            _refocusTimer.Stop();
+            if (_search != null && Visible && !_search.Focused)
+            {
+                _search.Focus();
+            }
+        }
+
+        /// <summary>検索窓を出していれば、小窓を前面にして検索窓に入力カーソルを置く (右クリックのメニューを閉じた後など)。</summary>
+        public void FocusSearch()
+        {
+            if (SearchEnabled && Visible)
+            {
+                ActivateForSearch();
+            }
+        }
+
+        /// <summary>
+        /// 小窓を前面にして、検索窓に入力カーソルを置く。Windows は、最後に入力を受けたプロセスでないと
+        /// 前面を変えさせない (CapsLock のホットキーはフックで受けるので、Copipe は入力を受けたことにならない)。
+        /// そのため、前面のアプリのスレッドと入力の状態をつないでから前面にする。
+        /// </summary>
+        private void ActivateForSearch()
+        {
+            IntPtr foreground = NativeMethods.GetForegroundWindow();
+            if (foreground != Handle)
+            {
+                uint me = NativeMethods.GetCurrentThreadId();
+                uint other = foreground == IntPtr.Zero ? 0 : NativeMethods.GetWindowThreadProcessId(foreground, IntPtr.Zero);
+                bool attached = other != 0 && other != me && NativeMethods.AttachThreadInput(me, other, true);
+                try
+                {
+                    NativeMethods.SetForegroundWindow(Handle);
+                }
+                finally
+                {
+                    if (attached)
+                    {
+                        NativeMethods.AttachThreadInput(me, other, false);
+                    }
+                }
+            }
+            ActiveControl = _search;
+            _search.Focus();
+        }
+
+        /// <summary>数字キー・矢印キーと、行の操作が効く欄。切り替えて出すときはいつも Primary。</summary>
+        public PopupPane ActivePane
+        {
+            get { return _active; }
+            set
+            {
+                if (value == null || (value != _primary && value != _secondary) || value == _active)
+                {
+                    return;
+                }
+                _active = value;
+                UpdateMarks();
+            }
+        }
+
+        /// <summary>並べて出すとき、数字キーが効く欄に印を付け、もう一方を灰色にする。</summary>
+        private void UpdateMarks()
+        {
+            foreach (PopupPane pane in Panes)
+            {
+                bool marked = SideBySide && pane == _active;
+                pane.Accent = marked;
+                pane.Dimmed = SideBySide && !marked;
+            }
+        }
+
+        private IList<PopupPane> Panes
+        {
+            get { return _secondary == null ? new[] { _primary } : new[] { _primary, _secondary }; }
+        }
+
+        /// <summary>欄の行数に合わせて、小窓の大きさを決める。表示中なら、画面からはみ出さないよう位置も決め直す。</summary>
+        private void UpdateSize()
+        {
+            int height = 0;
+            foreach (PopupPane pane in Panes)
+            {
+                height = Math.Max(height, pane.ContentHeight);
+            }
+            if (_searchPanel != null)
+            {
+                height += _searchPanel.Height;
+            }
+            int width = ScaleByDpi(BaseWidth);
+            if (SideBySide)
+            {
+                width = width * 2 + _gap.Width;
+            }
+            Size = new Size(Padding.Left + Padding.Right + width, Padding.Top + Padding.Bottom + height);
+            if (Visible)
+            {
+                Place();
+            }
         }
 
         /// <summary>
         /// 他のアプリから空きの枠の行 (0 始まり) に、ファイル・フォルダー (path) か文字列 (text) を落とされたとき。
-        /// path と text はどちらか一方だけが入る。空きの枠以外・それ以外のものは無視して、ここには来ない。
-        /// ExternalDropAnywhere なら小窓のどこに落としてもよく、行は 0 で届く。
+        /// path と text はどちらか一方だけが入る (PopupPane.ExternalDropped)。
         /// </summary>
         public event Action<int, string, string> ExternalDropped;
-
-        /// <summary>他のアプリからのドロップを受け付けるか。</summary>
-        public bool AllowExternalDrop { get; set; }
-
-        /// <summary>空きの枠に限らず、小窓のどこに落としてもよいか (履歴モードでピン止めするとき)。</summary>
-        public bool ExternalDropAnywhere { get; set; }
-
-        // AllowDrop の無い部品の上では落とせず親にも伝わらないので、全部品に付ける
-        private void AcceptExternalDrops(Control control)
-        {
-            control.AllowDrop = true;
-            control.DragEnter += OnExternalDragOver;
-            control.DragOver += OnExternalDragOver;
-            control.DragDrop += OnExternalDragDrop;
-            foreach (Control child in control.Controls)
-            {
-                AcceptExternalDrops(child);
-            }
-        }
-
-        private static string DroppedPath(IDataObject data)
-        {
-            string[] paths = data.GetData(DataFormats.FileDrop) as string[];
-            return paths != null && paths.Length > 0 ? paths[0] : null;
-        }
-
-        private static string DroppedText(IDataObject data)
-        {
-            string text = data.GetData(DataFormats.UnicodeText) as string;
-            return string.IsNullOrWhiteSpace(text) ? null : text;
-        }
-
-        /// <summary>落とせる行 (空きの枠) の位置。その位置が空きの枠でなければ -1。どこでもよいなら 0。</summary>
-        private int EmptyRowAtScreen(int x, int y)
-        {
-            if (ExternalDropAnywhere)
-            {
-                return 0;
-            }
-            int index = RowIndexAt(_list.PointToClient(new Point(x, y)));
-            PopupRow row = index < 0 ? null : _list.Items[index] as PopupRow;
-            return (row != null && row.Kind == PopupRowKind.Empty) ? index : -1;
-        }
-
-        private void OnExternalDragOver(object sender, DragEventArgs e)
-        {
-            // 小窓から外へ持ち出している項目は、小窓に戻しても受け取らない
-            bool ok = !_draggingOut && AllowExternalDrop && (DroppedPath(e.Data) != null || DroppedText(e.Data) != null) &&
-                      EmptyRowAtScreen(e.X, e.Y) >= 0;
-            e.Effect = ok ? DragDropEffects.Copy : DragDropEffects.None;
-        }
-
-        private void OnExternalDragDrop(object sender, DragEventArgs e)
-        {
-            // ファイルは文字列の形でも入っていることがあるので、ファイルを先に見る
-            string path = DroppedPath(e.Data);
-            string text = path == null ? DroppedText(e.Data) : null;
-            int row = EmptyRowAtScreen(e.X, e.Y);
-            Action<int, string, string> handler = ExternalDropped;
-            if (AllowExternalDrop && handler != null && row >= 0 && (path != null || text != null))
-            {
-                handler(row, path, text);
-            }
-        }
 
         /// <summary>
         /// 行を選ぶ操作 (クリックまたはダブルクリック) がされたとき。引数は行の位置 (0 始まり)。
@@ -235,8 +648,24 @@ namespace Copipe.UI
         /// <summary>行が右クリックされたとき。引数は行の位置 (0 始まり) と、画面上のクリック位置。</summary>
         public event Action<int, Point> RowContextRequested;
 
+        /// <summary>定型文の空きの枠の行がクリックされたとき (1 回のクリックで登録画面を出すため)。</summary>
+        public event Action<int> EmptyRowClicked;
+
+        private bool _insertOnSingleClick;
+
         /// <summary>true ならクリック 1 回で、false (既定) ならダブルクリックで RowActivated を出す。</summary>
-        public bool InsertOnSingleClick { get; set; }
+        public bool InsertOnSingleClick
+        {
+            get { return _insertOnSingleClick; }
+            set
+            {
+                _insertOnSingleClick = value;
+                foreach (PopupPane pane in Panes)
+                {
+                    pane.InsertOnSingleClick = value;
+                }
+            }
+        }
 
         /// <summary>
         /// 小窓と一覧のウインドウを先に作っておき、初回の表示を速くする。
@@ -244,28 +673,53 @@ namespace Copipe.UI
         public void Prepare()
         {
             IntPtr form = Handle;
-            IntPtr list = _list.Handle;
             GC.KeepAlive(form);
-            GC.KeepAlive(list);
+            foreach (PopupPane pane in Panes)
+            {
+                pane.Prepare();
+            }
         }
+
+        private Func<DropTarget, bool> _dropValidator;
 
         /// <summary>
         /// ドラッグした項目をその先に落とせるか (受け取る側が決める)。
         /// null なら、どこにでも落とせる。
         /// </summary>
-        public Func<DropTarget, bool> DropValidator { get; set; }
+        public Func<DropTarget, bool> DropValidator
+        {
+            get { return _dropValidator; }
+            set
+            {
+                _dropValidator = value;
+                foreach (PopupPane pane in Panes)
+                {
+                    pane.DropValidator = value;
+                }
+            }
+        }
 
         /// <summary>行のドラッグを始めたとき。引数は行の位置。</summary>
         public event Action<int> RowDragStarted;
+
+        private Func<IDataObject> _outsideDragData;
 
         /// <summary>
         /// ドラッグしている行を小窓の外へ出したとき、他のアプリに渡すデータ (受け取る側が作る)。
         /// null を返すと外へは出さず、小窓の中のドラッグを続ける。
         /// </summary>
-        public Func<IDataObject> OutsideDragData { get; set; }
-
-        // 小窓から他のアプリへドラッグしている間 (DoDragDrop の中) は true
-        private bool _draggingOut;
+        public Func<IDataObject> OutsideDragData
+        {
+            get { return _outsideDragData; }
+            set
+            {
+                _outsideDragData = value;
+                foreach (PopupPane pane in Panes)
+                {
+                    pane.OutsideDragData = value;
+                }
+            }
+        }
 
         /// <summary>
         /// ドラッグしたまま、グループの行の中央か見出しの階層名で止めたとき。
@@ -285,164 +739,80 @@ namespace Copipe.UI
         /// <summary>ピン止めの行の 📌 がクリックされたとき。引数は行の位置。</summary>
         public event Action<int> PinIconClicked;
 
-        /// <summary>一覧の上部にあるピン止めの行数。数字キーの番号は、この後の行から 1 が付く。</summary>
-        public int PinnedCount
-        {
-            get { return _pinnedCount; }
-        }
-
         /// <summary>
         /// ドラッグが終わったとき。引数は落とした先。落とせない先で離した・取り消した・小窓を消したときは
         /// Kind が None。
         /// </summary>
         public event Action<DropTarget> RowDragEnded;
 
-        /// <summary>行をドラッグできるか (定型文モードの間だけ true にする)。</summary>
-        public bool AllowDrag
+        // ---- 数字キーが効く欄 (ActivePane) への操作 ---------------------------------------
+
+        /// <summary>数字キーが効く欄の、一覧の上部にあるピン止めの行数。</summary>
+        public int PinnedCount
         {
-            get { return _list.DragEnabled; }
-            set
-            {
-                _list.DragEnabled = value;
-                if (!value)
-                {
-                    CancelDrag();
-                }
-            }
+            get { return _active.PinnedCount; }
         }
 
-        /// <summary>今ドラッグしているか。</summary>
+        /// <summary>どちらかの欄でドラッグしているか。</summary>
         public bool IsDragging
         {
-            get { return _list.IsDragging; }
+            get
+            {
+                foreach (PopupPane pane in Panes)
+                {
+                    if (pane.IsDragging)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
         }
 
         /// <summary>ドラッグを取り消す (Esc・ホットキーを離したとき)。RowDragEnded (None) を出す。</summary>
         public void CancelDrag()
         {
-            if (!_list.IsDragging)
+            foreach (PopupPane pane in Panes)
             {
-                return;
+                pane.CancelDrag();
             }
-            _list.CancelDrag();
-            EndDrag(DropTarget.Nowhere);
         }
 
-        /// <summary>
-        /// 今の一覧の中で、ドラッグしている項目の行 (薄く出す)。
-        /// 別の階層を開いてドラッグを続けているときは -1。
-        /// </summary>
-        public void SetDragSource(int index)
+        /// <summary>数字キーが効く欄の、一覧の index 番目が入力できる項目なら、その全文。そうでなければ null。</summary>
+        public string ItemAt(int index)
         {
-            _dragSource = index;
-            _list.Invalidate();
+            return _active.ItemAt(index);
         }
 
-        /// <summary>見出しを変える。title は今のモード (例: クリップボード履歴)、hint は切り替え方 (例: Tab: 定型文)。</summary>
-        public void SetHeader(string title, string hint)
+        /// <summary>数字キーが効く欄の、一覧の index 番目を選んだ状態 (強調表示) にする。</summary>
+        public void SelectItem(int index)
         {
-            SetHeaderPath(new[] { title }, hint);
+            _active.SelectItem(index);
         }
 
-        /// <summary>
-        /// 見出しを、階層の並び (例: 定型文 > 社外 > 挨拶) にする。
-        /// 階層名は、ドラッグした項目を落とす先になる。
-        /// </summary>
-        public void SetHeaderPath(IList<string> path, string hint)
+        /// <summary>数字キーが効く欄の、入力した行を点滅させる (PopupPane.FlashItem)。</summary>
+        public void FlashItem(int index)
         {
-            _title.SetSegments(path);
-            _hint.Text = hint;
+            _active.FlashItem(index);
         }
 
-        /// <summary>
-        /// 一覧を、履歴の並びにする。pinned (ピン止め) を上部に番号なしで出し、その後に items を出す。
-        /// items が slotCount 件に満たない分は空きの行 (文字なし)で埋める (定型文と同じく、いつも同じ行数)。
-        /// </summary>
-        public void SetHistory(IList<string> pinned, IList<string> items, int slotCount)
+        /// <summary>数字キーが効く欄で、今選んでいる行の位置。無ければ -1。</summary>
+        public int SelectedIndex
         {
-            List<PopupRow> rows = new List<PopupRow>();
-            foreach (string text in pinned)
-            {
-                PopupRow row = new PopupRow(PopupRowKind.Item, text);
-                row.IsPinned = true;
-                rows.Add(row);
-            }
-            foreach (string text in items)
-            {
-                rows.Add(new PopupRow(PopupRowKind.Item, text));
-            }
-            for (int i = items.Count; i < slotCount; i++)
-            {
-                rows.Add(new PopupRow(PopupRowKind.Empty, null));
-            }
-            SetRows(rows, string.Empty);
+            get { return _active.SelectedIndex; }
         }
 
-        /// <summary>一覧を、入力できる項目 (履歴) の並びにする。項目が無いときは emptyMessage を灰色で出す。</summary>
-        public void SetItems(IList<string> items, string emptyMessage)
+        /// <summary>数字キーが効く欄で、選択を step 行動かす (PopupPane.MoveSelection)。</summary>
+        public void MoveSelection(int step)
         {
-            List<PopupRow> rows = new List<PopupRow>();
-            if (items != null)
-            {
-                foreach (string item in items)
-                {
-                    rows.Add(new PopupRow(PopupRowKind.Item, item));
-                }
-            }
-            SetRows(rows, emptyMessage);
+            _active.MoveSelection(step);
         }
 
-        /// <summary>
-        /// 一覧の中身を差し替える。行が無いときは emptyMessage を灰色で出す。
-        /// 表示中なら、行数が変わっても画面からはみ出さないよう位置を決め直す。
-        /// </summary>
-        public void SetRows(IList<PopupRow> rows, string emptyMessage)
-        {
-            _empty = (rows == null || rows.Count == 0);
-            _pinnedCount = 0;
-            while (!_empty && _pinnedCount < rows.Count && rows[_pinnedCount].IsPinned)
-            {
-                _pinnedCount++;
-            }
-
-            _list.BeginUpdate();
-            try
-            {
-                _list.Items.Clear();
-                if (_empty)
-                {
-                    _list.Items.Add(emptyMessage);
-                }
-                else
-                {
-                    foreach (PopupRow row in rows)
-                    {
-                        _list.Items.Add(row);
-                    }
-                }
-            }
-            finally
-            {
-                _list.EndUpdate();
-            }
-
-            _list.SelectedIndex = -1;
-            _anchorIndex = -1;
-            StopFlash();
-            // 中身が変わったら、前の一覧での落とす先は無効 (ドラッグは続ける)
-            _hover = DropTarget.Nowhere;
-            _dropTarget = DropTarget.Nowhere;
-            _springTimer.Stop();
-            Height = HeightForItems(_list.Items.Count);
-            if (Visible)
-            {
-                Place();
-            }
-        }
+        // ---- 表示と位置 -------------------------------------------------------------------
 
         /// <summary>
         /// カーソルの近くに、カーソルがあるモニターからはみ出さないように表示する。
-        /// 中身は先に SetHeader と SetItems (または SetRows) で入れておく。
+        /// 中身は先に欄 (Primary・Secondary) に入れておく。
         /// </summary>
         public void ShowAt(Point cursor)
         {
@@ -450,8 +820,15 @@ namespace Copipe.UI
             Place();
             if (!Visible)
             {
+                ClearSearch();
                 // ShowWithoutActivation が true なので、アクティブにせずに表示される
                 Show();
+                if (SearchEnabled)
+                {
+                    ActivateForSearch();
+                    // 出している間だけ、英字のキーを先に受け取る (英字に固定から始める)
+                    _english.Start(Handle, IntPtr.Zero);
+                }
             }
         }
 
@@ -479,11 +856,17 @@ namespace Copipe.UI
         public void HidePopup()
         {
             _wheelRemainder = 0;
-            CancelDrag();
-            StopFlash();
+            foreach (PopupPane pane in Panes)
+            {
+                pane.Reset();
+            }
             // 動かした位置はその回だけ。次に出すときはカーソルの近くに戻す
             _moving = false;
             _moved = false;
+            if (_english != null)
+            {
+                _english.Stop();
+            }
             Hide();
         }
 
@@ -495,7 +878,7 @@ namespace Copipe.UI
 
         private void OnGripMouseDown(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left || _list.IsDragging)
+            if (e.Button != MouseButtons.Left || IsDragging)
             {
                 return;
             }
@@ -550,82 +933,14 @@ namespace Copipe.UI
         protected override void WndProc(ref Message m)
         {
             // クリックされてもアクティブにならない (入力中のアプリのフォーカスを保つ)。
-            // MA_NOACTIVATE なのでクリック自体は一覧に届く (将来のダブルクリック・ドラッグ用)
-            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE)
+            // MA_NOACTIVATE なのでクリック自体は一覧に届く (将来のダブルクリック・ドラッグ用)。
+            // 検索窓を出しているときは、クリックでアクティブにする (検索窓に打てるように)
+            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !SearchEnabled)
             {
                 m.Result = new IntPtr(NativeMethods.MA_NOACTIVATE);
                 return;
             }
             base.WndProc(ref m);
-        }
-
-        private void OnListMouseClick(object sender, MouseEventArgs e)
-        {
-            if (_list.SuppressClick)
-            {
-                // ドラッグして離しただけ。項目を選んだことにしない
-                _list.SuppressClick = false;
-                return;
-            }
-            // 📌 のクリックは「貼り付けの操作」の設定によらず、1 回でピン止めを外す (入力はしない)
-            if (e.Button == MouseButtons.Left && TryClickPinIcon(e.Location))
-            {
-                return;
-            }
-            if (InsertOnSingleClick)
-            {
-                Activate(e);
-            }
-        }
-
-        private void OnListMouseDoubleClick(object sender, MouseEventArgs e)
-        {
-            if (_list.SuppressClick)
-            {
-                _list.SuppressClick = false;
-                return;
-            }
-            // 📌 のクリックに続く 2 回目のクリック。行は外れて普通の履歴になっているが、入力しない
-            if ((DateTime.UtcNow - _pinClickedAt).TotalMilliseconds <= SystemInformation.DoubleClickTime)
-            {
-                return;
-            }
-            if (!InsertOnSingleClick)
-            {
-                Activate(e);
-            }
-        }
-
-        /// <summary>その位置がピン止めの行の 📌 の上なら、その行の位置。そうでなければ -1。</summary>
-        private int PinIconRowAt(Point location)
-        {
-            int index = RowIndexAt(location);
-            if (index < 0)
-            {
-                return -1;
-            }
-            PopupRow row = _list.Items[index] as PopupRow;
-            if (row == null || !row.IsPinned)
-            {
-                return -1;
-            }
-            return location.X >= _list.GetItemRectangle(index).Right - ScaleByDpi(BasePinIconWidth) ? index : -1;
-        }
-
-        private bool TryClickPinIcon(Point location)
-        {
-            int index = PinIconRowAt(location);
-            if (index < 0)
-            {
-                return false;
-            }
-            _pinClickedAt = DateTime.UtcNow;
-            Action<int> handler = PinIconClicked;
-            if (handler != null)
-            {
-                handler(index);
-            }
-            return true;
         }
 
         // ホイールのたまった量 (1 ノッチ = 120 に満たない分)
@@ -661,471 +976,21 @@ namespace Copipe.UI
             }
         }
 
-        private void OnListMouseMove(object sender, MouseEventArgs e)
-        {
-            if (_list.IsDragging)
-            {
-                return;
-            }
-            // 📌 の上では指の形にして、押せることを示す
-            _list.Cursor = PinIconRowAt(e.Location) >= 0 ? Cursors.Hand : Cursors.Default;
-        }
-
-        private void OnListMouseUp(object sender, MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Right || _list.IsDragging)
-            {
-                return;
-            }
-            int index = RowIndexAt(e.Location);
-            if (index < 0)
-            {
-                return;
-            }
-            // どの行のメニューか分かるよう、メニューを出す前に選択状態にする
-            _list.SelectedIndex = index;
-            Action<int, Point> handler = RowContextRequested;
-            if (handler != null)
-            {
-                handler(index, _list.PointToScreen(e.Location));
-            }
-        }
-
-        // ---- ドラッグ＆ドロップ ----------------------------------------------------------
-
-        /// <summary>ドラッグを始められる行 (空きの枠と案内の行は動かせない)。</summary>
-        private int DraggableRowAt(Point location)
-        {
-            int index = RowIndexAt(location);
-            if (index < 0)
-            {
-                return -1;
-            }
-            PopupRow row = _list.Items[index] as PopupRow;
-            return (row != null && row.Kind != PopupRowKind.Empty) ? index : -1;
-        }
-
-        private void OnDragBegan(int index)
-        {
-            _dragSource = index;
-            _hover = DropTarget.Nowhere;
-            _dropTarget = DropTarget.Nowhere;
-            Action<int> handler = RowDragStarted;
-            if (handler != null)
-            {
-                handler(index);
-            }
-            _list.Invalidate();
-        }
-
-        private void OnDragMoved(Point screen)
-        {
-            if (!Bounds.Contains(screen) && TryDragOut())
-            {
-                return;
-            }
-            DropTarget hover = HitTest(screen);
-            DropTarget drop = CanDrop(hover) ? hover : DropTarget.Nowhere;
-
-            // 同じところで止めている間は、止め始めからの時間を数え直さない
-            if (!hover.Equals(_hover))
-            {
-                _hover = hover;
-                _springTimer.Stop();
-                if (hover.Kind == DropKind.Into || hover.Kind == DropKind.Level)
-                {
-                    _springTimer.Start();
-                }
-            }
-            if (!drop.Equals(_dropTarget))
-            {
-                _dropTarget = drop;
-                _list.Invalidate();
-                _title.HighlightIndex = drop.Kind == DropKind.Level ? drop.Index : -1;
-            }
-            // 落とせない先では「禁止」の形にする
-            Cursor.Current = (hover.Kind != DropKind.None && drop.Kind == DropKind.None) ? Cursors.No : Cursors.Default;
-        }
-
-        /// <summary>
-        /// 小窓の外に出たら、小窓の中のドラッグを終えて、他のアプリへのドラッグ (OLE) に引き継ぐ。
-        /// 渡すデータが無ければ (グループなど) 何もせず false。
-        /// </summary>
-        private bool TryDragOut()
-        {
-            IDataObject data = OutsideDragData == null ? null : OutsideDragData();
-            if (data == null)
-            {
-                return false;
-            }
-            // 左ボタンは押したままなので、DoDragDrop がそのままドラッグを続ける
-            _list.CancelDrag();
-            EndDrag(DropTarget.Nowhere);
-            _draggingOut = true;
-            try
-            {
-                _list.DoDragDrop(data, DragDropEffects.Copy);
-            }
-            finally
-            {
-                _draggingOut = false;
-            }
-            return true;
-        }
-
-        private void OnDragDropped(Point screen)
-        {
-            DropTarget target = HitTest(screen);
-            EndDrag(CanDrop(target) ? target : DropTarget.Nowhere);
-        }
-
-        private void EndDrag(DropTarget target)
-        {
-            _springTimer.Stop();
-            _dragSource = -1;
-            _hover = DropTarget.Nowhere;
-            _dropTarget = DropTarget.Nowhere;
-            _title.HighlightIndex = -1;
-            Cursor.Current = Cursors.Default;
-            // 押したときに選ばれた行の色を残さない
-            _list.SelectedIndex = -1;
-            _list.Invalidate();
-
-            Action<DropTarget> handler = RowDragEnded;
-            if (handler != null)
-            {
-                handler(target);
-            }
-        }
-
-        private void OnSpringTimerTick(object sender, EventArgs e)
-        {
-            _springTimer.Stop();
-            if (!_list.IsDragging)
-            {
-                return;
-            }
-            Action<DropTarget> handler = DragOpenRequested;
-            if (handler != null)
-            {
-                handler(_hover);
-            }
-        }
-
-        private bool CanDrop(DropTarget target)
-        {
-            if (target.Kind == DropKind.None)
-            {
-                return false;
-            }
-            Func<DropTarget, bool> validator = DropValidator;
-            return validator == null || validator(target);
-        }
-
-        /// <summary>
-        /// 画面上のその位置に落とすと、どこに落ちるか。
-        /// グループの行は、中央 (上下 1/4 を除く) ならグループに入れ、上下の端なら入れ替え。
-        /// </summary>
-        private DropTarget HitTest(Point screen)
-        {
-            Point inList = _list.PointToClient(screen);
-            if (_list.ClientRectangle.Contains(inList))
-            {
-                int index = RowIndexAt(inList);
-                if (index < 0)
-                {
-                    return DropTarget.Nowhere;
-                }
-                PopupRow row = _list.Items[index] as PopupRow;
-                if (row != null && row.Kind == PopupRowKind.Group)
-                {
-                    Rectangle bounds = _list.GetItemRectangle(index);
-                    int edge = bounds.Height / 4;
-                    if (inList.Y >= bounds.Top + edge && inList.Y < bounds.Bottom - edge)
-                    {
-                        return new DropTarget(DropKind.Into, index);
-                    }
-                }
-                return new DropTarget(DropKind.Swap, index);
-            }
-
-            Point inTitle = _title.PointToClient(screen);
-            if (_title.ClientRectangle.Contains(inTitle))
-            {
-                int segment = _title.SegmentAt(inTitle);
-                if (segment >= 0)
-                {
-                    return new DropTarget(DropKind.Level, segment);
-                }
-            }
-            return DropTarget.Nowhere;
-        }
-
-        /// <summary>
-        /// その位置にある行 (0 始まり)。行が無い・案内の行なら -1。
-        /// 最後の項目より下の空いたところは、最後の項目とみなさない。
-        /// </summary>
-        private int RowIndexAt(Point location)
-        {
-            if (_empty)
-            {
-                return -1;
-            }
-            int index = _list.IndexFromPoint(location);
-            if (index < 0 || index >= _list.Items.Count || !_list.GetItemRectangle(index).Contains(location))
-            {
-                return -1;
-            }
-            return index;
-        }
-
-        private void Activate(MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Left)
-            {
-                return;
-            }
-
-            int index = RowIndexAt(e.Location);
-            if (index < 0)
-            {
-                return;
-            }
-
-            PopupRow row = _list.Items[index] as PopupRow;
-            if (row == null || row.Kind == PopupRowKind.Empty)
-            {
-                return;
-            }
-
-            Action<int> handler = RowActivated;
-            if (handler != null)
-            {
-                handler(index);
-            }
-        }
-
-        private void OnDrawItem(object sender, DrawItemEventArgs e)
-        {
-            if (e.Index < 0 || e.Index >= _list.Items.Count)
-            {
-                return;
-            }
-
-            e.DrawBackground();
-
-            // NoPrefix: 履歴の & をアクセスキーの印として消さない
-            const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine |
-                                          TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
-
-            PopupRow row = _list.Items[e.Index] as PopupRow;
-            if (row == null)
-            {
-                // 行が無いときの案内
-                TextRenderer.DrawText(e.Graphics, _list.Items[e.Index].ToString(), e.Font, e.Bounds, SystemColors.GrayText, flags);
-                return;
-            }
-
-            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            bool dragging = _list.IsDragging;
-            if (dragging)
-            {
-                // ドラッグ中は選択の色を出さず、落とす先だけを示す
-                selected = false;
-                using (SolidBrush background = new SolidBrush(_list.BackColor))
-                {
-                    e.Graphics.FillRectangle(background, e.Bounds);
-                }
-                if (_dropTarget.Kind == DropKind.Swap && _dropTarget.Index == e.Index)
-                {
-                    // 入れ替える (移す) 先: 行を薄い青で塗る
-                    using (SolidBrush brush = new SolidBrush(DropSwapColor))
-                    {
-                        e.Graphics.FillRectangle(brush, e.Bounds);
-                    }
-                }
-                else if (_dropTarget.Kind == DropKind.Into && _dropTarget.Index == e.Index)
-                {
-                    // グループに入れる: 行を枠で囲む
-                    using (Pen pen = new Pen(SystemColors.Highlight, 2))
-                    {
-                        Rectangle box = e.Bounds;
-                        box.Inflate(-1, -1);
-                        e.Graphics.DrawRectangle(pen, box);
-                    }
-                }
-            }
-            else if (e.Index == _flashIndex && _flashStep % 2 == 1)
-            {
-                // 点滅の点いている段階: 選んだときと同じ色で出す
-                selected = true;
-                e.Graphics.FillRectangle(SystemBrushes.Highlight, e.Bounds);
-            }
-            Color color = selected ? SystemColors.HighlightText : _list.ForeColor;
-            // 空きの枠と、ドラッグしている項目の元の行は灰色で出す
-            Color textColor = ((row.Kind == PopupRowKind.Empty || (dragging && e.Index == _dragSource)) && !selected)
-                ? SystemColors.GrayText : color;
-
-            // 先頭 10 件には、選ぶための数字キー (1〜9、0) を付ける。11 件目以降は番号の欄を空けて、
-            // 本文の書き出しの位置をそろえる
-            int numberWidth = TextRenderer.MeasureText(e.Graphics, "0. ", e.Font, Size.Empty, flags).Width;
-            // ピン止めの行は a〜z。普通の履歴はピン止めの後から 1 を付ける
-            string number = row.IsPinned ? ItemNumber.PinLabel(e.Index) : ItemNumber.Label(e.Index - _pinnedCount);
-            if (number != null)
-            {
-                Rectangle numberBounds = new Rectangle(e.Bounds.Left, e.Bounds.Top, numberWidth, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, number + ".", e.Font, numberBounds, color, flags);
-            }
-
-            int pinWidth = row.IsPinned ? ScaleByDpi(BasePinIconWidth) : 0;
-            Rectangle textBounds = Rectangle.FromLTRB(e.Bounds.Left + numberWidth, e.Bounds.Top, e.Bounds.Right - pinWidth, e.Bounds.Bottom);
-            if (row.IsPinned)
-            {
-                // 右端に 📌 (クリックでピン止めを外す)
-                Rectangle pinBounds = Rectangle.FromLTRB(e.Bounds.Right - pinWidth, e.Bounds.Top, e.Bounds.Right, e.Bounds.Bottom);
-                TextRenderer.DrawText(e.Graphics, PopupRow.PinMark, e.Font, pinBounds, selected ? color : SystemColors.GrayText,
-                                      flags | TextFormatFlags.HorizontalCenter);
-                if (e.Index == _pinnedCount - 1 && _pinnedCount < _list.Items.Count)
-                {
-                    // ピン止めと普通の履歴の区切り線
-                    using (Pen pen = new Pen(SystemColors.ControlDark))
-                    {
-                        e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-                    }
-                }
-            }
-            string line;
-            switch (row.Kind)
-            {
-                case PopupRowKind.Empty:
-                    line = string.Empty;
-                    break;
-                case PopupRowKind.Group:
-                    line = PopupRow.GroupLabel(PreviewText.Line(row.Text, PreviewText.LineMaxChars));
-                    break;
-                default:
-                    line = (row.Mark ?? string.Empty) + PreviewText.Line(row.DisplayText, PreviewText.LineMaxChars);
-                    break;
-            }
-            TextRenderer.DrawText(e.Graphics, line, e.Font, textBounds, textColor, flags);
-        }
-
-        /// <summary>今表示している一覧の index 番目 (0 始まり) が入力できる項目なら、その全文。そうでなければ null。</summary>
-        public string ItemAt(int index)
-        {
-            if (_empty || index < 0 || index >= _list.Items.Count)
-            {
-                return null;
-            }
-            PopupRow row = _list.Items[index] as PopupRow;
-            return (row != null && row.Kind == PopupRowKind.Item) ? row.Text : null;
-        }
-
-        /// <summary>一覧の index 番目を選んだ状態 (強調表示) にする。</summary>
-        public void SelectItem(int index)
-        {
-            if (!_empty && index >= 0 && index < _list.Items.Count)
-            {
-                _list.SelectedIndex = index;
-            }
-        }
-
-        /// <summary>
-        /// 入力した行の選択を外し、選択の色で短く 1 回点滅させて消す。選んだ色のまま残すと、止まっているように見えるため。
-        /// 続けて ↑↓ を押したときは、この行から動かす。
-        /// </summary>
-        public void FlashItem(int index)
-        {
-            if (_empty || index < 0 || index >= _list.Items.Count)
-            {
-                return;
-            }
-            StopFlash();
-            _list.SelectedIndex = -1;
-            _anchorIndex = index;
-            _flashIndex = index;
-            _flashStep = 0;
-            _list.Invalidate(_list.GetItemRectangle(index));
-            _flashTimer.Start();
-        }
-
-        private void OnFlashTimerTick(object sender, EventArgs e)
-        {
-            _flashStep++;
-            if (_flashStep >= FlashSteps)
-            {
-                StopFlash();
-                return;
-            }
-            _list.Invalidate(_list.GetItemRectangle(_flashIndex));
-        }
-
-        private void StopFlash()
-        {
-            _flashTimer.Stop();
-            if (_flashIndex >= 0 && _flashIndex < _list.Items.Count)
-            {
-                _list.Invalidate(_list.GetItemRectangle(_flashIndex));
-            }
-            _flashIndex = -1;
-        }
-
-        /// <summary>今選んでいる (強調表示している) 行の位置。無ければ -1。</summary>
-        public int SelectedIndex
-        {
-            get { return _empty ? -1 : _list.SelectedIndex; }
-        }
-
-        /// <summary>
-        /// 選択を step (上なら -1、下なら +1) 行動かす。空きの枠は飛ばし、端まで来たら反対側へ回る。
-        /// 何も選んでいないときは、直前に入力した行から動かす。それも無ければ、下なら最初の行、上なら最後の行を選ぶ。
-        /// </summary>
-        public void MoveSelection(int step)
-        {
-            int count = _list.Items.Count;
-            if (_empty || count == 0)
-            {
-                return;
-            }
-            int start = _list.SelectedIndex;
-            if (start < 0)
-            {
-                start = _anchorIndex >= 0 ? _anchorIndex : (step > 0 ? -1 : count);
-            }
-            for (int n = 1; n <= count; n++)
-            {
-                int i = ((start + step * n) % count + count) % count;
-                PopupRow row = _list.Items[i] as PopupRow;
-                if (row != null && row.Kind != PopupRowKind.Empty)
-                {
-                    _list.SelectedIndex = i;
-                    return;
-                }
-            }
-        }
-
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _title != null && _title.Font != null)
+            if (disposing && _refocusTimer != null)
             {
-                // 自分で作った太字のフォントを片づける
-                _title.Font.Dispose();
-            }
-            if (disposing && _springTimer != null)
-            {
-                _springTimer.Dispose();
-            }
-            if (disposing && _flashTimer != null)
-            {
-                _flashTimer.Dispose();
+                _refocusTimer.Dispose();
             }
             base.Dispose(disposing);
         }
 
-        private int HeightForItems(int count)
+        private static void Raise<T>(Action<T> handler, T value)
         {
-            int visible = Math.Max(1, Math.Min(count, MaxVisibleItems));
-            return Padding.Top + Padding.Bottom + ScaleByDpi(BaseHeaderHeight) + visible * _list.ItemHeight;
+            if (handler != null)
+            {
+                handler(value);
+            }
         }
 
         private int ScaleByDpi(int value)

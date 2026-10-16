@@ -102,7 +102,7 @@ namespace Copipe.Services
                 string text = ReadUnicodeText();
                 if (text != null)
                 {
-                    return ClipboardSnapshot.FromText(text);
+                    return ClipboardSnapshot.FromText(KeepWordIndent(text));
                 }
                 unreadable = true;
             }
@@ -164,6 +164,90 @@ namespace Copipe.Services
 
             string s = name.ToString();
             return s == "DataObject" || s == "Ole Private Data";
+        }
+
+        /// <summary>
+        /// クリップボードの文字を読む。Outlook・Word からコピーした文なら、段落の字下げを行頭の全角スペースにする (WordIndent)。
+        /// 定型文の登録画面の本文に貼り付けるときに使う。文字が無い・読めなければ null。
+        /// </summary>
+        public static string ReadTextKeepingIndent(IntPtr window)
+        {
+            if (window == IntPtr.Zero || !TryOpen(window))
+            {
+                return null;
+            }
+            try
+            {
+                if (!NativeMethods.IsClipboardFormatAvailable(NativeMethods.CF_UNICODETEXT))
+                {
+                    return null;
+                }
+                string text = ReadUnicodeText();
+                return text == null ? null : KeepWordIndent(text);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                NativeMethods.CloseClipboard();
+            }
+        }
+
+        /// <summary>
+        /// 一緒に置かれている HTML が Word (Outlook) のものなら、段落の字下げを行頭の全角スペースにした文字を返す。
+        /// HTML が無い・読めないときは text のまま (字下げのために、文字の取り込みを失敗させない)。
+        /// クリップボードを開いている間に呼ぶこと。
+        /// </summary>
+        private static string KeepWordIndent(string text)
+        {
+            try
+            {
+                string html = ReadHtml();
+                return html == null ? text : WordIndent.Apply(text, html);
+            }
+            catch (Exception)
+            {
+                return text;
+            }
+        }
+
+        /// <summary>"HTML Format" (CF_HTML。UTF-8) を読む。無い・大きすぎる・読めなければ null。</summary>
+        private static string ReadHtml()
+        {
+            uint format = NativeMethods.RegisterClipboardFormat("HTML Format");
+            if (format == 0 || !NativeMethods.IsClipboardFormatAvailable(format))
+            {
+                return null;
+            }
+            IntPtr handle = NativeMethods.GetClipboardData(format);
+            if (handle == IntPtr.Zero)
+            {
+                return null;
+            }
+            IntPtr ptr = NativeMethods.GlobalLock(handle);
+            if (ptr == IntPtr.Zero)
+            {
+                return null;
+            }
+            try
+            {
+                ulong size = NativeMethods.GlobalSize(handle).ToUInt64();
+                if (size == 0 || size > (ulong)WordIndent.MaxHtmlLength)
+                {
+                    return null;
+                }
+                byte[] bytes = new byte[(int)size];
+                Marshal.Copy(ptr, bytes, 0, bytes.Length);
+                // 確保サイズの後ろに余りがありうるので、最初の NUL までを読む
+                int length = Array.IndexOf(bytes, (byte)0);
+                return Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+            }
+            finally
+            {
+                NativeMethods.GlobalUnlock(handle);
+            }
         }
 
         private static string ReadUnicodeText()
