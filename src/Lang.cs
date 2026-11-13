@@ -16,9 +16,6 @@ namespace Copipe
     /// </summary>
     public static class Lang
     {
-        /// <summary>アプリの名前 (メッセージの題名など)。どの言語でも同じ。</summary>
-        public const string AppName = "Copipe";
-
         private static readonly bool WindowsJapanese = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ja";
 
         /// <summary>日本語で出すか。検証では書き換えて表示を確かめる。</summary>

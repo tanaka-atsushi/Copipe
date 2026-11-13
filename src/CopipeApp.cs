@@ -861,31 +861,15 @@ namespace Copipe
             {
                 return;
             }
-            bool reloaded = false;
-            if (target == PopupMode.Phrases)
-            {
-                reloaded = EnterPhraseMode();
-            }
-            else
-            {
-                _mode = PopupMode.History;
-            }
+            _mode = target;
+            // 小窓を出している間は、前に定型文モードでいた階層から (定型文を読み直したら一番上から)
+            bool reloaded = target == PopupMode.Phrases && ReloadPhrasesIfChanged();
             if (_popup.SideBySide && !reloaded)
             {
                 ApplyActiveMode();
                 return;
             }
             ShowMode();
-        }
-
-        /// <summary>
-        /// 定型文モードに入る。小窓を出している間は、前に定型文モードでいた階層から (開き直すと一番上から)。
-        /// 定型文を読み直したら true。
-        /// </summary>
-        private bool EnterPhraseMode()
-        {
-            _mode = PopupMode.Phrases;
-            return ReloadPhrasesIfChanged();
         }
 
         /// <summary>
@@ -1225,7 +1209,8 @@ namespace Copipe
                 return false;
             }
             IList<string> list = _historyDragPinned ? _history.Pinned : _history.Items;
-            return list.IndexOf(_historyDragText) >= 0 && list.IndexOf(_historyDragText) != toIndex;
+            int fromIndex = list.IndexOf(_historyDragText);
+            return fromIndex >= 0 && fromIndex != toIndex;
         }
 
         /// <summary>小窓の行の位置が、ドラッグしている側 (ピン止め / 普通の履歴) の反対側か。</summary>
@@ -1421,7 +1406,6 @@ namespace Copipe
 
         // ---- 定型文の右クリックのメニューと、登録・編集・削除 ------------------------------
 
-        /// <summary>定型文モードで行が右クリックされたとき。枠の中身に応じたメニューを出す。</summary>
         /// <summary>履歴の一覧を履歴の欄に入れる (ピン止めを上部に)。今出していなければ何もしない。</summary>
         private void ShowHistory()
         {
@@ -1748,7 +1732,7 @@ namespace Copipe
                 {
                     int phrases = 0;
                     int groups = 0;
-                    CountContents(node, ref phrases, ref groups);
+                    PhraseEditing.CountContents(node, ref phrases, ref groups);
                     message = Lang.T("グループ「" + name + "」を削除します。\n中の定型文 " + phrases + " 件とグループ " + groups +
                                      " 件も削除されます。\n\nよろしいですか。",
                                      "Delete the group \"" + name + "\"?\nThe " + phrases + " snippet(s) and " + groups +
@@ -1766,26 +1750,6 @@ namespace Copipe
                 group.Slots[index] = null;
                 SavePhrases();
             });
-        }
-
-        private static void CountContents(PhraseNode group, ref int phrases, ref int groups)
-        {
-            foreach (PhraseNode child in group.Slots)
-            {
-                if (child == null)
-                {
-                    continue;
-                }
-                if (child.IsGroup)
-                {
-                    groups++;
-                    CountContents(child, ref phrases, ref groups);
-                }
-                else
-                {
-                    phrases++;
-                }
-            }
         }
 
         /// <summary>
@@ -1825,11 +1789,6 @@ namespace Copipe
             }
         }
 
-        /// <summary>
-        /// ホットキーを押したときに前面だったアプリを、前面に戻す。
-        /// 右クリックのメニューを出すと小窓が前面になり (Windows 標準のメニューの動き。実測)、
-        /// ダイアログを閉じた後も前面が元のアプリに戻らないため。
-        /// </summary>
         /// <summary>
         /// ダイアログの持ち主を、元のアプリへの前面の切り替えが終わってから隠す。
         /// 切り替えは相手のアプリが応じて終わるので、終わる前 (前面が「なし」の間) に隠すと、
@@ -1884,6 +1843,11 @@ namespace Copipe
             RestoreTargetWindow();
         }
 
+        /// <summary>
+        /// ホットキーを押したときに前面だったアプリを、前面に戻す。
+        /// 右クリックのメニューを出すと小窓が前面になり (Windows 標準のメニューの動き。実測)、
+        /// ダイアログを閉じた後も前面が元のアプリに戻らないため。
+        /// </summary>
         private void RestoreTargetWindow()
         {
             if (_targetWindow == IntPtr.Zero || !NativeMethods.IsWindow(_targetWindow) ||
@@ -1899,11 +1863,6 @@ namespace Copipe
         {
             string path = PhrasePathText(parents);
             return Lang.T(path + " の " + ItemNumber.Label(index) + " 番", path + ", slot " + ItemNumber.Label(index));
-        }
-
-        private string PhrasePathText()
-        {
-            return PhrasePathText(_phrasePath);
         }
 
         private string PhrasePathText(IList<PhraseNode> parents)

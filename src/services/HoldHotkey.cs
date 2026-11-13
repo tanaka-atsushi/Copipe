@@ -45,12 +45,6 @@ namespace Copipe.Services
         /// <summary>Pressed の後、キーが離されたとき。</summary>
         public event EventHandler Released;
 
-        /// <summary>今登録しているキー (未登録なら Keys.None)。</summary>
-        public Keys Current
-        {
-            get { return _registered ? _keys : Keys.None; }
-        }
-
         /// <summary>
         /// 指定したキーで登録し直す。他のアプリ (または起動済みの Copipe) が同じキーを
         /// 登録していると失敗し、false を返す (このとき未登録の状態になる)。
@@ -213,16 +207,9 @@ namespace Copipe.Services
         public void Dispose()
         {
             _releaseTimer.Dispose();
-            if (_keyHook != null)
-            {
-                _keyHook.Dispose();
-                _keyHook = null;
-            }
-            if (_registered)
-            {
-                NativeMethods.UnregisterHotKey(Handle, HotkeyId);
-                _registered = false;
-            }
+            // 終わるときは Released を出さない
+            _held = false;
+            Unregister();
             DestroyHandle();
         }
     }
