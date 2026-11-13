@@ -97,7 +97,6 @@ namespace Copipe
             _history = ClipboardHistory.Load(ClipboardHistory.DefaultPath, ClipboardHistory.MaxItems);
 
             _popup = new PopupForm();
-            _popup.SideBySide = (_settings.PopupLayout == PopupLayout.SideBySide);
             _popup.Prepare();
             // 小窓が閉じられたら (taskkill などで WM_CLOSE が届いたら) Copipe ごと終了する。
             // 小窓が無いと役目を果たせないため
@@ -304,11 +303,8 @@ namespace Copipe
             // 開くときはいつもクリップボード履歴から。定型文も一番上の階層から
             _mode = PopupMode.History;
             _phrasePath.Clear();
-            if (_popup.SideBySide || _popup.SearchEnabled)
-            {
-                // 定型文も最初から見える・探せるので、書き換えられていれば読み直しておく
-                ReloadPhrasesIfChanged();
-            }
+            // 定型文も最初から見える・探せるので、書き換えられていれば読み直しておく
+            ReloadPhrasesIfChanged();
             ShowMode();
             if (IsToggle)
             {
@@ -513,7 +509,7 @@ namespace Copipe
             if (_history.Add(entry))
             {
                 SaveHistory();
-                // 並べて出しているときは、履歴の欄にも入れる
+                // 履歴の欄にも入れる
                 ShowHistory();
             }
             CloseIfToggle(UseEntry(entry));
@@ -578,7 +574,7 @@ namespace Copipe
         /// <summary>
         /// 矢印キー。↑↓は選択を動かす。定型文モードでは、→は選んでいるグループの中へ、←は 1 つ上の階層へ。
         /// 上の階層へ戻ったときは、出てきたグループを選んでおく。
-        /// 並べて出しているときは、履歴で → を押すと定型文の側へ、定型文の一番上の階層で ← を押すと履歴の側へ移る。
+        /// 履歴で → を押すと定型文の側へ、定型文の一番上の階層で ← を押すと履歴の側へ移る。
         /// </summary>
         private void OnArrowPressed(Keys key)
         {
@@ -618,7 +614,7 @@ namespace Copipe
                     _popup.MoveSelection(1);
                     break;
                 case Keys.Right:
-                    if (!EnterSelectedGroup() && _popup.SideBySide && _mode == PopupMode.History)
+                    if (!EnterSelectedGroup() && _mode == PopupMode.History)
                     {
                         MoveToSide(PopupMode.Phrases);
                     }
@@ -642,7 +638,7 @@ namespace Copipe
                         ShowPhraseLevel();
                         _popup.SelectItem(Array.IndexOf(CurrentPhraseGroup.Slots, left));
                     }
-                    else if (_popup.SideBySide && _mode == PopupMode.Phrases)
+                    else if (_mode == PopupMode.Phrases)
                     {
                         MoveToSide(PopupMode.History);
                     }
@@ -651,7 +647,7 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 並べて出しているとき、矢印キーで mode の側へ移る。その側で前に選んでいた行があればそのまま、
+        /// 矢印キーで mode の側へ移る。その側で前に選んでいた行があればそのまま、
         /// 無ければ ↓ を押したときと同じく選ぶ (たいていは最初の行。↑↓・Enter をすぐ続けられるように)。
         /// </summary>
         private void MoveToSide(PopupMode mode)
@@ -822,14 +818,12 @@ namespace Copipe
         }
 
         /// <summary>
-        /// モードキーで、クリップボード履歴と定型文を切り替える (並べて出しているときは、数字キーが効く側を切り替える)。
-        /// 小窓は出したままにする。
-        /// 切り替えて出しているときは、履歴の項目をドラッグしている間も切り替え、定型文の空きの枠に落とせるようにする。
+        /// モードキーで、数字キーが効く側 (クリップボード履歴 / 定型文) を切り替える。小窓は出したままにする。
         /// </summary>
         private void OnModeKeyPressed()
         {
-            // 並べて出しているときは、ドラッグはつかんだ欄の中だけ (もう一方の欄へは落とせない)
-            if (_popup.IsDragging && (_historyDragText == null || _popup.SideBySide))
+            // ドラッグの間は、つかんだ欄のまま (履歴の項目は、そのまま右の定型文の欄へ落とせる)
+            if (_popup.IsDragging)
             {
                 return;
             }
@@ -839,12 +833,12 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 並べて出しているとき、数字キーが効いていない欄が押された・ドラッグされてきた。その欄の側に切り替える
+        /// 数字キーが効いていない欄が押された・ドラッグされてきた。その欄の側に切り替える
         /// (続くクリック・ドラッグ・右クリックは、その欄の操作として扱う)。
         /// </summary>
         private void OnPaneEngaged(PopupPane pane)
         {
-            if (!_popup.SideBySide || RowMenu.IsOpen || _popup.IsDragging)
+            if (RowMenu.IsOpen || _popup.IsDragging)
             {
                 return;
             }
@@ -852,8 +846,7 @@ namespace Copipe
         }
 
         /// <summary>
-        /// target のモードにする。切り替えて出しているときは一覧を入れ替え、並べて出しているときは
-        /// 数字キーが効く側だけを移す (一覧は作り直さないので、選んでいる行はそのまま)。
+        /// target のモードにする。数字キーが効く側だけを移す (一覧は作り直さないので、選んでいる行はそのまま)。
         /// </summary>
         private void SwitchMode(PopupMode target)
         {
@@ -862,9 +855,9 @@ namespace Copipe
                 return;
             }
             _mode = target;
-            // 小窓を出している間は、前に定型文モードでいた階層から (定型文を読み直したら一番上から)
+            // 定型文を読み直したら一番上の階層から出し直す
             bool reloaded = target == PopupMode.Phrases && ReloadPhrasesIfChanged();
-            if (_popup.SideBySide && !reloaded)
+            if (!reloaded)
             {
                 ApplyActiveMode();
                 return;
@@ -907,24 +900,15 @@ namespace Copipe
             get { return _phrasePath.Count == 0 ? _phrases.Root : _phrasePath[_phrasePath.Count - 1]; }
         }
 
-        /// <summary>
-        /// mode の一覧を出す欄。切り替えて出しているときはどちらも同じ 1 つの欄、
-        /// 並べて出しているときは履歴が左 (Primary)、定型文が右 (Secondary)。
-        /// </summary>
+        /// <summary>mode の一覧を出す欄。履歴が左 (Primary)、定型文が右 (Secondary)。</summary>
         private PopupPane PaneFor(PopupMode mode)
         {
-            return (_popup.SideBySide && mode == PopupMode.Phrases) ? _popup.Secondary : _popup.Primary;
-        }
-
-        /// <summary>mode の一覧を今出しているか (並べて出しているときは、いつも両方)。</summary>
-        private bool IsShown(PopupMode mode)
-        {
-            return _popup.SideBySide || _mode == mode;
+            return mode == PopupMode.Phrases ? _popup.Secondary : _popup.Primary;
         }
 
         /// <summary>
         /// 定型文の階層を移ったときや、定型文を動かしたとき。見出しと定型文の一覧だけを入れ直す
-        /// (並べて出しているとき、履歴の欄で選んでいる行はそのまま)。
+        /// (履歴の欄で選んでいる行はそのまま)。
         /// </summary>
         private void ShowPhraseLevel()
         {
@@ -932,7 +916,7 @@ namespace Copipe
             ShowPhrases();
         }
 
-        /// <summary>今のモードにして、見出しと一覧を小窓に入れる (並べて出しているときは両方の欄)。</summary>
+        /// <summary>今のモードにして、両方の欄に見出しと一覧を入れる。</summary>
         private void ShowMode()
         {
             ApplyActiveMode();
@@ -953,42 +937,25 @@ namespace Copipe
             ShowHeaders();
         }
 
-        /// <summary>
-        /// 見出し。切り替えて出しているときは、右に切り替え先 (例: Tab: 定型文)。
-        /// 並べて出しているときは、数字キーが効いていない側の右に切り替え方 (例: Tab で切り替え)。
-        /// </summary>
+        /// <summary>見出し。数字キーが効いていない側の右に切り替え方 (例: Tab で切り替え) を出す。</summary>
         private void ShowHeaders()
         {
             string modeKeyName = HotkeyText.Display(_settings.ModeKey);
             string switchHint = Lang.T(modeKeyName + " で切り替え", modeKeyName + " to switch");
-            if (IsShown(PopupMode.History))
+            PaneFor(PopupMode.History).SetHeader(HistoryTitle, _mode == PopupMode.History ? string.Empty : switchHint);
+            // 見出しは今いる階層 (例: 定型文 > 社外 > 挨拶)。階層名はドラッグした項目を落とす先にもなる
+            List<string> path = new List<string>();
+            path.Add(PhraseTitle);
+            foreach (PhraseNode group in _phrasePath)
             {
-                string hint = !_popup.SideBySide ? modeKeyName + ": " + PhraseTitle
-                    : _mode == PopupMode.History ? string.Empty : switchHint;
-                PaneFor(PopupMode.History).SetHeader(HistoryTitle, hint);
+                path.Add(group.Label);
             }
-            if (IsShown(PopupMode.Phrases))
-            {
-                // 見出しは今いる階層 (例: 定型文 > 社外 > 挨拶)。階層名はドラッグした項目を落とす先にもなる
-                List<string> path = new List<string>();
-                path.Add(PhraseTitle);
-                foreach (PhraseNode group in _phrasePath)
-                {
-                    path.Add(group.Label);
-                }
-                string hint = !_popup.SideBySide ? modeKeyName + ": " + HistoryTitle
-                    : _mode == PopupMode.Phrases ? string.Empty : switchHint;
-                PaneFor(PopupMode.Phrases).SetHeaderPath(path, hint);
-            }
+            PaneFor(PopupMode.Phrases).SetHeaderPath(path, _mode == PopupMode.Phrases ? string.Empty : switchHint);
         }
 
-        /// <summary>今いる定型文の階層の一覧を、定型文の欄に入れる (今出していなければ何もしない)。</summary>
+        /// <summary>今いる定型文の階層の一覧を、定型文の欄に入れる。</summary>
         private void ShowPhrases()
         {
-            if (!IsShown(PopupMode.Phrases))
-            {
-                return;
-            }
             PopupPane pane = PaneFor(PopupMode.Phrases);
             pane.AllowDrag = true;
             pane.AllowExternalDrop = true;
@@ -1079,7 +1046,10 @@ namespace Copipe
         /// </summary>
         private void OnDragOpenRequested(DropTarget target)
         {
-            if ((_dragGroup == null && _historyDragText == null) || _mode != PopupMode.Phrases)
+            // 定型文の欄の中のドラッグか、履歴の欄から右の定型文の欄へのドラッグだけ
+            bool phraseDrag = _dragGroup != null && _mode == PopupMode.Phrases && !target.InPeer;
+            bool historyDrag = _historyDragText != null && target.InPeer;
+            if (!phraseDrag && !historyDrag)
             {
                 return;
             }
@@ -1189,7 +1159,8 @@ namespace Copipe
         /// </summary>
         private bool CanDropHistory(DropTarget target)
         {
-            if (_mode == PopupMode.Phrases)
+            // 右の定型文の欄の上: 空きの枠 (グループ・階層名ならその最初の空き) に定型文として登録する
+            if (target.InPeer)
             {
                 PhraseNode group;
                 return PhraseDropSlot(target, out group) >= 0;
@@ -1238,7 +1209,7 @@ namespace Copipe
         {
             string text = _historyDragText;
             _historyDragText = null;
-            if (_mode == PopupMode.Phrases)
+            if (target.InPeer)
             {
                 PhraseNode group;
                 int slot = PhraseDropSlot(target, out group);
@@ -1406,13 +1377,9 @@ namespace Copipe
 
         // ---- 定型文の右クリックのメニューと、登録・編集・削除 ------------------------------
 
-        /// <summary>履歴の一覧を履歴の欄に入れる (ピン止めを上部に)。今出していなければ何もしない。</summary>
+        /// <summary>履歴の一覧を履歴の欄に入れる (ピン止めを上部に)。</summary>
         private void ShowHistory()
         {
-            if (!IsShown(PopupMode.History))
-            {
-                return;
-            }
             PopupPane pane = PaneFor(PopupMode.History);
             // 履歴もドラッグで並べ替える (ピン止めはピン止めの中、普通の履歴は普通の履歴の中)
             pane.AllowDrag = true;
@@ -1608,7 +1575,7 @@ namespace Copipe
             if (_history.PinText(HistoryEntry(node)))
             {
                 SaveHistory();
-                // 並べて出しているときは、履歴の欄にも入れる
+                // 履歴の欄にも入れる
                 if (_popup.Visible)
                 {
                     ShowHistory();
@@ -1915,11 +1882,10 @@ namespace Copipe
                     Keys chosenHotkey;
                     HotkeyStyle chosenStyle;
                     Keys chosenModeKey;
-                    PopupLayout chosenLayout;
                     InsertClick chosenClick;
                     UiLanguage chosenLanguage;
                     using (SettingsDialog dialog = new SettingsDialog(
-                        _settings.Hotkey, _settings.HotkeyStyle, _settings.ModeKey, _settings.PopupLayout, _settings.InsertClick,
+                        _settings.Hotkey, _settings.HotkeyStyle, _settings.ModeKey, _settings.InsertClick,
                         _settings.Language))
                     {
                         // 設定画面の「まとめて編集...」。設定画面を持ち主にして、その上に出す
@@ -1932,7 +1898,6 @@ namespace Copipe
                         chosenHotkey = dialog.SelectedHotkey;
                         chosenStyle = dialog.SelectedHotkeyStyle;
                         chosenModeKey = dialog.SelectedModeKey;
-                        chosenLayout = dialog.SelectedPopupLayout;
                         chosenClick = dialog.SelectedInsertClick;
                         chosenLanguage = dialog.SelectedLanguage;
                     }
@@ -1943,7 +1908,7 @@ namespace Copipe
                         {
                             RestoreHotkey();
                         }
-                        ApplySettings(chosenHotkey, chosenStyle, chosenModeKey, chosenLayout, chosenClick, chosenLanguage);
+                        ApplySettings(chosenHotkey, chosenStyle, chosenModeKey, chosenClick, chosenLanguage);
                         finished = true;
                     }
                     else
@@ -1963,11 +1928,10 @@ namespace Copipe
             }
         }
 
-        private void ApplySettings(Keys hotkey, HotkeyStyle style, Keys modeKey, PopupLayout layout, InsertClick insertClick,
+        private void ApplySettings(Keys hotkey, HotkeyStyle style, Keys modeKey, InsertClick insertClick,
                                    UiLanguage language)
         {
             bool changed = (hotkey != _settings.Hotkey) || (style != _settings.HotkeyStyle) || (modeKey != _settings.ModeKey) ||
-                           (layout != _settings.PopupLayout) ||
                            (insertClick != _settings.InsertClick) || (language != _settings.Language);
             if (!changed)
             {
@@ -1977,12 +1941,10 @@ namespace Copipe
             _settings.Hotkey = hotkey;
             _settings.HotkeyStyle = style;
             _settings.ModeKey = modeKey;
-            _settings.PopupLayout = layout;
             _settings.InsertClick = insertClick;
             _settings.Language = language;
             Lang.Apply(language);
             _popup.InsertOnSingleClick = (insertClick == InsertClick.Single);
-            _popup.SideBySide = (layout == PopupLayout.SideBySide);
             SaveSettings();
             UpdateLabels();
         }

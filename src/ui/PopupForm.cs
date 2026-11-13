@@ -8,8 +8,7 @@ namespace Copipe.UI
 {
     /// <summary>
     /// ホットキーで出す小窓。中に一覧の欄 (PopupPane) を置く。押したら出したままの設定では、上に検索窓も置く。
-    /// 履歴と定型文を切り替えて出すときは欄 1 つ (Primary)、並べて出すとき (SideBySide) は
-    /// 左に履歴の欄 (Primary)、右に定型文の欄 (Secondary) の 2 つ。
+    /// 左に履歴の欄 (Primary)、右に定型文の欄 (Secondary) を並べて出す。
     /// 入力中のアプリからフォーカスを奪わず (検索窓を出すときだけは奪う)、タスクバーや Alt+Tab にも出ない。
     /// 表示のたびに作り直さず、表示・非表示を切り替えて使う。
     /// </summary>
@@ -22,10 +21,10 @@ namespace Copipe.UI
 
         private static readonly Color PopupBackColor = Color.FromArgb(0xF9, 0xF9, 0xF9);
 
+        // 左の欄 (履歴)・右の欄 (定型文) と、その間のすき間
         private readonly PopupPane _primary;
-        // 並べて出すときだけの右の欄と、左の欄との間のすき間 (切り替えて出すときは null)
-        private PopupPane _secondary;
-        private Panel _gap;
+        private readonly PopupPane _secondary;
+        private readonly Panel _gap;
         private PopupPane _active;
         private Point _cursor;
 
@@ -39,11 +38,24 @@ namespace Copipe.UI
             BackColor = PopupBackColor;
             Padding = new Padding(ScaleByDpi(BasePadding));
 
+            _secondary = CreatePane();
+            _secondary.Dock = DockStyle.Fill;
+            Controls.Add(_secondary);
+            _gap = new Panel();
+            _gap.Dock = DockStyle.Left;
+            _gap.Width = ScaleByDpi(BasePadding) * 2;
+            _gap.BackColor = BackColor;
+            Controls.Add(_gap);
             _primary = CreatePane();
-            _primary.Dock = DockStyle.Fill;
+            _primary.Dock = DockStyle.Left;
+            _primary.Width = ScaleByDpi(BaseWidth);
             Controls.Add(_primary);
+            ArrangeDock();
+            // 履歴の項目は、右の定型文の欄の空きの枠にも落とせる (定型文として登録する)
+            _primary.DropPeer = _secondary;
             _active = _primary;
 
+            UpdateMarks();
             UpdateSize();
         }
 
@@ -106,59 +118,16 @@ namespace Copipe.UI
         /// </summary>
         public event Action<PopupPane> PaneEngaged;
 
-        /// <summary>切り替えて出すときの唯一の欄。並べて出すときは左の欄 (履歴)。</summary>
+        /// <summary>左の欄 (履歴)。</summary>
         public PopupPane Primary
         {
             get { return _primary; }
         }
 
-        /// <summary>並べて出すときの右の欄 (定型文)。切り替えて出すときは null。</summary>
+        /// <summary>右の欄 (定型文)。</summary>
         public PopupPane Secondary
         {
             get { return _secondary; }
-        }
-
-        /// <summary>履歴と定型文を並べて出すか (false なら、切り替えて 1 つずつ出す)。</summary>
-        public bool SideBySide
-        {
-            get { return _secondary != null; }
-            set
-            {
-                if (value == SideBySide)
-                {
-                    return;
-                }
-                if (value)
-                {
-                    _secondary = CreatePane();
-                    _secondary.Dock = DockStyle.Fill;
-                    Controls.Add(_secondary);
-                    _gap = new Panel();
-                    _gap.Dock = DockStyle.Left;
-                    _gap.Width = ScaleByDpi(BasePadding) * 2;
-                    _gap.BackColor = BackColor;
-                    Controls.Add(_gap);
-                    _primary.Dock = DockStyle.Left;
-                    _primary.Width = ScaleByDpi(BaseWidth);
-                    ArrangeDock();
-                }
-                else
-                {
-                    if (_active == _secondary)
-                    {
-                        _active = _primary;
-                    }
-                    Controls.Remove(_secondary);
-                    Controls.Remove(_gap);
-                    _secondary.Dispose();
-                    _gap.Dispose();
-                    _secondary = null;
-                    _gap = null;
-                    _primary.Dock = DockStyle.Fill;
-                }
-                UpdateMarks();
-                UpdateSize();
-            }
         }
 
         /// <summary>
@@ -166,11 +135,8 @@ namespace Copipe.UI
         /// </summary>
         private void ArrangeDock()
         {
-            if (_gap != null)
-            {
-                _gap.SendToBack();
-                _primary.SendToBack();
-            }
+            _gap.SendToBack();
+            _primary.SendToBack();
             if (_searchPanel != null)
             {
                 _searchPanel.SendToBack();
@@ -578,7 +544,7 @@ namespace Copipe.UI
             _search.Focus();
         }
 
-        /// <summary>数字キー・矢印キーと、行の操作が効く欄。切り替えて出すときはいつも Primary。</summary>
+        /// <summary>数字キー・矢印キーと、行の操作が効く欄。</summary>
         public PopupPane ActivePane
         {
             get { return _active; }
@@ -593,20 +559,19 @@ namespace Copipe.UI
             }
         }
 
-        /// <summary>並べて出すとき、数字キーが効く欄に印を付け、もう一方を灰色にする。</summary>
+        /// <summary>数字キーが効く欄に印を付け、もう一方を灰色にする。</summary>
         private void UpdateMarks()
         {
             foreach (PopupPane pane in Panes)
             {
-                bool marked = SideBySide && pane == _active;
-                pane.Accent = marked;
-                pane.Dimmed = SideBySide && !marked;
+                pane.Accent = pane == _active;
+                pane.Dimmed = pane != _active;
             }
         }
 
         private IList<PopupPane> Panes
         {
-            get { return _secondary == null ? new[] { _primary } : new[] { _primary, _secondary }; }
+            get { return new[] { _primary, _secondary }; }
         }
 
         /// <summary>欄の行数に合わせて、小窓の大きさを決める。表示中なら、画面からはみ出さないよう位置も決め直す。</summary>
@@ -621,11 +586,7 @@ namespace Copipe.UI
             {
                 height += _searchPanel.Height;
             }
-            int width = ScaleByDpi(BaseWidth);
-            if (SideBySide)
-            {
-                width = width * 2 + _gap.Width;
-            }
+            int width = ScaleByDpi(BaseWidth) * 2 + _gap.Width;
             Size = new Size(Padding.Left + Padding.Right + width, Padding.Top + Padding.Bottom + height);
             if (Visible)
             {

@@ -25,15 +25,6 @@ namespace Copipe.Services
         Toggle
     }
 
-    /// <summary>小窓に履歴と定型文をどう出すか。</summary>
-    public enum PopupLayout
-    {
-        /// <summary>どちらか一方を出し、モードキーで切り替える (既定)。</summary>
-        Switch,
-        /// <summary>左に履歴、右に定型文を並べて出す。モードキーは数字キーが効く側を切り替える。</summary>
-        SideBySide
-    }
-
     /// <summary>
     /// 設定の読み書き。中身は「項目名=値」の行が並ぶだけのテキストで、メモ帳でも直せる。
     /// 読めない値は既定に戻す (設定が壊れていても起動できるようにする)。
@@ -43,7 +34,7 @@ namespace Copipe.Services
         /// <summary>設定ファイルが無いときのホットキー (押し続ける。CapsLock 本来の切り替えはしなくなる)。</summary>
         public const Keys DefaultHotkey = Keys.Capital;
 
-        /// <summary>設定ファイルが無いときのモードキー (ホットキーを押したまま押して、履歴と定型文を切り替える)。</summary>
+        /// <summary>設定ファイルが無いときのモードキー (ホットキーを押したまま押して、数字キーが効く側を切り替える)。</summary>
         public const Keys DefaultModeKey = Keys.Tab;
 
 
@@ -52,7 +43,6 @@ namespace Copipe.Services
 
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
-        private const string PopupLayoutName = "PopupLayout";
         private const string LanguageName = "Language";
 
         public Settings()
@@ -61,7 +51,6 @@ namespace Copipe.Services
             HotkeyStyle = HotkeyStyle.Hold;
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
-            PopupLayout = PopupLayout.Switch;
             Language = UiLanguage.Auto;
         }
 
@@ -75,13 +64,10 @@ namespace Copipe.Services
         public InsertClick InsertClick { get; set; }
 
         /// <summary>
-        /// 小窓を出している間に押して、クリップボード履歴と定型文を切り替えるキー。修飾キーは付けない
+        /// 小窓を出している間に押して、数字キーが効く側 (クリップボード履歴 / 定型文) を切り替えるキー。修飾キーは付けない
         /// (ホットキーに Ctrl などが付いていれば、押したままなので自動で同じ修飾キー付きで受け取る)。
         /// </summary>
         public Keys ModeKey { get; set; }
-
-        /// <summary>小窓に履歴と定型文をどう出すか (切り替える / 並べる)。</summary>
-        public PopupLayout PopupLayout { get; set; }
 
         /// <summary>画面の言葉 (Windows に合わせる / 日本語 / 英語)。</summary>
         public UiLanguage Language { get; set; }
@@ -154,18 +140,6 @@ namespace Copipe.Services
                             settings.ModeKey = keys;
                         }
                     }
-                    else if (string.Equals(name, PopupLayoutName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
-                        if (string.Equals(value, "SideBySide", StringComparison.OrdinalIgnoreCase))
-                        {
-                            settings.PopupLayout = PopupLayout.SideBySide;
-                        }
-                        else if (string.Equals(value, "Switch", StringComparison.OrdinalIgnoreCase))
-                        {
-                            settings.PopupLayout = PopupLayout.Switch;
-                        }
-                    }
                     else if (string.Equals(name, LanguageName, StringComparison.OrdinalIgnoreCase))
                     {
                         // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
@@ -222,14 +196,10 @@ namespace Copipe.Services
                                  "# InsertClick: click to paste an item. Double or Single"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", InsertClickName, InsertClick));
-            sb.AppendLine(Lang.T("# ModeKey: 小窓を出している間に押して、クリップボード履歴と定型文を切り替えるキー。例: Tab、F2",
-                                 "# ModeKey: key that switches between clipboard history and snippets in the popup. e.g. Tab, F2"));
+            sb.AppendLine(Lang.T("# ModeKey: 小窓を出している間に押して、数字キーが効く側 (クリップボード履歴 / 定型文) を切り替えるキー。例: Tab、F2",
+                                 "# ModeKey: key that switches the number keys between clipboard history and snippets in the popup. e.g. Tab, F2"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", ModeKeyName, HotkeyText.ToSetting(ModeKey)));
-            sb.AppendLine(Lang.T("# PopupLayout: 小窓の中身。Switch (履歴と定型文をモードキーで切り替える) か SideBySide (左に履歴、右に定型文を並べる)",
-                                 "# PopupLayout: popup layout. Switch (switch history / snippets with the mode key) or SideBySide (history on the left, snippets on the right)"));
-            sb.AppendLine(string.Format(
-                CultureInfo.InvariantCulture, "{0}={1}", PopupLayoutName, PopupLayout));
             sb.AppendLine(Lang.T("# Language: 画面の言葉。Auto (Windows の表示言語に合わせる)、Japanese、English",
                                  "# Language: display language. Auto (follow Windows), Japanese or English"));
             sb.AppendLine(string.Format(

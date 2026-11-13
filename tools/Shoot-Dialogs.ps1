@@ -8,7 +8,7 @@
     マウス・キーボードは使わない (ユーザーに確認せずに実行してよい。CLAUDE.md)。
     撮った画像は自分の目で見て確かめること。下の自動の判定は目安で、見落としもある。
 
-    設定画面で撮る状態: 開いた直後・小窓の出し方を「押したら出したまま」、小窓の中身を「並べて表示」にしたとき・CapsLock・半角/全角・英数 (どちらも使えないキー)・数字キー・モードキーの 半角/全角・
+    設定画面で撮る状態: 開いた直後・小窓の出し方を「押したら出したまま」にしたとき・CapsLock・半角/全角・英数 (どちらも使えないキー)・数字キー・モードキーの 半角/全角・
     モードキーをホットキーと同じキーにしたとき (どれも、赤字の説明が出る状態)
     定型文・グループのダイアログは、空のときと、長めの場所・表示名・本文・パスが入っているとき
     (定型文は、本文だけ・パスだけ・両方 (赤字の説明) のとき)
@@ -59,7 +59,6 @@ $LangType = $asm.GetType('Copipe.Lang', $true)
 $UL = $asm.GetType('Copipe.UiLanguage', $true)
 $IC = $asm.GetType('Copipe.Services.InsertClick', $true)
 $HS = $asm.GetType('Copipe.Services.HotkeyStyle', $true)
-$PL = $asm.GetType('Copipe.Services.PopupLayout', $true)
 $PD = $asm.GetType('Copipe.UI.PhraseDialog', $true)
 $AD = $asm.GetType('Copipe.UI.AboutDialog', $true)
 $BD = $asm.GetType('Copipe.UI.BulkPhraseDialog', $true)
@@ -142,7 +141,6 @@ foreach ($langName in 'Japanese', 'English') {
     foreach ($st in $states) {
         $d = [Activator]::CreateInstance($DT, $F, $null,
             [object[]]@($K::Pause, [Enum]::Parse($HS, $(if ($st[0] -eq 'toggle') { 'Toggle' } else { 'Hold' })), $K::Tab,
-                        [Enum]::Parse($PL, $(if ($st[0] -eq 'toggle') { 'SideBySide' } else { 'Switch' })),
                         [Enum]::Parse($IC, 'Double'), [Enum]::Parse($UL, $langName)), $null)
         $prepare = $null
         if ($st[1]) {

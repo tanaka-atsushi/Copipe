@@ -18,14 +18,20 @@ namespace Copipe.UI
     {
         public static readonly DropTarget Nowhere = new DropTarget(DropKind.None, -1);
 
-        public DropTarget(DropKind kind, int index)
+        public DropTarget(DropKind kind, int index) : this(kind, index, false)
+        {
+        }
+
+        public DropTarget(DropKind kind, int index, bool inPeer)
         {
             _kind = kind;
             _index = index;
+            _inPeer = inPeer;
         }
 
         private readonly DropKind _kind;
         private readonly int _index;
+        private readonly bool _inPeer;
 
         public DropKind Kind
         {
@@ -37,9 +43,15 @@ namespace Copipe.UI
             get { return _index; }
         }
 
+        /// <summary>つかんだ欄ではなく、もう一方の欄 (履歴の欄からドラッグしたときの定型文の欄) の上か。</summary>
+        public bool InPeer
+        {
+            get { return _inPeer; }
+        }
+
         public bool Equals(DropTarget other)
         {
-            return _kind == other._kind && _index == other._index;
+            return _kind == other._kind && _index == other._index && _inPeer == other._inPeer;
         }
     }
 }

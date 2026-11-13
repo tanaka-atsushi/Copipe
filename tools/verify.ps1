@@ -961,29 +961,29 @@ try {
         Check 'モードキーとホットキーの重なり: Space と Space は重なる' $HT::ConflictsWithHotkey($K::Space, $K::Space)
         Check 'モードキーとホットキーの重なり: F1 と Tab は重ならない' (-not $HT::ConflictsWithHotkey($K::F1, $K::Tab))
 
-        # 小窓の出し方 (押している間 / 押したら出したまま) と、中身 (切り替え / 左右に並べる)
+        # 小窓の出し方 (押している間 / 押したら出したまま)
         $HS = [Copipe.Services.HotkeyStyle]
-        $PL = [Copipe.Services.PopupLayout]
         $none = $S::Load((Join-Path $settingsDir 'none.ini'))
         Check '出し方: ファイルが無ければ押している間だけ (Hold)' ($none.HotkeyStyle -eq $HS::Hold) "got=$($none.HotkeyStyle)"
-        Check '中身: ファイルが無ければ切り替え (Switch)' ($none.PopupLayout -eq $PL::Switch) "got=$($none.PopupLayout)"
         $saved4 = New-Object Copipe.Services.Settings
         $saved4.HotkeyStyle = $HS::Toggle
-        $saved4.PopupLayout = $PL::SideBySide
         $saved4.Save($path)
         $back = $S::Load($path)
-        Check '出し方・中身: 保存して読み戻せる (Toggle・SideBySide)' ($back.HotkeyStyle -eq $HS::Toggle -and $back.PopupLayout -eq $PL::SideBySide) "style=$($back.HotkeyStyle) layout=$($back.PopupLayout)"
+        Check '出し方: 保存して読み戻せる (Toggle)' ($back.HotkeyStyle -eq $HS::Toggle) "style=$($back.HotkeyStyle)"
         $raw = Get-Content -LiteralPath $path -Raw
-        Check '出し方・中身: 保存した内容に HotkeyStyle と PopupLayout の行がある' ($raw -match 'HotkeyStyle\s*=\s*Toggle' -and $raw -match 'PopupLayout\s*=\s*SideBySide')
-        Set-Content -LiteralPath $path -Value "HotkeyStyle=toggle`r`nPopupLayout=sidebyside" -Encoding UTF8
+        Check '出し方: 保存した内容に HotkeyStyle の行があり、PopupLayout (前の版の小窓の中身) の行は無い' ($raw -match 'HotkeyStyle\s*=\s*Toggle' -and $raw -notmatch 'PopupLayout')
+        Set-Content -LiteralPath $path -Value "HotkeyStyle=toggle" -Encoding UTF8
         $back = $S::Load($path)
-        Check '出し方・中身: 大文字小文字は区別しない' ($back.HotkeyStyle -eq $HS::Toggle -and $back.PopupLayout -eq $PL::SideBySide)
+        Check '出し方: 大文字小文字は区別しない' ($back.HotkeyStyle -eq $HS::Toggle)
         # 数字 ('1' など) を列挙値として読んでしまわないこと
         foreach ($bad in '1', '0', 'Press', '') {
-            Set-Content -LiteralPath $path -Value "HotkeyStyle=$bad`r`nPopupLayout=$bad" -Encoding UTF8
+            Set-Content -LiteralPath $path -Value "HotkeyStyle=$bad" -Encoding UTF8
             $back = $S::Load($path)
-            Check "出し方・中身: 読めない値 '$bad' は既定 (Hold・Switch) に戻す" ($back.HotkeyStyle -eq $HS::Hold -and $back.PopupLayout -eq $PL::Switch) "style=$($back.HotkeyStyle) layout=$($back.PopupLayout)"
+            Check "出し方: 読めない値 '$bad' は既定 (Hold) に戻す" ($back.HotkeyStyle -eq $HS::Hold) "style=$($back.HotkeyStyle)"
         }
+        # 前の版の小窓の中身の設定 (PopupLayout=) は読み飛ばし、ほかの値は読める
+        Set-Content -LiteralPath $path -Value "PopupLayout=Switch`r`nHotkeyStyle=Toggle" -Encoding UTF8
+        Check '前の版の設定: PopupLayout= の行は読み飛ばし、ほかの値は読める' ($S::Load($path).HotkeyStyle -eq $HS::Toggle) "style=$($S::Load($path).HotkeyStyle)"
 
         # ---- 前の版の設定 (ダブルタップ・ホットキーなし) を読んでも困らない ----
         Set-Content -LiteralPath $path -Value "Hotkey=Pause`r`nDoubleTap=Ctrl`r`nModeKey=F2" -Encoding UTF8
@@ -1006,8 +1006,8 @@ try {
         # SettingsDialog は internal なので、型は exe から名前で取り出して作る
         $DT = [Copipe.UI.HotkeyText].Assembly.GetType('Copipe.UI.SettingsDialog', $true)
         function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode,
-                            [Copipe.Services.HotkeyStyle]$Style = 'Hold', [Copipe.Services.PopupLayout]$Layout = 'Switch') {
-            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $Style, $Mode, $Layout, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
+                            [Copipe.Services.HotkeyStyle]$Style = 'Hold') {
+            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $Style, $Mode, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
             $d.StartPosition = 'Manual'
             $d.Location = New-Object System.Drawing.Point 200, 150
             $d.Show()
@@ -1136,17 +1136,17 @@ try {
             Check '設定画面: ホットキーの「なし」ボタンもダブルタップの欄も無い' ($null -eq $DT.GetField('_hotkeyClear', $F) -and $null -eq $DT.GetField('_doubleTapBox', $F))
         } finally { $d.Close(); $d.Dispose() }
 
-        # 小窓の出し方と中身は、開いたときの値を選んでおき、そのまま返す
+        # 小窓の出し方は、開いたときの値を選んでおき、そのまま返す。小窓の中身 (切り替え / 並べて表示) の欄はもう無い
         $d = New-Dialog $K::Pause $K::Tab
         try {
-            Check '設定画面: 既定は「押している間だけ」と「切り替え」' ($d.SelectedHotkeyStyle -eq 'Hold' -and $d.SelectedPopupLayout -eq 'Switch') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
+            Check '設定画面: 既定は「押している間だけ」' ($d.SelectedHotkeyStyle -eq 'Hold') "style=$($d.SelectedHotkeyStyle)"
+            Check '設定画面: 小窓の中身の欄が無い (いつも並べて表示)' ($null -eq $DT.GetField('_sideBySide', $F) -and $null -eq $DT.GetProperty('SelectedPopupLayout'))
         } finally { $d.Close(); $d.Dispose() }
-        $d = New-Dialog $K::Pause $K::Tab 'Toggle' 'SideBySide'
+        $d = New-Dialog $K::Pause $K::Tab 'Toggle'
         try {
-            Check '設定画面: 「押したら出したまま」と「並べる」で開くと、それが選ばれている' ($d.SelectedHotkeyStyle -eq 'Toggle' -and $d.SelectedPopupLayout -eq 'SideBySide') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
+            Check '設定画面: 「押したら出したまま」で開くと、それが選ばれている' ($d.SelectedHotkeyStyle -eq 'Toggle') "style=$($d.SelectedHotkeyStyle)"
             (Get-DialogField $d '_toggle').Checked = $false
-            (Get-DialogField $d '_sideBySide').Checked = $false
-            Check '設定画面: 選び直すと「押している間だけ」と「切り替え」を返す' ($d.SelectedHotkeyStyle -eq 'Hold' -and $d.SelectedPopupLayout -eq 'Switch') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
+            Check '設定画面: 選び直すと「押している間だけ」を返す' ($d.SelectedHotkeyStyle -eq 'Hold') "style=$($d.SelectedHotkeyStyle)"
         } finally { $d.Close(); $d.Dispose() }
 
         # 確定と取り消し
@@ -1946,13 +1946,12 @@ try {
         $script:hotkeyDown = $false
 
         # 設定ファイルにホットキーを書き、ハーネスが擬似入力するキーもそれに合わせる
-        # 貼り付けの操作・小窓の出し方・並べ方は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
-        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double', [string]$Style = 'Hold', [string]$Layout = 'Switch') {
+        # 貼り付けの操作・小窓の出し方は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
+        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double', [string]$Style = 'Hold') {
             $settings = [Copipe.Services.Settings]::Load([Copipe.Services.Settings]::DefaultPath)
             $settings.Hotkey = $Keys
             $settings.InsertClick = [Copipe.Services.InsertClick]$InsertClick
             $settings.HotkeyStyle = [Copipe.Services.HotkeyStyle]$Style
-            $settings.PopupLayout = [Copipe.Services.PopupLayout]$Layout
             $settings.ModeKey = [System.Windows.Forms.Keys]::Tab
             $settings.Save([Copipe.Services.Settings]::DefaultPath)
             $script:hotkeyKeys = $Keys
@@ -2030,34 +2029,54 @@ try {
             return [IntPtr]::Zero
         }
 
-        # 小窓の一覧 (ListBox) の項目を、外から読む (読めなければ空の配列)。
-        # PowerShell は 1 要素の配列を返すと中身の文字列に展開してしまうので、, を付けて配列のまま返す
-        # 文字列の項目の先頭の ✍ は外して返す (-Raw なら付けたまま)
-        function Get-PopupItems([IntPtr]$Popup, [switch]$Raw) {
+        # 小窓の 2 つの一覧 (owner-draw の ListBox。検索の候補は含めない) を、左 (履歴)・右 (定型文) の順に返す
+        function Get-PopupLists([IntPtr]$Popup) {
+            $lists = @()
             foreach ($child in $W::Children($Popup)) {
-                if ($W::GetClass($child) -like '*LISTBOX*') {
-                    $items = $W::ListItems($child)
-                    if ($null -eq $items) { return ,@() }
-                    if (-not $Raw) {
-                        $mark = '✍ '   # PopupRow.TextMark (internal なので読めない)
-                        $items = @($items | ForEach-Object { if ($_.StartsWith($mark, [StringComparison]::Ordinal)) { $_.Substring($mark.Length) } else { $_ } })
-                    }
-                    return ,$items
-                }
+                if ($W::GetClass($child) -like '*LISTBOX*' -and
+                    ($W::GetWindowLong($child, -16 <# GWL_STYLE #>) -band 0x0010 <# LBS_OWNERDRAWFIXED #>) -ne 0) { $lists += $child }
             }
-            return ,@()
+            return ,@($lists | Sort-Object { $W::GetRect($_).Left })
         }
 
-        # 小窓の一覧の Index 番目の項目の真ん中 (画面座標)
-        function Get-ItemCenter([IntPtr]$Popup, [int]$Index) {
+        # 数字キーなどが効いている側の一覧。効いていない側の見出しの右にだけ「Tab で切り替え」が出るので、その反対側
+        function Get-ActiveList([IntPtr]$Popup) {
+            $lists = Get-PopupLists $Popup
+            if ($lists.Count -eq 0) { return [IntPtr]::Zero }
+            if ($lists.Count -lt 2) { return $lists[0] }
             foreach ($child in $W::Children($Popup)) {
-                if ($W::GetClass($child) -like '*LISTBOX*') {
-                    $r = $W::GetRect($child)
-                    $h = $W::ListItemHeight($child)
-                    return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + $h * $Index + [int]($h / 2)))
+                $text = $W::GetText($child)
+                if ($W::GetClass($child) -like '*STATIC*' -and ($text -like '* で切り替え' -or $text -like '* to switch')) {
+                    # 効いていないのが左なら、効いているのは右
+                    if ($W::GetRect($child).Left -lt $W::GetRect($lists[1]).Left) { return $lists[1] }
+                    return $lists[0]
                 }
             }
-            return $null
+            return $lists[0]
+        }
+
+        # 小窓の効いている側の一覧 (ListBox) の項目を、外から読む (読めなければ空の配列)。-List で一覧を指定できる。
+        # PowerShell は 1 要素の配列を返すと中身の文字列に展開してしまうので、, を付けて配列のまま返す
+        # 文字列の項目の先頭の ✍ は外して返す (-Raw なら付けたまま)
+        function Get-PopupItems([IntPtr]$Popup, [switch]$Raw, [IntPtr]$List = [IntPtr]::Zero) {
+            $child = if ($List -ne [IntPtr]::Zero) { $List } else { Get-ActiveList $Popup }
+            if ($child -eq [IntPtr]::Zero) { return ,@() }
+            $items = $W::ListItems($child)
+            if ($null -eq $items) { return ,@() }
+            if (-not $Raw) {
+                $mark = '✍ '   # PopupRow.TextMark (internal なので読めない)
+                $items = @($items | ForEach-Object { if ($_.StartsWith($mark, [StringComparison]::Ordinal)) { $_.Substring($mark.Length) } else { $_ } })
+            }
+            return ,$items
+        }
+
+        # 小窓の効いている側の一覧の Index 番目の項目の真ん中 (画面座標)
+        function Get-ItemCenter([IntPtr]$Popup, [int]$Index) {
+            $child = Get-ActiveList $Popup
+            if ($child -eq [IntPtr]::Zero) { return $null }
+            $r = $W::GetRect($child)
+            $h = $W::ListItemHeight($child)
+            return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + $h * $Index + [int]($h / 2)))
         }
 
         function Format-Items($Items) {
@@ -2574,8 +2593,7 @@ try {
                     Check '入力: 一覧は新しい順' ($before.Count -eq 10 -and $before[3] -ceq '' -and $before[0] -ceq $insertItems[2] -and $before[1] -ceq $insertItems[1]) ("items=" + (Format-Items $before))
 
                     # 一覧の 2 件目の真ん中をダブルクリックする
-                    $listBox = [IntPtr]::Zero
-                    foreach ($child in $W::Children($popup)) { if ($W::GetClass($child) -like '*LISTBOX*') { $listBox = $child } }
+                    $listBox = Get-ActiveList $popup
                     $listRect = $W::GetRect($listBox)
                     $itemHeight = $W::ListItemHeight($listBox)
                     $clickX = $listRect.Left + [int]($listRect.Width / 2)
@@ -2711,10 +2729,9 @@ try {
                         }
                         # ---- 矢印キーと Enter は横取りしない。入力した項目は点滅して選択が外れ、↑↓ はその行から動く ----
                         function Get-Selected {
-                            foreach ($child in $W::Children($popup)) {
-                                if ($W::GetClass($child) -like '*LISTBOX*') { return $W::ListSelectedIndex($child) }
-                            }
-                            return -3
+                            $list = Get-ActiveList $popup
+                            if ($list -eq [IntPtr]::Zero) { return -3 }
+                            return $W::ListSelectedIndex($list)
                         }
                         function Send-Key([byte]$Vk, [int]$Times = 1) {
                             for ($i = 0; $i -lt $Times; $i++) { $W::KeyDown($Vk); $W::KeyUp($Vk) }
@@ -2828,28 +2845,31 @@ try {
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
 
                         }
-                        # 小窓の上の見出し (Label) の文字を読む
-                        function Get-PopupLabels {
+                        # 小窓の見出し (Label) の文字を読む。効いている側の欄の見出しだけ (-All なら両方の欄)
+                        function Get-PopupLabels([switch]$All) {
+                            $active = Get-ActiveList $popup
+                            $ar = if ($active -ne [IntPtr]::Zero) { $W::GetRect($active) }
                             $texts = @()
                             foreach ($child in $W::Children($popup)) {
-                                if ($W::GetClass($child) -like '*STATIC*') { $texts += $W::GetText($child) }
+                                if ($W::GetClass($child) -notlike '*STATIC*') { continue }
+                                $r = $W::GetRect($child)
+                                $cx = $r.Left + [int]($r.Width / 2)
+                                if ($All -or $null -eq $ar -or ($cx -ge $ar.Left -and $cx -le $ar.Right)) { $texts += $W::GetText($child) }
                             }
                             return ($texts -join ' | ')
                         }
-                        # 見出しの左 (今のモード) がちょうどその文字か。右の案内 (Tab: …) と区別するため、完全一致で見る
+                        # 効いている側の見出しの左 (今のモード) がちょうどその文字か。右の案内 (Tab で切り替え) と区別するため、完全一致で見る
                         function Test-Title([string]$Labels, [string]$Title) {
                             return (($Labels -split ' \| ') -contains $Title)
                         }
                         # 一覧の Index 行目の、上から Frac の高さの位置
-                        function Get-RowPoint([int]$Index, [double]$Frac = 0.5) {
-                            foreach ($child in $W::Children($popup)) {
-                                if ($W::GetClass($child) -like '*LISTBOX*') {
-                                    $r = $W::GetRect($child)
-                                    $h = $W::ListItemHeight($child)
-                                    return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + [int]($h * ($Index + $Frac))))
-                                }
-                            }
-                            return $null
+                        # (効いている側の一覧。-Phrases なら右の定型文の一覧)
+                        function Get-RowPoint([int]$Index, [double]$Frac = 0.5, [switch]$Phrases) {
+                            $child = if ($Phrases) { (Get-PopupLists $popup)[1] } else { Get-ActiveList $popup }
+                            if ($null -eq $child -or $child -eq [IntPtr]::Zero) { return $null }
+                            $r = $W::GetRect($child)
+                            $h = $W::ListItemHeight($child)
+                            return (Pt ($r.Left + [int]($r.Width / 2)) ($r.Top + [int]($h * ($Index + $Frac))))
                         }
                         # 左ボタンを押したまま From から To へ少しずつ動かす。HoldMs だけ To で止めてから離す
                         function Invoke-Drag($From, $To, [int]$HoldMs = 0, [switch]$NoRelease) {
@@ -2872,12 +2892,10 @@ try {
                         Invoke-HotkeyPress
                         [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
                         $moveBefore = $W::GetRect($popup)
-                        # 見出しの真ん中 (左の「クリップボード履歴」と右の案内の間の空いたところ)。見出しは一覧の上にある
-                        $listTop = $moveBefore.Top
-                        foreach ($child in $W::Children($popup)) {
-                            if ($W::GetClass($child) -like '*LISTBOX*') { $listTop = $W::GetRect($child).Top }
-                        }
-                        $grip = Pt ($moveBefore.Left + [int]($moveBefore.Width / 2)) ([int](($moveBefore.Top + $listTop) / 2))
+                        # 履歴の欄の見出しの真ん中 (左の「クリップボード履歴」の右の空いたところ)。見出しは一覧の上にある
+                        # (小窓の真ん中は 2 つの欄の間のすき間なので、つかめない)
+                        $historyRect = $W::GetRect((Get-PopupLists $popup)[0])
+                        $grip = Pt ($historyRect.Left + [int]($historyRect.Width * 3 / 4)) ([int](($moveBefore.Top + $historyRect.Top) / 2))
                         Invoke-Drag $grip (Pt ($grip.X + 120) ($grip.Y + 80))
                         $moveAfter = $W::GetRect($popup)
                         $moveDx = $moveAfter.Left - $moveBefore.Left
@@ -2950,7 +2968,7 @@ try {
                             return [DateTime]::MinValue
                         }
                         if ($runPhrases) {   # ---- ここから定型文の E2E ----
-                        # ---- モードキー (Tab) で、履歴と定型文を切り替える ----
+                        # ---- モードキー (Tab) で、数字キーが効く側 (左の履歴 / 右の定型文) を切り替える ----
                         # 入力先で Tab を受け付ける (Tab が漏れたら文字として入り、分かるように)
                         $box.AcceptsTab = $true
                         Reset-Target
@@ -2959,15 +2977,18 @@ try {
                         [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check 'モード: 小窓はクリップボード履歴で開く (見出し)' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
-                        Check 'モード: 見出しに、モードキー (Tab) で定型文に切り替えられることが出ている' ($labels -like '*Tab*定型文*') "labels=[$labels]"
+                        $allLabels = Get-PopupLabels -All
+                        Check 'モード: 小窓はクリップボード履歴の側が効いた状態で開く (見出し)' (Test-Title $labels 'クリップボード履歴') "labels=[$labels]"
+                        Check 'モード: 左に履歴、右に定型文の見出しが並ぶ' ((Test-Title $allLabels 'クリップボード履歴') -and (Test-Title $allLabels '定型文')) "labels=[$allLabels]"
+                        Check 'モード: 効いていない定型文の側の見出しに、Tab で切り替えられることが出ている' ((Test-Title $allLabels 'Tab で切り替え') -and -not (Test-Title $labels 'Tab で切り替え')) "labels=[$allLabels]"
                         Check 'モード: 履歴の一覧が出ている' ($items.Count -eq 10 -and $items[0] -ceq '数字キー検証 11') ("items=" + (Format-Items $items))
 
                         Send-Key 0x09 1   # Tab
                         $labels = Get-PopupLabels
                         $items = Get-PopupItems $popup
-                        Check 'モード: Tab で定型文モードに切り替わる (見出し)' ((Test-Title $labels '定型文') -and -not (Test-Title $labels 'クリップボード履歴')) "labels=[$labels]"
-                        Check 'モード: 定型文モードの見出しに、Tab で履歴に戻れることが出ている' ($labels -like '*Tab*履歴*') "labels=[$labels]"
+                        $allLabels = Get-PopupLabels -All
+                        Check 'モード: Tab で定型文の側が効くようになる (見出し)' ((Test-Title $labels '定型文') -and -not (Test-Title $labels 'クリップボード履歴')) "labels=[$labels]"
+                        Check 'モード: 効いていない履歴の側の見出しに、Tab で切り替えられることが出ている' ((Test-Title $allLabels 'Tab で切り替え') -and -not (Test-Title $labels 'Tab で切り替え')) "labels=[$allLabels]"
                         Check 'モード: 定型文が無いときは、空きの枠が 10 個出る' ($items.Count -eq 10 -and @($items | Where-Object { $_ -cne '' }).Count -eq 0) ("items=" + (Format-Items $items))
                         Check 'モード: 切り替えても小窓は出たまま' ($W::IsWindowVisible($popup))
                         Send-Key 0x31 1   # 1
@@ -3610,9 +3631,9 @@ try {
                             $lists = @($lists | Sort-Object { $W::GetRect($_).Left })
                             return @{ Lists = $lists; Candidates = $candidates; Search = $search }
                         }
-                        function Restart-CopipeWith([string]$Style, [string]$Layout) {
+                        function Restart-CopipeWith([string]$Style) {
                             Stop-Copipe $copipe
-                            Use-Hotkey $mainHotkey -Style $Style -Layout $Layout
+                            Use-Hotkey $mainHotkey -Style $Style
                             $script:styleCopipe = Start-Copipe
                             [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
                             $W::LeftClick()
@@ -3624,7 +3645,7 @@ try {
                             '{"Kind":"Group","Name":"banana","Slots":[{"Kind":"Phrase","Title":"berry","Text":"トグル検証 ベリー"}]},' +
                             'null]}'
                         [System.IO.File]::WriteAllText($phrasesPath, $toggleJson, (New-Object System.Text.UTF8Encoding $false))
-                        Restart-CopipeWith 'Toggle' 'Switch'
+                        Restart-CopipeWith 'Toggle'
                         $copipe = $script:styleCopipe
                         $app = $copipe.Process
                         $popup = $copipe.Popup
@@ -3688,8 +3709,8 @@ try {
                         [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
                         Check '押したら出したまま: 消すと元のアプリが前面に戻る' ($W::GetForegroundWindow() -eq $target.Handle)
 
-                        # ---- 並べて表示 (SideBySide): 左に履歴、右に定型文。押している間だけのときは検索窓は出ない ----
-                        Restart-CopipeWith 'Hold' 'SideBySide'
+                        # ---- 押している間だけ (Hold) に戻す: 左に履歴、右に定型文。検索窓は出ない ----
+                        Restart-CopipeWith 'Hold'
                         $copipe = $script:styleCopipe
                         $app = $copipe.Process
                         $popup = $copipe.Popup
@@ -3707,12 +3728,6 @@ try {
                         Invoke-HotkeyRelease
                         $sideHiddenMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
                         Check '並べて表示: 離すと消える' ($sideHiddenMs -ge 0)
-
-                        # 後の検証のため、押している間だけ・切り替えに戻す
-                        Restart-CopipeWith 'Hold' 'Switch'
-                        $copipe = $script:styleCopipe
-                        $app = $copipe.Process
-                        $popup = $copipe.Popup
 
                         }
                         $box.AcceptsTab = $false
@@ -3733,10 +3748,9 @@ try {
                         # 一覧の Index 行目の右端 (📌 の上)
                         function Get-PinIconPoint([int]$Index) {
                             $center = Get-ItemCenter $popup $Index
-                            foreach ($child in $W::Children($popup)) {
-                                if ($W::GetClass($child) -like '*LISTBOX*') { return (Pt ($W::GetRect($child).Right - 10) $center.Y) }
-                            }
-                            return $null
+                            $list = Get-ActiveList $popup
+                            if ($list -eq [IntPtr]::Zero) { return $null }
+                            return (Pt ($W::GetRect($list).Right - 10) $center.Y)
                         }
                         # 前の検証で入力した定型文も履歴に入っているので、履歴を新しい順に「数字キー検証 11」〜「数字キー検証 02」の 10 件にして起動し直す
                         Stop-Copipe $copipe
@@ -3785,7 +3799,7 @@ try {
                         [void](Wait-Pumping { $null -ne (Find-RowMenu) } 1500)
                         Send-Key 0x09 1   # Tab (モードキー)
                         $modeMs = Wait-Pumping { $null -eq (Find-RowMenu) -and (Test-Title (Get-PopupLabels) '定型文') } 1500
-                        Check '右クリック: モードキーでメニューを閉じて、定型文モードに切り替わる' ($modeMs -ge 0) "labels=[$(Get-PopupLabels)]"
+                        Check '右クリック: モードキーでメニューを閉じて、定型文の側に切り替わる' ($modeMs -ge 0) "labels=[$(Get-PopupLabels)]"
                         Close-History
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
 
@@ -3906,19 +3920,18 @@ try {
                         Check '境界を越えるドラッグ: ピン止めを外したことが保存される' ((($saved.Pinned -join ',') -ceq '並べ替えP3,並べ替えP1,並べ替えP2') -and (($saved.Items -join ',') -ceq '並べ替えI4,並べ替えI1,並べ替えI2,並べ替えI3')) "pinned=$($saved.Pinned -join ',') items=$($saved.Items -join ',')"
                         Check '境界を越えるドラッグ: ドラッグでは入力しない' ($box.Text -ceq '前:並べ替えI4') ("text=[" + $box.Text + "]")
 
-                        # ---- 履歴モード: ドラッグ中にモードキーで定型文に切り替え、空きの枠に落とすと定型文として登録する ----
+                        # ---- 履歴の行を、右の定型文の欄の空きの枠に落とすと定型文として登録する ----
                         # 登録した定型文は、後で phrases.json ごと元に戻す (後の検証は今の定型文を前提にしている)
                         $phrasesBeforeHistoryDrop = if ([System.IO.File]::Exists($phrasesPath)) { [System.IO.File]::ReadAllBytes($phrasesPath) } else { $null }
-                        # 履歴の Row 行をつかみ、Tab で定型文モードにして、一番上の階層の ToSlot 行 (省略すると最初の空きの枠) に落とす。落とした行の位置を返す
+                        # 履歴の Row 行をつかみ、右の定型文の欄の一番上の階層の ToSlot 行 (省略すると最初の空きの枠) に落とす。落とした行の位置を返す
                         function Invoke-HistoryToPhrase([int]$Row, [int]$ToSlot = -1) {
                             $slots = (Read-Phrases).Slots
                             $slot = 0
                             while ($slot -lt $slots.Length -and $null -ne $slots[$slot]) { $slot++ }
                             if ($ToSlot -ge 0) { $slot = $ToSlot }
-                            Invoke-Drag (Get-RowPoint $Row) (Get-RowPoint $Row 0.95) -NoRelease
-                            Send-Key 0x09 1   # Tab (モードキー)
+                            $to = Get-RowPoint $slot -Phrases
+                            Invoke-Drag (Get-RowPoint $Row) (Pt $to.X ($to.Y - 3)) -NoRelease
                             $script:historyDropLabels = Get-PopupLabels
-                            $to = Get-RowPoint $slot
                             $W::MoveMouse($to.X, $to.Y - 3)
                             [void](Wait-Pumping { $false } 50)
                             $W::MoveMouse($to.X, $to.Y)
@@ -3930,15 +3943,16 @@ try {
                         # 入力先には、前の検証 (数字キー 1) で入力した文字が残っている。ドラッグで増えないことを見る
                         $textBeforeHistoryDrop = $box.Text
                         $slot = Invoke-HistoryToPhrase 4
-                        Check '履歴→定型文: ドラッグ中でもモードキーで定型文モードに切り替わる' (Test-Title $script:historyDropLabels '定型文') "labels=[$script:historyDropLabels]"
+                        Check '履歴→定型文: 定型文の欄の上までドラッグしても、効いている側は履歴のまま' (Test-Title $script:historyDropLabels 'クリップボード履歴') "labels=[$script:historyDropLabels]"
                         $node = (Read-Phrases).Slots[$slot]
                         Check '履歴→定型文: 空きの枠に落とすと、その文字の定型文として登録される' ($null -ne $node -and -not $node.IsGroup -and $node.Text -ceq '並べ替えI1' -and $node.Path -ceq '') "slot=$slot text=[$($node.Text)] path=[$($node.Path)]"
-                        Check '履歴→定型文: 落とした後も定型文モードのまま、一覧に出る' ((Test-Title (Get-PopupLabels) '定型文') -and (Get-PopupItems $popup)[$slot] -like '*並べ替えI1') ("items=" + (Format-Items (Get-PopupItems $popup)))
+                        $phraseItems = Get-PopupItems $popup -List (Get-PopupLists $popup)[1]
+                        Check '履歴→定型文: 落とすと右の定型文の一覧に出る' ($phraseItems[$slot] -like '*並べ替えI1') ("items=" + (Format-Items $phraseItems))
                         Check '履歴→定型文: 履歴からは消えない' (@((Read-SavedHistory).Items) -contains '並べ替えI1') "items=$((Read-SavedHistory).Items -join ',')"
                         Check '履歴→定型文: ドラッグでは入力しない' ($box.Text -ceq $textBeforeHistoryDrop) ("text=[" + $box.Text + "] before=[" + $textBeforeHistoryDrop + "]")
                         Close-History
 
-                        # グループの行 (中央) に落とすと、そのグループの最初の空きに入る (Copipe は定型文モードに入るとき読み直す)
+                        # グループの行 (中央) に落とすと、そのグループの最初の空きに入る (Copipe は小窓を出すとき読み直す)
                         $book = [Copipe.Services.PhraseBook]::Load($phrasesPath)
                         $groupSlot = 0
                         while ($null -ne $book.Root.Slots[$groupSlot]) { $groupSlot++ }

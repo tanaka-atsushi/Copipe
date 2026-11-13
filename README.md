@@ -72,15 +72,16 @@ Right-click a suggestion to edit, rename or delete it, the same as in the snippe
 
 ### Snippets
 
-Press the **mode key** (Tab by default), or turn the mouse wheel over the popup, to switch between *Clipboard history* and *Snippets*.
+The popup shows *Clipboard history* on the left and *Snippets* on the right.
 
-- Each level has ten slots (1–9, 0). A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
-- With *Popup layout* set to **Side by side** in Settings, history and snippets appear together: history on the left, snippets on the right.
-  Number keys, a–z, the arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
-  Press the mode key (or turn the wheel) to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
+- Number keys, a–z, the arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
+  Press the **mode key** (Tab by default), or turn the mouse wheel over the popup, to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
   (on a snippet group, → still opens it and ← inside a group still goes up one level). With the mouse you can use either side directly.
   The selected row on the inactive side turns light gray and becomes blue again when you switch back.
-  Dragging works within one side; you cannot yet drag a history item onto the snippets side.
+  The popup always opens with the history side active.
+- Each level has ten slots (1–9, 0). A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
+- Drag a history row onto an empty snippet slot to save it as a snippet. Drop it on a group (or a level name in the header) to put it in that group's first free slot;
+  hold it over a group for a second to open it.
 - Select a snippet to type it. Select a group to open it (a single click always opens a group, whatever *Paste with* is set to).
   ↑↓ also stop on empty slots; press Enter on one, or click it once, to add a snippet there.
 - Press **F2** to edit the selected snippet, rename the selected group, or add a snippet to the selected empty slot
@@ -113,8 +114,7 @@ Settings opens automatically the first time you start Copipe.
 |---|---|
 | **Hotkey** | The key you hold to show the popup. F1, Pause, CapsLock and so on. It must be a single key: Ctrl, Shift, Alt and Win combinations are not allowed. |
 | **Show popup** | *While held* (default): the popup shows while you hold the hotkey. *Until used*: press the hotkey once and the popup stays until you use an item, press Esc or press the hotkey again. |
-| **Mode key** | Switches between history and snippets while the popup is open (Tab by default). |
-| **Popup layout** | *Switch* (default): show history or snippets and switch with the mode key. *Side by side*: show both, history on the left and snippets on the right. |
+| **Mode key** | Switches the active side (history / snippets) while the popup is open (Tab by default). |
 | **Paste with** | Double-click (default) or single-click. |
 | **Language** | Auto (follow Windows), English or Japanese. |
 

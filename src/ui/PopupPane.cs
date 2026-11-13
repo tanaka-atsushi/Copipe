@@ -7,7 +7,7 @@ namespace Copipe.UI
 {
     /// <summary>
     /// 小窓の中の 1 つの欄。見出しと一覧 (クリップボードの履歴か、定型文の 1 つの階層) を表示する。
-    /// 履歴と定型文を切り替えて出すときは小窓に 1 つ、並べて出すときは 2 つ置く (PopupForm)。
+    /// 小窓には左に履歴、右に定型文の 2 つを並べて置く (PopupForm)。
     /// 小窓の位置・表示・ホイールは PopupForm が受け持つ。
     /// </summary>
     internal sealed class PopupPane : Panel
@@ -683,11 +683,11 @@ namespace Copipe.UI
                     _springTimer.Start();
                 }
             }
-            if (!drop.Equals(_dropTarget))
+            // 落とす先の印は、その先がある欄 (自分か DropPeer) に付ける。中身を入れ直すと印は消えるので、毎回付け直す
+            SetDropMark(drop.InPeer ? DropTarget.Nowhere : drop);
+            if (DropPeer != null)
             {
-                _dropTarget = drop;
-                _list.Invalidate();
-                _title.HighlightIndex = drop.Kind == DropKind.Level ? drop.Index : -1;
+                DropPeer.SetDropMark(drop.InPeer ? new DropTarget(drop.Kind, drop.Index) : DropTarget.Nowhere);
             }
             // 落とせない先では「禁止」の形にする
             Cursor.Current = (hover.Kind != DropKind.None && drop.Kind == DropKind.None) ? Cursors.No : Cursors.Default;
@@ -725,6 +725,24 @@ namespace Copipe.UI
             EndDrag(CanDrop(target) ? target : DropTarget.Nowhere);
         }
 
+        /// <summary>落とす先の印 (行の色・枠、見出しの階層名) を付け直す。Nowhere なら消す。</summary>
+        private void SetDropMark(DropTarget drop)
+        {
+            if (drop.Equals(_dropTarget))
+            {
+                return;
+            }
+            _dropTarget = drop;
+            _list.Invalidate();
+            _title.HighlightIndex = drop.Kind == DropKind.Level ? drop.Index : -1;
+        }
+
+        /// <summary>
+        /// この欄でつかんだ項目を落とせる、もう一方の欄 (並べて出しているとき、履歴の欄から見た定型文の欄)。
+        /// その上の落とす先は InPeer 付きで DropValidator・RowDragEnded・DragOpenRequested に渡す。
+        /// </summary>
+        public PopupPane DropPeer { get; set; }
+
         private void EndDrag(DropTarget target)
         {
             _springTimer.Stop();
@@ -732,6 +750,10 @@ namespace Copipe.UI
             _hover = DropTarget.Nowhere;
             _dropTarget = DropTarget.Nowhere;
             _title.HighlightIndex = -1;
+            if (DropPeer != null)
+            {
+                DropPeer.SetDropMark(DropTarget.Nowhere);
+            }
             Cursor.Current = Cursors.Default;
             // 押したときに選ばれた行の色を残さない
             _list.SelectedIndex = -1;
@@ -746,7 +768,10 @@ namespace Copipe.UI
             {
                 return;
             }
-            Raise(DragOpenRequested, _hover);
+            DropTarget hover = _hover;
+            // 開いた先で同じ行に止めても、また数え始める (DropPeer の中身を入れ直しても、自分の _hover は消えないため)
+            _hover = DropTarget.Nowhere;
+            Raise(DragOpenRequested, hover);
         }
 
         private bool CanDrop(DropTarget target)
@@ -764,6 +789,18 @@ namespace Copipe.UI
         /// グループの行は、中央 (上下 1/4 を除く) ならグループに入れ、上下の端なら入れ替え。
         /// </summary>
         private DropTarget HitTest(Point screen)
+        {
+            DropTarget own = HitTestHere(screen);
+            if (own.Kind != DropKind.None || DropPeer == null)
+            {
+                return own;
+            }
+            DropTarget peer = DropPeer.HitTestHere(screen);
+            return new DropTarget(peer.Kind, peer.Index, peer.Kind != DropKind.None);
+        }
+
+        /// <summary>この欄の一覧・見出しの中だけで見た、落とす先。</summary>
+        private DropTarget HitTestHere(Point screen)
         {
             Point inList = _list.PointToClient(screen);
             if (_list.ClientRectangle.Contains(inList))
@@ -859,7 +896,8 @@ namespace Copipe.UI
             }
 
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            bool dragging = _list.IsDragging;
+            // もう一方の欄からドラッグしてきた項目を落とす先になっている間も、ドラッグ中と同じに描く
+            bool dragging = _list.IsDragging || _dropTarget.Kind != DropKind.None;
             if (dragging)
             {
                 // ドラッグ中は選択の色を出さず、落とす先だけを示す
