@@ -111,6 +111,8 @@ namespace Copipe
             _popup.PaneEngaged += OnPaneEngaged;
             _popup.SearchChanged += OnSearchChanged;
             _popup.CandidateActivated += UseCandidate;
+            _popup.Activated += OnPopupActivated;
+            _popup.Deactivate += OnPopupDeactivated;
             _popup.CandidateContextRequested += OnCandidateContextRequested;
             _popup.CandidateOpensOnClick = delegate(int index)
             {
@@ -273,15 +275,6 @@ namespace Copipe
             get { return _settings.HotkeyStyle == HotkeyStyle.Toggle; }
         }
 
-        /// <summary>
-        /// Esc を受け取るか。定型文モードでは 1 つ上の階層に戻るため、押したら出したままにする設定では小窓を消すため。
-        /// 押している間だけ出す設定の履歴モードでは受け取らず、入力中のアプリに届くようにする。
-        /// </summary>
-        private bool WantsEscape
-        {
-            get { return _mode == PopupMode.Phrases || IsToggle; }
-        }
-
         /// <summary>小窓を出す。trigger は出した起動方法 (その方法で離したときだけ消す)。</summary>
         private void ShowPopupFor(PopupTrigger trigger)
         {
@@ -324,11 +317,14 @@ namespace Copipe
         /// </summary>
         private void EnablePopupKeys()
         {
-            // 小窓が見えているのにキーが入力中のアプリに届いてしまう隙間が無いよう、小窓を出す前に登録する
-            // (E2E で、表示の直後に押した数字が漏れたため)。
-            // モードキーがホットキーと同じキーだと、押したことが区別できないので登録しない
-            Keys modeKey = HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey;
-            _popupKeys.Enable(modeKey);
+            // 押している間だけ出す設定では、小窓が見えているのにキーが入力中のアプリに届いてしまう隙間が無いよう、
+            // 小窓を出す前に登録する (E2E で、表示の直後に押した数字が漏れたため)。
+            // 押したら出したままの設定では、小窓 (検索窓) が前面の間だけ受け取る (OnPopupActivated)。
+            // 別のアプリをクリックしたら、そのアプリで矢印キーなどが使えるように
+            if (!IsToggle || Form.ActiveForm == _popup)
+            {
+                _popupKeys.Enable(PopupModeKey);
+            }
 
             // 小窓の上に検索窓を出し、名前で定型文を探せるようにする。押したら出したままの設定では小窓を前面にして打つ。
             // 押している間だけ出す設定では前面にしない (入力中のアプリに貼り付けるため)。英字・空白・Backspace をフックで受け取る
@@ -339,6 +335,30 @@ namespace Copipe
             {
                 // 前面にしないときは、矢印キーなどと同じく小窓を出す前に受け取り始める (表示の直後に打った英字が漏れないように)
                 _popup.StartSearchHook();
+            }
+        }
+
+        /// <summary>モードキーとして登録するキー。ホットキーと同じキーだと押したことが区別できないので、登録しない (None)。</summary>
+        private Keys PopupModeKey
+        {
+            get { return HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey; }
+        }
+
+        /// <summary>押したら出したままの設定で、小窓 (検索窓) が前面になったら、矢印キーなどを受け取り始める。</summary>
+        private void OnPopupActivated(object sender, EventArgs e)
+        {
+            if (IsToggle && _trigger != PopupTrigger.None && !_dialogOpen)
+            {
+                _popupKeys.Enable(PopupModeKey);
+            }
+        }
+
+        /// <summary>押したら出したままの設定で、別のアプリが前面になったら、キーをそのアプリに返す。</summary>
+        private void OnPopupDeactivated(object sender, EventArgs e)
+        {
+            if (IsToggle)
+            {
+                _popupKeys.Disable();
             }
         }
 
@@ -885,11 +905,10 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 今のモードを、矢印キーなどが効く側にする。Esc を受け取るかは WantsEscape で決める。
+        /// 今のモードを、矢印キーなどが効く側にする。
         /// </summary>
         private void ApplyActiveMode()
         {
-            _popupKeys.SetEscapeEnabled(WantsEscape);
             _popup.ActivePane = PaneFor(_mode);
             ShowHeaders();
         }
@@ -1414,15 +1433,7 @@ namespace Copipe
         /// </summary>
         private int ShowRowMenu(Point screen, IList<string> labels)
         {
-            _popupKeys.SetEscapeEnabled(true);
-            try
-            {
-                return RowMenu.Show(_popup.Handle, screen, labels);
-            }
-            finally
-            {
-                _popupKeys.SetEscapeEnabled(WantsEscape);
-            }
+            return RowMenu.Show(_popup.Handle, screen, labels);
         }
 
         private void OnRowContextRequested(int index, Point screen)

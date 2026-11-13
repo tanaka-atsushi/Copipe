@@ -5,7 +5,8 @@ using Copipe.Interop;
 namespace Copipe.Services
 {
     /// <summary>
-    /// 小窓を出している間だけ、矢印キー・Enter・F2・モードキー・Esc (定型文モードの間など) をホットキーとして登録して受け取る。
+    /// 小窓を出している間だけ (押したら出したままの設定では、小窓が前面の間だけ)、
+    /// 矢印キー・Enter・F2・モードキー・Esc をホットキーとして登録して受け取る。
     /// 小窓はフォーカスを奪わないので、登録しないとキーは入力中のアプリに届いてしまう。
     /// 登録している間はこれらのキーがどのアプリにも届かないので、小窓を消すときに必ず Disable すること。
     /// (Copipe が落ちた場合は、ウインドウが消えるときに Windows が登録を解除する)
@@ -21,7 +22,6 @@ namespace Copipe.Services
         private const int ArrowId = 210; // ArrowId + ArrowKeys の位置
 
         private bool _enabled;
-        private bool _escapeEnabled;
 
         public PopupKeys()
         {
@@ -33,7 +33,7 @@ namespace Copipe.Services
         /// <summary>モードキーが押されたとき。押し続けても 1 回だけ届く。</summary>
         public event Action ModePressed;
 
-        /// <summary>Esc が押されたとき (SetEscapeEnabled(true) にしている間だけ)。</summary>
+        /// <summary>Esc が押されたとき。</summary>
         public event Action EscapePressed;
 
         /// <summary>矢印キー (Up・Down・Left・Right) と Enter (Return)、F2 が押されたとき。</summary>
@@ -53,6 +53,7 @@ namespace Copipe.Services
             {
                 Register(ModeKeyId, (uint)(modeKey & Keys.KeyCode));
             }
+            Register(EscapeId, (uint)Keys.Escape);
             for (int i = 0; i < ArrowKeys.Length; i++)
             {
                 // ↑↓は押し続けると連続で動く。それ以外 (Enter など) は 1 回だけ
@@ -70,27 +71,6 @@ namespace Copipe.Services
             NativeMethods.UnregisterHotKey(Handle, id);
         }
 
-        /// <summary>
-        /// Esc も受け取るかを切り替える (定型文モードで 1 つ上の階層に戻るため)。
-        /// 履歴モードの間は受け取らず、入力中のアプリに届くようにする。Enable の後で呼ぶこと。
-        /// </summary>
-        public void SetEscapeEnabled(bool enabled)
-        {
-            if (!_enabled || enabled == _escapeEnabled)
-            {
-                return;
-            }
-            if (enabled)
-            {
-                Register(EscapeId, (uint)Keys.Escape);
-            }
-            else
-            {
-                Unregister(EscapeId);
-            }
-            _escapeEnabled = enabled;
-        }
-
         /// <summary>登録を解除する。登録していなくても呼んでよい。</summary>
         public void Disable()
         {
@@ -104,7 +84,6 @@ namespace Copipe.Services
             {
                 Unregister(ArrowId + i);
             }
-            _escapeEnabled = false;
             _enabled = false;
         }
 

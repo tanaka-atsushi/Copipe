@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using Copipe.Interop;
+using Copipe.Services;
 
 namespace Copipe.UI
 {
@@ -147,20 +148,15 @@ namespace Copipe.UI
         /// <summary>候補を一度に見せる行数の上限。これを超える分はスクロールで見る。</summary>
         private const int MaxVisibleCandidates = 8;
 
-        // 検索窓の右の、入力のしかたの印 (A・あ) の幅 (96 dpi のとき)
-        private const int BaseIndicatorWidth = 24;
-
         // 検索窓と候補の一覧 (検索窓を出さないときは null)
         private Panel _searchPanel;
-        // 検索窓と、その右の入力のしかたの印 (A・あ) を並べる行
+        // 検索窓を入れる行
         private Panel _searchRow;
         private TextBox _search;
         private ListBox _candidates;
-        // 検索窓は英字に固定 (半角/全角 で日本語も打てる)
-        private EnglishTyping _english;
 
         /// <summary>
-        /// 小窓の上に検索窓を出すか。打てるのは英字と空白だけ。
+        /// 小窓の上に検索窓を出すか。
         /// 矢印・Enter・Esc はホットキー (PopupKeys) で受け取るので、検索窓には届かない。
         /// </summary>
         public bool SearchEnabled
@@ -179,8 +175,7 @@ namespace Copipe.UI
                 else
                 {
                     Controls.Remove(_searchPanel);
-                    _english.Dispose();
-                    _english = null;
+                    StopSearchHook();
                     _searchPanel.Dispose();
                     _searchPanel = null;
                     _searchRow = null;
@@ -193,21 +188,13 @@ namespace Copipe.UI
 
         /// <summary>
         /// 検索窓を出すとき、小窓を前面にして検索窓に入力カーソルを置くか (入力中のアプリからフォーカスを取る)。
-        /// false なら前面にせず、英字・空白・Backspace をフックで受け取って検索窓に入れる
-        /// (押している間だけ出す設定。入力中のアプリに貼り付けるため、フォーカスはそのままにする)。
-        /// このとき日本語は打てないので、入力のしかたの印 (A・あ) は出さない。
+        /// false なら前面にせず、英字・数字・記号・空白・Backspace をフックで受け取って検索窓に入れる
+        /// (押している間だけ出す設定。入力中のアプリに貼り付けるため、フォーカスはそのままにする。日本語は打てない)。
         /// </summary>
         public bool SearchTakesFocus
         {
             get { return _searchTakesFocus; }
-            set
-            {
-                _searchTakesFocus = value;
-                if (_english != null)
-                {
-                    _english.Indicator.Visible = value;
-                }
-            }
+            set { _searchTakesFocus = value; }
         }
 
         private bool _searchTakesFocus = true;
@@ -236,21 +223,11 @@ namespace Copipe.UI
             _search = new TextBox();
             _search.Dock = DockStyle.Fill;
             _search.Font = SystemFonts.MessageBoxFont;
-            _search.KeyPress += OnSearchKeyPress;
             _search.TextChanged += OnSearchTextChanged;
-            // 名前は英字で探すので、英字のキーはキーボードフックで先に受け取って入れる (日本語入力や Meltype などがオンでも英字になる)。
-            // 日本語で探したいときは、半角/全角 キーか右の印のクリックで普通の入力にする
-            _english = new EnglishTyping(_search);
-            _english.Typed = OnEnglishTyped;
             _searchRow = new Panel();
             _searchRow.Dock = DockStyle.Top;
             _searchRow.Height = _search.PreferredHeight;
-            _english.Indicator.Dock = DockStyle.Right;
-            _english.Indicator.Width = ScaleByDpi(BaseIndicatorWidth);
-            _english.Indicator.Font = SystemFonts.MessageBoxFont;
             _searchRow.Controls.Add(_search);
-            _searchRow.Controls.Add(_english.Indicator);
-            _english.Indicator.Visible = _searchTakesFocus;
             _searchPanel.Controls.Add(_searchRow);
 
             KeepSearchFocus(_candidates);
@@ -326,12 +303,12 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。'\b' なら 1 文字消す。英字のキーはキーボードフックで受け取って、ここで入れる
-        /// (キーを検索窓に届けると、日本語入力や Meltype などの入力ソフトがオンのとき、かなになるため)。
+        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。'\b' なら 1 文字消す。
+        /// 押している間だけ出す設定では、入力カーソルが入力中のアプリにあるので、キーボードフックで受け取ってここで入れる。
         /// </summary>
         public void TypeSearch(char c)
         {
-            if (_search == null || (c != '\b' && !IsAllowedSearchChar(c)))
+            if (_search == null || (c != '\b' && char.IsControl(c)))
             {
                 return;
             }
@@ -371,23 +348,8 @@ namespace Copipe.UI
             UpdateSize();
         }
 
-        private static bool IsAllowedSearchChar(char c)
-        {
-            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == ' ';
-        }
-
-        private void OnSearchKeyPress(object sender, KeyPressEventArgs e)
-        {
-            // 英字に固定の間は、英字と空白のほかは入れない (Backspace などの制御文字は通す)。
-            // 普通の入力 (あ) では日本語も入れる (日本語の名前でも探せる)。貼り付けたものは、どちらでもそのまま入る
-            if (!_english.Japanese && !char.IsControl(e.KeyChar) && !IsAllowedSearchChar(e.KeyChar))
-            {
-                e.Handled = true;
-            }
-        }
-
-        /// <summary>フックが受け取った英字・空白を検索窓に入れる。右クリックのメニューやドラッグの間は入れない。</summary>
-        private void OnEnglishTyped(char c)
+        /// <summary>フックが受け取った文字を検索窓に入れる。右クリックのメニューやドラッグの間は入れない。</summary>
+        private void OnHookTyped(char c)
         {
             if (RowMenu.IsOpen || IsDragging || !Visible)
             {
@@ -402,7 +364,7 @@ namespace Copipe.UI
         /// </summary>
         public bool FinishImeComposition(bool complete)
         {
-            if (_search == null || !_english.Japanese || !_search.IsHandleCreated)
+            if (_search == null || !_search.IsHandleCreated)
             {
                 return false;
             }
@@ -813,21 +775,33 @@ namespace Copipe.UI
                 if (SearchEnabled && _searchTakesFocus)
                 {
                     ActivateForSearch();
-                    StartSearchHook();
                 }
             }
         }
 
+        // 押している間だけ出す設定で、キーを受け取るフック (出していないときは null)
+        private SearchKeyHook _searchHook;
+
         /// <summary>
-        /// 出している間だけ、英字のキーを先に受け取る (英字に固定から始める)。前面にする設定では ShowAt が呼ぶ。
-        /// 前面にしない設定では、どのアプリが前面でも受け取る (window を渡さない)。表示の直後に打った英字が
-        /// 入力中のアプリに漏れないよう、受け取る側が小窓を出す前に呼ぶ。小窓を隠すと止まる。
+        /// 押している間だけ出す設定 (前面にしない) で、どのアプリが前面でもキーを先に受け取り、文字は検索窓に入れる。
+        /// 表示の直後に打ったキーが入力中のアプリに漏れないよう、受け取る側が小窓を出す前に呼ぶ。小窓を隠すと止まる。
+        /// 前面にする設定では、検索窓に普通に打つので呼ばない。
         /// </summary>
         public void StartSearchHook()
         {
-            if (_english != null)
+            StopSearchHook();
+            if (SearchEnabled)
             {
-                _english.Start(_searchTakesFocus ? Handle : IntPtr.Zero, IntPtr.Zero, SearchIgnoredKeys);
+                _searchHook = SearchKeyHook.Start(Handle, SearchIgnoredKeys);
+            }
+        }
+
+        private void StopSearchHook()
+        {
+            if (_searchHook != null)
+            {
+                _searchHook.Dispose();
+                _searchHook = null;
             }
         }
 
@@ -861,10 +835,7 @@ namespace Copipe.UI
             // 動かした位置はその回だけ。次に出すときはカーソルの近くに戻す
             _moving = false;
             _moved = false;
-            if (_english != null)
-            {
-                _english.Stop();
-            }
+            StopSearchHook();
             Hide();
         }
 
@@ -933,6 +904,11 @@ namespace Copipe.UI
             // クリックされてもアクティブにならない (入力中のアプリのフォーカスを保つ)。
             // MA_NOACTIVATE なのでクリック自体は一覧に届く (将来のダブルクリック・ドラッグ用)。
             // 検索窓を出して前面にする設定のときは、クリックでアクティブにする (検索窓に打てるように)
+            if (m.Msg == SearchKeyHook.TypedMessage)
+            {
+                OnHookTyped(SearchKeyHook.CharFor(m.WParam, m.LParam));
+                return;
+            }
             if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !(SearchEnabled && _searchTakesFocus))
             {
                 m.Result = new IntPtr(NativeMethods.MA_NOACTIVATE);
@@ -946,6 +922,10 @@ namespace Copipe.UI
             if (disposing && _refocusTimer != null)
             {
                 _refocusTimer.Dispose();
+            }
+            if (disposing)
+            {
+                StopSearchHook();
             }
             base.Dispose(disposing);
         }

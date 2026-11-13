@@ -43,18 +43,18 @@ With *Show popup* set to **Until used**, the popup stays open after you let go o
 - press **Esc**. Inside a snippet group, Esc goes up one level first; at the top level it closes the popup.
 - press the hotkey again.
 
-While the popup is open, the arrow keys, Enter, Esc and the mode key do not reach other apps,
-so close the popup when you are done.
+While the popup (its search box) is in front, it takes all keys. Click another app and the popup stays open,
+but your keys go to that app (arrow keys, Enter and Esc too); click the popup to type in it again.
+With *While held*, no keys except modifiers reach other apps while you hold the hotkey.
 
 **Find snippets by name**: the popup has a search box at the top.
-While you hold the hotkey, letters, Space and Backspace go into the search box (the app you are typing in keeps the focus,
-so Japanese input is not available in this mode; other keys such as digits reach the app as usual).
-With *Until used*, the popup takes the focus and the search box is ready to type; the first history item is already selected, so Enter types it right away.
-Type letters to list the snippets and groups whose names start with them, from every level. Use ↑↓ to pick one and Enter to use it
+While you hold the hotkey, letters, digits, symbols, Space and Backspace go into the search box (the app you are typing in keeps the focus,
+so Japanese input is not available in this mode). Symbols follow that app's keyboard layout.
+With *Until used*, the popup takes the focus and the search box is an ordinary text box: type anything, Japanese (IME) included.
+The first history item is already selected, so Enter types it right away.
+Type to list the snippets and groups whose names start with what you typed, from every level. Use ↑↓ to pick one and Enter to use it
 (a group opens in the snippet list, with its first item selected).
-Letters go into the search box as English letters even when Japanese (IME) input or an input tool such as Meltype is on.
-With *Until used*, to search by a Japanese name, press **Hankaku/Zenkaku** (or click the **A** at the right of the box) to switch to normal input (**あ**); press it again to go back.
-While converting Japanese, Enter confirms the conversion and Esc cancels it.
+While converting Japanese, Enter confirms the conversion and Esc cancels it (the arrow keys belong to the popup, so pick candidates with Space).
 Esc clears the search box first, then closes the popup (*Until used*).
 Right-click a suggestion to edit, rename or delete it, the same as in the snippet list.
 
@@ -88,8 +88,6 @@ The popup shows *Clipboard history* on the left and *Snippets* on the right.
   ↑↓ also stop on empty slots; press Enter on one, or click it once, to add a snippet there.
 - Press **F2** to edit the selected snippet, rename the selected group, or add a snippet to the selected empty slot
   (also works on the selected search suggestion).
-- In the display name and group name boxes, letter keys type English letters even when Japanese (IME) input or Meltype is on,
-  since names are searched in English. Press **Hankaku/Zenkaku** (or click the **A** at the right) to type Japanese.
 - When you copy text from Outlook or Word, paragraph indents (such as the indent Outlook makes when you type a space at the start of a line)
   are kept as full-width spaces at the start of the line, in the history and when you paste into the snippet text box.
   Lines that wrap still start at the left edge.

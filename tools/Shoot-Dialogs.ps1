@@ -177,9 +177,6 @@ foreach ($langName in 'Japanese', 'English') {
     # 新しく作る画面で、パスの欄に入力カーソルを入れた状態 (パスに ● が付き、本文が灰色になる)
     $enterPath = { param($dlg) [void]$PD.GetMethod('OnFieldEnter', $F).Invoke($dlg, [object[]]@($true)); [System.Windows.Forms.Application]::DoEvents() }
     Save-Shot ($forPhrase.Invoke($null, [object[]]@($(if ($ja) { '定型文を登録' } else { 'New snippet' }), $first, '', '', ''))) "$langName-phrase-new-path-focused" $enterPath
-    # 名前の欄を日本語の入力 (印が あ) にした状態
-    $toJapanese = { param($dlg) $PD.GetField('_english', $F).GetValue($dlg).Japanese = $true; [System.Windows.Forms.Application]::DoEvents() }
-    Save-Shot ($forPhrase.Invoke($null, [object[]]@($(if ($ja) { '定型文を登録' } else { 'New snippet' }), $first, '', '', ''))) "$langName-phrase-new-japanese" $toJapanese
     Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループを作成' } else { 'New group' }), $first, ''))) "$langName-group-new" $null
     Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループの名前を変更' } else { 'Rename group' }), $deep, $groupName))) "$langName-group-rename" $null
 

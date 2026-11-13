@@ -7,30 +7,22 @@ using Copipe.Interop;
 namespace Copipe.Services
 {
     /// <summary>
-    /// 英字の名前を打つ欄 (小窓の検索窓、定型文・グループの名前の欄) に打つ英字 (A〜Z) と空白を、
-    /// 低レベルのキーボードフック (WH_KEYBOARD_LL) で先に受け取って握りつぶす。
-    /// 受け取ったキーは target のウインドウに PostMessage (TypedMessage) で知らせ、そちらで欄に入れる (CharFor で文字にする)。
+    /// 押している間だけ出す設定の小窓で、ホットキーを押している間のキーを、低レベルのキーボードフック (WH_KEYBOARD_LL) で
+    /// 先に受け取って握りつぶす (どのアプリが前面でも。小窓はフォーカスを取らないので、そのままではキーが入力中のアプリに入る)。
+    /// 英字・数字・記号・空白・Backspace は target のウインドウに PostMessage (TypedMessage) で知らせ、そちらで検索窓に入れる
+    /// (CharFor で文字にする)。Ctrl・Alt・Win と一緒のとき (Ctrl+A など) は知らせずに握りつぶすだけ。
+    /// 修飾キーと PopupKeys のキー、ignored のキー (ホットキー・モードキー) は通す。
     ///
-    /// 日本語入力 (IME) や、Meltype のようにキーボードフックでキーを受け取ってかなにする入力ソフトに、
-    /// キーが届く前に受け取るため (届くと、かなが入る。ユーザーの報告)。低レベルのフックは、後から付けたものが先に呼ばれるので、
-    /// 小窓やダイアログを出すたびに付け、閉じたら外す。
-    /// window が前面のときだけ (focus を渡したときは、さらにその部品に入力カーソルがあるときだけ) 受け取る。
-    /// Ctrl・Alt・Win と一緒のとき (Ctrl+A など) は受け取らない。
-    ///
-    /// 日本語を打ちたいときのため、半角/全角 キーで「英字に固定」と「普通の入力」(PassThrough。英字を受け取らず、
-    /// IME や入力ソフトに届ける) を切り替える。切り替えたら target に ModeMessage で知らせる。
-    /// 半角/全角 キーも握りつぶす (IME に届くと IME のオン・オフも変わり、普通の入力にしたのに英字になることがあるため)。
-    /// Ctrl などと一緒のとき (Meltype の一時停止の Ctrl+半角/全角 など) は受け取らない。
-    ///
+    /// 低レベルのフックは、後から付けたものが先に呼ばれるので、小窓を出すたびに付け、隠したら外す。
     /// フックは専用のスレッドで動かす (KeyboardHook と同じ。UI スレッドが止まっても、キー入力を遅らせないため)。
     /// </summary>
     internal sealed class SearchKeyHook : IDisposable
     {
-        /// <summary>英字か空白 (window を渡さないときは Backspace も) が押されたとき。wParam は仮想キー、lParam は Shift を押していれば 1。</summary>
+        /// <summary>
+        /// 文字のキーが押されたとき。英字・空白・Backspace は wParam が仮想キー、lParam は Shift を押していれば 1。
+        /// 数字・記号は wParam が文字そのもので、lParam が LiteralChar。CharFor で文字にする。
+        /// </summary>
         public const int TypedMessage = NativeMethods.WM_APP + 3;
-
-        /// <summary>半角/全角 キーで切り替えたとき。lParam は普通の入力 (PassThrough) にしたら 1、英字に固定したら 0。</summary>
-        public const int ModeMessage = NativeMethods.WM_APP + 4;
 
         private const int ReadyTimeoutMs = 3000;
         private const int StopTimeoutMs = 1000;
@@ -40,14 +32,10 @@ namespace Copipe.Services
         private const int VK_RWIN = 0x5C;
         private const uint VK_SPACE = 0x20;
         private const uint VK_BACK = 0x08;
-        // 半角/全角 キー。日本語キーボードでは押すたびに 0xF3 と 0xF4 が交互に届く。VK_KANJI (0x19) も同じに扱う
-        private const uint VK_OEM_AUTO = 0xF3;
-        private const uint VK_OEM_ENLW = 0xF4;
-        private const uint VK_KANJI = 0x19;
+        // TypedMessage の lParam がこれなら、wParam は仮想キーではなく文字そのもの (数字・記号)
+        private const int LiteralChar = 2;
 
         private readonly IntPtr _target;
-        private readonly IntPtr _window;
-        private readonly IntPtr _focus;
         // 受け取らないキー (ホットキー・モードキー)。仮想キーの位置が true
         private readonly bool[] _ignored = new bool[256];
         // GC に回収されないよう、フックに渡したデリゲートを持っておく
@@ -59,13 +47,10 @@ namespace Copipe.Services
         private IntPtr _hook;
         private uint _threadId;
         private volatile bool _disposed;
-        private volatile bool _passThrough;
 
-        private SearchKeyHook(IntPtr target, IntPtr window, IntPtr focus, Keys[] ignored)
+        private SearchKeyHook(IntPtr target, Keys[] ignored)
         {
             _target = target;
-            _window = window;
-            _focus = focus;
             if (ignored != null)
             {
                 foreach (Keys key in ignored)
@@ -79,15 +64,10 @@ namespace Copipe.Services
             _thread.Name = "Copipe search key hook";
         }
 
-        /// <summary>
-        /// フックを付ける。window が前面の間に押された英字・空白を target に知らせる。
-        /// focus が IntPtr.Zero でなければ、その部品に入力カーソルがあるときだけ受け取る。
-        /// window が IntPtr.Zero なら、どのアプリが前面でも英字・空白・Backspace を受け取る (欄が前面にならないとき。
-        /// 半角/全角 キーは受け取らない)。ignored のキーは受け取らない。付けられなければ null。
-        /// </summary>
-        public static SearchKeyHook Start(IntPtr target, IntPtr window, IntPtr focus, Keys[] ignored = null)
+        /// <summary>フックを付ける。押されたキーを target に知らせる。ignored のキーは受け取らない。付けられなければ null。</summary>
+        public static SearchKeyHook Start(IntPtr target, Keys[] ignored = null)
         {
-            SearchKeyHook hook = new SearchKeyHook(target, window, focus, ignored);
+            SearchKeyHook hook = new SearchKeyHook(target, ignored);
             hook._thread.Start();
             if (!hook._ready.WaitOne(ReadyTimeoutMs) || hook._hook == IntPtr.Zero)
             {
@@ -95,16 +75,6 @@ namespace Copipe.Services
                 return null;
             }
             return hook;
-        }
-
-        /// <summary>
-        /// 普通の入力にしているか (英字を受け取らず、IME や入力ソフトに届ける)。false なら英字に固定。
-        /// UI のスレッドから変えてよい (フックのスレッドは読むだけ。半角/全角 キーのときは書き換えて知らせる)。
-        /// </summary>
-        public bool PassThrough
-        {
-            get { return _passThrough; }
-            set { _passThrough = value; }
         }
 
         private void Run()
@@ -140,41 +110,72 @@ namespace Copipe.Services
                 NativeMethods.KBDLLHOOKSTRUCT k = (NativeMethods.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(
                     lParam, typeof(NativeMethods.KBDLLHOOKSTRUCT));
                 uint vk = k.vkCode;
-                if (vk < 256 && _ignored[vk])
+                // Copipe 自身が送った入力 (入力する定型文など) は通す
+                if (vk >= 256 || _ignored[vk] || Passes(vk) || k.dwExtraInfo == KeyboardHook.OwnInputMarker)
                 {
                     return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
                 }
-                if (_window != IntPtr.Zero && (vk == VK_OEM_AUTO || vk == VK_OEM_ENLW || vk == VK_KANJI) && (k.flags & NativeMethods.LLKHF_UP) == 0 &&
-                    k.dwExtraInfo != KeyboardHook.OwnInputMarker && !IsDown(NativeMethods.VK_CONTROL) && !IsDown(VK_SHIFT) &&
-                    !IsDown(VK_MENU) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN) && IsTargetFocused())
+                if ((k.flags & NativeMethods.LLKHF_UP) == 0)
                 {
-                    _passThrough = !_passThrough;
-                    NativeMethods.PostMessage(_target, ModeMessage, IntPtr.Zero, new IntPtr(_passThrough ? 1 : 0));
+                    // 押し続けたときの繰り返しも、そのたびに 1 文字として知らせる
+                    _swallowed[vk] = true;
+                    if (!IsDown(NativeMethods.VK_CONTROL) && !IsDown(VK_MENU) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN))
+                    {
+                        Notify(vk, k.scanCode);
+                    }
                     return new IntPtr(1);
                 }
-                if (((vk >= 'A' && vk <= 'Z') || vk == VK_SPACE || (vk == VK_BACK && _window == IntPtr.Zero)) && !_passThrough)
+                if (_swallowed[vk])
                 {
-                    if ((k.flags & NativeMethods.LLKHF_UP) == 0)
-                    {
-                        // Copipe 自身が送った入力 (入力する定型文など) は通す
-                        if (k.dwExtraInfo != KeyboardHook.OwnInputMarker && !IsDown(NativeMethods.VK_CONTROL) &&
-                            !IsDown(VK_MENU) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN) && IsTargetFocused())
-                        {
-                            // 押し続けたときの繰り返しも、そのたびに 1 文字として知らせる
-                            _swallowed[vk] = true;
-                            NativeMethods.PostMessage(_target, TypedMessage, new IntPtr((int)vk), new IntPtr(IsDown(VK_SHIFT) ? 1 : 0));
-                            return new IntPtr(1);
-                        }
-                    }
-                    else if (_swallowed[vk])
-                    {
-                        // 押し下げを握りつぶしたときだけ、押し上げも握りつぶす (片方だけ届くと Windows のキーの状態がずれる)
-                        _swallowed[vk] = false;
-                        return new IntPtr(1);
-                    }
+                    // 押し下げを握りつぶしたときだけ、押し上げも握りつぶす (片方だけ届くと Windows のキーの状態がずれる)
+                    _swallowed[vk] = false;
+                    return new IntPtr(1);
                 }
             }
             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+        }
+
+        /// <summary>文字のキーなら target に知らせる。数字・記号は、前面のアプリのキーボード配列で文字にする。</summary>
+        private void Notify(uint vk, uint scanCode)
+        {
+            bool shift = IsDown(VK_SHIFT);
+            if ((vk >= 'A' && vk <= 'Z') || vk == VK_SPACE || vk == VK_BACK)
+            {
+                NativeMethods.PostMessage(_target, TypedMessage, new IntPtr((int)vk), new IntPtr(shift ? 1 : 0));
+                return;
+            }
+            char c = PrintableChar(vk, scanCode, shift);
+            if (c != '\0')
+            {
+                NativeMethods.PostMessage(_target, TypedMessage, new IntPtr(c), new IntPtr(LiteralChar));
+            }
+        }
+
+        /// <summary>
+        /// 握りつぶさずに通すキー。修飾キー (握りつぶすと、ホットキーを離したかが分からなくなる) と、
+        /// PopupKeys がホットキーで受け取るキー (矢印・Enter・F2・Esc。フックで握りつぶすとホットキーにも届かない)。
+        /// </summary>
+        private static bool Passes(uint vk)
+        {
+            return (vk >= 0x10 && vk <= 0x12) || (vk >= 0xA0 && vk <= 0xA5) || vk == VK_LWIN || vk == VK_RWIN ||
+                   (vk >= 0x25 && vk <= 0x28) || vk == 0x0D || vk == 0x71 || vk == 0x1B;
+        }
+
+        /// <summary>
+        /// キーを、前面のアプリのキーボード配列と Shift の状態で文字にする。英数字・記号 (! から ~) でなければ '\0'。
+        /// Windows のキーの状態は変えない (フラグ 4。日本語入力や dead key の途中の状態を崩さない)。
+        /// </summary>
+        private static char PrintableChar(uint vk, uint scanCode, bool shift)
+        {
+            byte[] state = new byte[256];
+            if (shift)
+            {
+                state[VK_SHIFT] = 0x80;
+            }
+            uint thread = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), IntPtr.Zero);
+            char[] buffer = new char[4];
+            int count = NativeMethods.ToUnicodeEx(vk, scanCode, state, buffer, buffer.Length, 4, NativeMethods.GetKeyboardLayout(thread));
+            return count == 1 && buffer[0] > ' ' && buffer[0] <= '~' ? buffer[0] : '\0';
         }
 
         private static bool IsDown(int vk)
@@ -182,33 +183,17 @@ namespace Copipe.Services
             return (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
         }
 
-        /// <summary>window が前面で、focus を渡したときは入力カーソルがその部品にあるか。</summary>
-        private bool IsTargetFocused()
-        {
-            if (_window == IntPtr.Zero)
-            {
-                return true;
-            }
-            if (NativeMethods.GetForegroundWindow() != _window)
-            {
-                return false;
-            }
-            if (_focus == IntPtr.Zero)
-            {
-                return true;
-            }
-            NativeMethods.GUITHREADINFO info = new NativeMethods.GUITHREADINFO();
-            info.cbSize = Marshal.SizeOf(typeof(NativeMethods.GUITHREADINFO));
-            return NativeMethods.GetGUIThreadInfo(0, ref info) && info.hwndFocus == _focus;
-        }
-
         /// <summary>
-        /// TypedMessage の wParam・lParam から、打った文字を決める。Shift と CapsLock のどちらか一方なら大文字。
+        /// TypedMessage の wParam・lParam から、打った文字を決める。英字は Shift と CapsLock のどちらか一方なら大文字。
         /// CapsLock の状態を読むので、知らせを受けた UI スレッドで呼ぶこと。
         /// </summary>
         public static char CharFor(IntPtr wParam, IntPtr lParam)
         {
             int vk = wParam.ToInt32();
+            if (lParam.ToInt32() == LiteralChar)
+            {
+                return (char)vk;
+            }
             if (vk == (int)VK_SPACE)
             {
                 return ' ';

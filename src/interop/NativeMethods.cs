@@ -290,27 +290,12 @@ namespace Copipe.Interop
         [DllImport("user32.dll")]
         internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
 
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct GUITHREADINFO
-        {
-            public int cbSize;
-            public uint flags;
-            public IntPtr hwndActive;
-            public IntPtr hwndFocus;
-            public IntPtr hwndCapture;
-            public IntPtr hwndMenuOwner;
-            public IntPtr hwndMoveSize;
-            public IntPtr hwndCaret;
-            public int caretLeft;
-            public int caretTop;
-            public int caretRight;
-            public int caretBottom;
-        }
-
-        /// <summary>スレッド (0 なら前面のスレッド) の、入力カーソルのある部品などを調べる。別のスレッドからでも読める。</summary>
         [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO gui);
+        internal static extern IntPtr GetKeyboardLayout(uint idThread);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
+                                               [Out] char[] pwszBuff, int cchBuff, uint wFlags, IntPtr dwhkl);
 
         /// <summary>
         /// 前面のアプリのスレッドと入力の状態をつなぐ。つないでいる間は SetForegroundWindow が

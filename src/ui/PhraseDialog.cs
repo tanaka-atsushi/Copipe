@@ -27,8 +27,6 @@ namespace Copipe.UI
         private readonly Panel _pathFrame;
         private readonly Font _markFont;
         private Side _side;
-        // 表示名・グループ名の欄は、英字に固定 (半角/全角 で日本語も打てる)。名前は英字で探すため
-        private readonly EnglishTyping _english;
 
         // 使う側の目印の色 (● と欄の枠)
         private static readonly Color ChosenColor = Color.FromArgb(0xE0, 0x20, 0x20);
@@ -62,7 +60,6 @@ namespace Copipe.UI
                 _nameBox.Name = "nameBox";
                 _nameBox.Text = first ?? string.Empty;
                 _nameBox.TextChanged += delegate { UpdateState(); };
-                _english = new EnglishTyping(_nameBox);
                 y = AddNameField(_nameBox, y) + Scaled(14);
             }
             else
@@ -71,7 +68,6 @@ namespace Copipe.UI
                 _titleBox = new TextBox();
                 _titleBox.Name = "titleBox";
                 _titleBox.Text = first ?? string.Empty;
-                _english = new EnglishTyping(_titleBox);
                 y = AddNameField(_titleBox, y) + Scaled(10);
 
                 _markFont = new Font(Font, FontStyle.Bold);
@@ -217,18 +213,9 @@ namespace Copipe.UI
             get { return _nameBox == null ? string.Empty : _nameBox.Text.Trim(); }
         }
 
-        /// <summary>表示名 (定型文) かグループ名 (グループ) の欄。名前で探すときに使う名前なので、英字で打つ。</summary>
-        private TextBox NameField
-        {
-            get { return _titleBox ?? _nameBox; }
-        }
-
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            // 名前は英字で探すので、名前の欄に入力カーソルがある間は、日本語入力や Meltype などがオンでも英字が入るようにする
-            // (小窓の検索窓と同じ。ユーザーが決めた)。半角/全角 で日本語も打てる
-            _english.Start(Handle, NameField.Handle);
             // 小窓はフォーカスを奪わない作りなので、ここで前面に出してすぐ入力できるようにする
             Activate();
             if (_textBox != null)
@@ -244,26 +231,12 @@ namespace Copipe.UI
             }
         }
 
-        protected override void OnFormClosed(FormClosedEventArgs e)
-        {
-            _english.Stop();
-            base.OnFormClosed(e);
-        }
-
-        /// <summary>
-        /// 名前の欄を置き、右に入力のしかたの印 (A・あ)、下に切り替え方の説明を置く。説明の下の y を返す。
-        /// </summary>
+        /// <summary>名前の欄を置き、欄の下の y を返す。</summary>
         private int AddNameField(TextBox box, int y)
         {
-            int indicatorWidth = Scaled(28);
-            box.Bounds = new Rectangle(Scaled(16), y, Scaled(428) - indicatorWidth - Scaled(4), Scaled(26));
+            box.Bounds = new Rectangle(Scaled(16), y, Scaled(428), Scaled(26));
             Controls.Add(box);
-            Label indicator = _english.Indicator;
-            indicator.Bounds = new Rectangle(Scaled(444) - indicatorWidth, y, indicatorWidth, box.Height);
-            Controls.Add(indicator);
-            y += box.Height + Scaled(4);
-            return y + AddLabel(Lang.T("英字で入ります。日本語は 半角/全角 キーか、右の A のクリックで切り替えます。",
-                                       "Typed in English. Press Hankaku/Zenkaku or click A for Japanese."), y, true);
+            return y + box.Height;
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -516,7 +489,6 @@ namespace Copipe.UI
         {
             if (disposing)
             {
-                _english.Dispose();
                 if (_markFont != null)
                 {
                     _markFont.Dispose();
