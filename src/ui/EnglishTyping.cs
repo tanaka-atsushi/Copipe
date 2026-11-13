@@ -79,12 +79,13 @@ namespace Copipe.UI
 
         /// <summary>
         /// 受け取り始める (英字に固定から)。window が前面の間だけ受け取る。focus を渡したら、その部品に入力カーソルがあるときだけ。
+        /// window が IntPtr.Zero なら、どのアプリが前面でも受け取る (Backspace も)。ignored のキーは受け取らない。
         /// フックを付けられなかったときは、キーは今までどおり欄に届く。
         /// </summary>
-        public void Start(IntPtr window, IntPtr focus)
+        public void Start(IntPtr window, IntPtr focus, Keys[] ignored = null)
         {
             Stop();
-            _hook = SearchKeyHook.Start(Handle, window, focus);
+            _hook = SearchKeyHook.Start(Handle, window, focus, ignored);
             Japanese = false;
         }
 

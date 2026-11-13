@@ -317,12 +317,12 @@ namespace Copipe.UI
 
         private void CaptureHotkey(Keys keys)
         {
-            CaptureKey(keys, Lang.T("ホットキー", "the hotkey"), _hotkeyBox, HotkeyText.IsValid, delegate(Keys code) { _selected = code; });
+            CaptureKey(keys, _hotkeyBox, HotkeyText.IsValid, delegate(Keys code) { _selected = code; });
         }
 
         private void CaptureModeKey(Keys keys)
         {
-            CaptureKey(keys, Lang.T("モードキー", "the mode key"), _modeKeyBox, HotkeyText.IsValidModeKey, delegate(Keys code) { _selectedModeKey = code; });
+            CaptureKey(keys, _modeKeyBox, HotkeyText.IsValidModeKey, delegate(Keys code) { _selectedModeKey = code; });
         }
 
         /// <summary>
@@ -330,7 +330,7 @@ namespace Copipe.UI
         /// Ctrl などを押したままキーを押しても、キーだけになる。Ctrl や Shift だけを押したときは何もしない。
         /// 使えるキーなら select で選んだことにし、使えないキーなら理由を出して、離すまで OK を押させない。
         /// </summary>
-        private void CaptureKey(Keys keys, string what, Button box, Func<Keys, bool> isValid, Action<Keys> select)
+        private void CaptureKey(Keys keys, Button box, Func<Keys, bool> isValid, Action<Keys> select)
         {
             Keys code = keys & Keys.KeyCode;
             if (isValid(code))
@@ -353,7 +353,7 @@ namespace Copipe.UI
                 return;
             }
 
-            if (!HotkeyText.IsDigitKey(code) && !HotkeyText.CannotDetectRelease(code))
+            if (!HotkeyText.CannotDetectRelease(code))
             {
                 // Ctrl や Shift だけ。キーを押す途中なので、何もしない
                 return;
@@ -362,19 +362,10 @@ namespace Copipe.UI
             // 使えないキーは、_pending のままにして OK を押させない
             _pending = true;
             box.Text = HotkeyText.Display(code);
-            if (HotkeyText.IsDigitKey(code))
-            {
-                // 数字キーは、小窓の一覧から選ぶために使う
-                ShowNote(Lang.T("数字キーは一覧から項目を選ぶために使うので、" + what + "にはできません。別のキーを押してください。",
-                                "Number keys select items in the list and cannot be " + what + ". Please press another key."), true);
-            }
-            else
-            {
-                // 英数・カタカナ ひらがな・半角/全角。押して離しても「押されたまま」に見えるので、
-                // 小窓が出たまま消えなくなる
-                ShowNote(Lang.T("このキーは、離したことを判定できないため使えません。別のキーを押してください。",
-                                "This key cannot be used because its release cannot be detected. Please press another key."), true);
-            }
+            // 英数・カタカナ ひらがな・半角/全角。押して離しても「押されたまま」に見えるので、
+            // 小窓が出たまま消えなくなる
+            ShowNote(Lang.T("このキーは、離したことを判定できないため使えません。別のキーを押してください。",
+                            "This key cannot be used because its release cannot be detected. Please press another key."), true);
             UpdateState();
         }
 

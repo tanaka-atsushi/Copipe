@@ -124,8 +124,6 @@ namespace Copipe
             _popup.InsertOnSingleClick = (_settings.InsertClick == InsertClick.Single);
             _inserter = new TextInserter(_popup.Handle);
             _popupKeys = new PopupKeys();
-            _popupKeys.NumberPressed += OnNumberKeyPressed;
-            _popupKeys.LetterPressed += OnLetterKeyPressed;
             _popupKeys.ModePressed += OnModeKeyPressed;
             _popupKeys.EscapePressed += OnEscapePressed;
             _popupKeys.ArrowPressed += OnArrowPressed;
@@ -322,8 +320,8 @@ namespace Copipe
         private Point _popupCursor;
 
         /// <summary>
-        /// 小窓を出している間だけ、数字キーで一覧から選び、モードキーで履歴と定型文を切り替えられるようにする。
-        /// 押したら出したままの設定では、小窓の上に検索窓も出す。
+        /// 小窓を出している間だけ、矢印キーで一覧から選び、モードキーで履歴と定型文を切り替えられるようにする。
+        /// 小窓の上に検索窓も出す。
         /// </summary>
         private void EnablePopupKeys()
         {
@@ -333,8 +331,16 @@ namespace Copipe
             Keys modeKey = HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey;
             _popupKeys.Enable(modeKey);
 
-            // 押したら出したままの設定では、小窓の上に検索窓を出し、名前で定型文を探せるようにする
-            _popup.SearchEnabled = IsToggle;
+            // 小窓の上に検索窓を出し、名前で定型文を探せるようにする。押したら出したままの設定では小窓を前面にして打つ。
+            // 押している間だけ出す設定では前面にしない (入力中のアプリに貼り付けるため)。英字・空白・Backspace をフックで受け取る
+            _popup.SearchEnabled = true;
+            _popup.SearchTakesFocus = IsToggle;
+            _popup.SearchIgnoredKeys = new Keys[] { _settings.Hotkey, _settings.ModeKey };
+            if (!IsToggle)
+            {
+                // 前面にしないときは、矢印キーなどと同じく小窓を出す前に受け取り始める (表示の直後に打った英字が漏れないように)
+                _popup.StartSearchHook();
+            }
         }
 
         /// <summary>
@@ -347,23 +353,6 @@ namespace Copipe
             EnablePopupKeys();
             ShowMode();
             _popup.ShowAt(_popupCursor);
-        }
-
-        /// <summary>数字キー (1〜9、0) で一覧から選んだとき。クリックと同じ扱い。</summary>
-        private void OnNumberKeyPressed(int index)
-        {
-            if (RowMenu.IsOpen || _popup.IsDragging)
-            {
-                // 右クリックのメニューを出している間は、一覧を動かさない
-                return;
-            }
-            if (_popup.SearchEnabled && _mode != PopupMode.History)
-            {
-                // 検索窓を出しているときは、数字はいつもクリップボード履歴の番号 (定型文は名前で探す)
-                SwitchMode(PopupMode.History);
-            }
-            // 履歴モードでは、ピン止めの行は番号なし。数字は普通の履歴の何件目か
-            ActivateRow(_mode == PopupMode.History ? index + _popup.PinnedCount : index);
         }
 
         // ---- 名前で定型文・グループを探す (検索窓) ------------------------------------------
@@ -439,6 +428,8 @@ namespace Copipe
             if (!node.IsGroup)
             {
                 UsePhrase(node);
+                // 押している間だけ出す設定では小窓が残るので、続けて探せるよう検索窓を空にする
+                _popup.ClearSearch();
                 return;
             }
             _phrasePath.Clear();
@@ -449,16 +440,6 @@ namespace Copipe
             _mode = PopupMode.Phrases;
             ShowMode();
             _popup.MoveSelection(1);
-        }
-
-        /// <summary>a〜z でピン止めの項目を選んだとき (履歴モードだけ)。クリックと同じ扱い。</summary>
-        private void OnLetterKeyPressed(int index)
-        {
-            if (RowMenu.IsOpen || _popup.IsDragging || _mode != PopupMode.History || index >= _popup.PinnedCount)
-            {
-                return;
-            }
-            ActivateRow(index);
         }
 
         /// <summary>
@@ -925,14 +906,11 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 今のモードを、数字キーなどが効く側にする。Esc を受け取るかは WantsEscape で決め、
-        /// a〜z (ピン止めを選ぶ) は履歴モードの間だけ受け取る。
+        /// 今のモードを、矢印キーなどが効く側にする。Esc を受け取るかは WantsEscape で決める。
         /// </summary>
         private void ApplyActiveMode()
         {
             _popupKeys.SetEscapeEnabled(WantsEscape);
-            // 検索窓を出しているときは、英字は検索窓に打つので受け取らない (ピン止めはクリックか ↑↓ で選ぶ)
-            _popupKeys.SetLettersEnabled(_mode == PopupMode.History && !_popup.SearchEnabled);
             _popup.ActivePane = PaneFor(_mode);
             ShowHeaders();
         }
@@ -1802,7 +1780,7 @@ namespace Copipe
         /// </summary>
         private void RestoreAfterMenu()
         {
-            if (_popup.Visible && _popup.SearchEnabled)
+            if (_popup.Visible && _popup.SearchTakesFocus)
             {
                 _popup.FocusSearch();
                 return;

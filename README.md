@@ -5,12 +5,12 @@ English | [日本語](README.ja.md)
 **Hold a hotkey, see your clipboard history next to the mouse cursor, click to type it.**
 
 Copipe is a small clipboard history tool for Windows. It sits in the system tray and remembers the text you copy.
-Hold the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or press its number key,
+Hold the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or type part of a snippet name and press Enter,
 and Copipe types it at the text cursor of the app you are working in. Let go of the hotkey and the popup disappears.
 (Prefer to tap the hotkey instead of holding it? Set *Show popup* to *Until used* in Settings.)
 
 - **Never steals focus.** The popup does not activate, so your text cursor stays where it was.
-- **Keyboard or mouse.** The first ten items are numbered 1–9, 0. Pinned items get the letters a–z.
+- **Keyboard or mouse.** Pick items with the arrow keys and Enter, or type a snippet's name to find it.
 - **Snippets.** Keep reusable text (or files, folders and links to open) in groups, ten per level.
 - **Light.** A single small `.exe` with no runtime to install. Built on .NET Framework 4.8, which comes with Windows.
 - **English and Japanese.** The app follows the Windows display language, or you can pick one in Settings.
@@ -33,7 +33,7 @@ Requires Windows 10 or 11.
 
 1. Start Copipe. An icon appears in the system tray, and from now on the text you copy is kept in the history.
 2. **Hold the hotkey** (CapsLock by default). The popup shows your history, newest first.
-3. While holding it, **double-click an item** or **press its number key**. The full text, including line breaks and tabs, is typed where your text cursor is.
+3. While holding it, **double-click an item**, or select it with **↑↓** and press **Enter**. The full text, including line breaks and tabs, is typed where your text cursor is.
    You can keep holding the hotkey and insert more items.
 4. **Release the hotkey** to close the popup.
 
@@ -43,25 +43,26 @@ With *Show popup* set to **Until used**, the popup stays open after you let go o
 - press **Esc**. Inside a snippet group, Esc goes up one level first; at the top level it closes the popup.
 - press the hotkey again.
 
-While the popup is open, number keys, a–z, the arrow keys, Enter, Esc and the mode key do not reach other apps,
+While the popup is open, the arrow keys, Enter, Esc and the mode key do not reach other apps,
 so close the popup when you are done.
 
-**Find snippets by name** (*Until used* only): the popup opens with a search box at the top, ready to type.
-The first history item is already selected, so Enter types it right away.
+**Find snippets by name**: the popup has a search box at the top.
+While you hold the hotkey, letters, Space and Backspace go into the search box (the app you are typing in keeps the focus,
+so Japanese input is not available in this mode; other keys such as digits reach the app as usual).
+With *Until used*, the popup takes the focus and the search box is ready to type; the first history item is already selected, so Enter types it right away.
 Type letters to list the snippets and groups whose names start with them, from every level. Use ↑↓ to pick one and Enter to use it
 (a group opens in the snippet list, with its first item selected).
 Letters go into the search box as English letters even when Japanese (IME) input or an input tool such as Meltype is on.
-To search by a Japanese name, press **Hankaku/Zenkaku** (or click the **A** at the right of the box) to switch to normal input (**あ**); press it again to go back.
+With *Until used*, to search by a Japanese name, press **Hankaku/Zenkaku** (or click the **A** at the right of the box) to switch to normal input (**あ**); press it again to go back.
 While converting Japanese, Enter confirms the conversion and Esc cancels it.
-Number keys still pick clipboard history items by number.
-Esc clears the search box first, then closes the popup. In this mode, pick pinned items by clicking or with ↑↓ instead of a–z.
+Esc clears the search box first, then closes the popup (*Until used*).
 Right-click a suggestion to edit, rename or delete it, the same as in the snippet list.
 
 ### History
 
 - Copipe keeps the **last 10 text items**. Copying the same text again moves it to the top.
 - Items over 100,000 characters are not kept.
-- Inserting an item does not reorder the list, so the numbers stay put while you work.
+- Inserting an item does not reorder the list, so items stay put while you work.
 - Right-click a row to **Pin** it, **Unpin** it or **Delete** it.
   - Pinned items stay at the top, are not pushed out by new copies, and survive *Clear history*.
   - You can pin up to 26 items. Click 📌 to unpin.
@@ -74,12 +75,12 @@ Right-click a suggestion to edit, rename or delete it, the same as in the snippe
 
 The popup shows *Clipboard history* on the left and *Snippets* on the right.
 
-- Number keys, a–z, the arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
+- The arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
   Press the **mode key** (Tab by default), or turn the mouse wheel over the popup, to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
   (on a snippet group, → still opens it and ← inside a group still goes up one level). With the mouse you can use either side directly.
   The selected row on the inactive side turns light gray and becomes blue again when you switch back.
   The popup always opens with the history side active.
-- Each level has ten slots (1–9, 0). A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
+- Each level has ten slots. A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
 - Drag a history row onto an empty snippet slot to save it as a snippet. Drop it on a group (or a level name in the header) to put it in that group's first free slot;
   hold it over a group for a second to open it.
 - Select a snippet to type it. Select a group to open it (a single click always opens a group, whatever *Paste with* is set to).

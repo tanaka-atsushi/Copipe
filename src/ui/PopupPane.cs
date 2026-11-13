@@ -946,21 +946,8 @@ namespace Copipe.UI
             Color textColor = ((row.Kind == PopupRowKind.Empty || (dragging && e.Index == _dragSource)) && !selected)
                 ? SystemColors.GrayText : color;
 
-            // 先頭 10 件には、選ぶための数字キー (1〜9、0) を付ける。11 件目以降は番号の欄を空けて、
-            // 本文の書き出しの位置をそろえる
-            int numberWidth = TextRenderer.MeasureText(e.Graphics, "0. ", e.Font, Size.Empty, flags).Width;
-            // ピン止めの行は a〜z。普通の履歴はピン止めの後から 1 を付ける
-            string number = row.IsPinned ? ItemNumber.PinLabel(e.Index) : ItemNumber.Label(e.Index - _pinnedCount);
-            if (number != null)
-            {
-                Rectangle numberBounds = new Rectangle(e.Bounds.Left, e.Bounds.Top, numberWidth, e.Bounds.Height);
-                // 数字キーが効かない欄 (並べて出しているときのもう一方) では、番号を灰色にする
-                Color numberColor = (_dimmed && !selected) ? SystemColors.GrayText : color;
-                TextRenderer.DrawText(e.Graphics, number + ".", e.Font, numberBounds, numberColor, flags);
-            }
-
             int pinWidth = row.IsPinned ? ScaleByDpi(BasePinIconWidth) : 0;
-            Rectangle textBounds = Rectangle.FromLTRB(e.Bounds.Left + numberWidth, e.Bounds.Top, e.Bounds.Right - pinWidth, e.Bounds.Bottom);
+            Rectangle textBounds = Rectangle.FromLTRB(e.Bounds.Left, e.Bounds.Top, e.Bounds.Right - pinWidth, e.Bounds.Bottom);
             if (row.IsPinned)
             {
                 // 右端に 📌 (クリックでピン止めを外す)

@@ -26,7 +26,7 @@ namespace Copipe.Services
     /// </summary>
     internal sealed class SearchKeyHook : IDisposable
     {
-        /// <summary>英字か空白が押されたとき。wParam は仮想キー、lParam は Shift を押していれば 1。</summary>
+        /// <summary>英字か空白 (window を渡さないときは Backspace も) が押されたとき。wParam は仮想キー、lParam は Shift を押していれば 1。</summary>
         public const int TypedMessage = NativeMethods.WM_APP + 3;
 
         /// <summary>半角/全角 キーで切り替えたとき。lParam は普通の入力 (PassThrough) にしたら 1、英字に固定したら 0。</summary>
@@ -39,6 +39,7 @@ namespace Copipe.Services
         private const int VK_LWIN = 0x5B;
         private const int VK_RWIN = 0x5C;
         private const uint VK_SPACE = 0x20;
+        private const uint VK_BACK = 0x08;
         // 半角/全角 キー。日本語キーボードでは押すたびに 0xF3 と 0xF4 が交互に届く。VK_KANJI (0x19) も同じに扱う
         private const uint VK_OEM_AUTO = 0xF3;
         private const uint VK_OEM_ENLW = 0xF4;
@@ -47,6 +48,8 @@ namespace Copipe.Services
         private readonly IntPtr _target;
         private readonly IntPtr _window;
         private readonly IntPtr _focus;
+        // 受け取らないキー (ホットキー・モードキー)。仮想キーの位置が true
+        private readonly bool[] _ignored = new bool[256];
         // GC に回収されないよう、フックに渡したデリゲートを持っておく
         private readonly NativeMethods.LowLevelKeyboardProc _proc;
         private readonly Thread _thread;
@@ -58,11 +61,18 @@ namespace Copipe.Services
         private volatile bool _disposed;
         private volatile bool _passThrough;
 
-        private SearchKeyHook(IntPtr target, IntPtr window, IntPtr focus)
+        private SearchKeyHook(IntPtr target, IntPtr window, IntPtr focus, Keys[] ignored)
         {
             _target = target;
             _window = window;
             _focus = focus;
+            if (ignored != null)
+            {
+                foreach (Keys key in ignored)
+                {
+                    _ignored[(int)(key & Keys.KeyCode) & 0xFF] = true;
+                }
+            }
             _proc = HookCallback;
             _thread = new Thread(Run);
             _thread.IsBackground = true;
@@ -71,11 +81,13 @@ namespace Copipe.Services
 
         /// <summary>
         /// フックを付ける。window が前面の間に押された英字・空白を target に知らせる。
-        /// focus が IntPtr.Zero でなければ、その部品に入力カーソルがあるときだけ受け取る。付けられなければ null。
+        /// focus が IntPtr.Zero でなければ、その部品に入力カーソルがあるときだけ受け取る。
+        /// window が IntPtr.Zero なら、どのアプリが前面でも英字・空白・Backspace を受け取る (欄が前面にならないとき。
+        /// 半角/全角 キーは受け取らない)。ignored のキーは受け取らない。付けられなければ null。
         /// </summary>
-        public static SearchKeyHook Start(IntPtr target, IntPtr window, IntPtr focus)
+        public static SearchKeyHook Start(IntPtr target, IntPtr window, IntPtr focus, Keys[] ignored = null)
         {
-            SearchKeyHook hook = new SearchKeyHook(target, window, focus);
+            SearchKeyHook hook = new SearchKeyHook(target, window, focus, ignored);
             hook._thread.Start();
             if (!hook._ready.WaitOne(ReadyTimeoutMs) || hook._hook == IntPtr.Zero)
             {
@@ -128,7 +140,11 @@ namespace Copipe.Services
                 NativeMethods.KBDLLHOOKSTRUCT k = (NativeMethods.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(
                     lParam, typeof(NativeMethods.KBDLLHOOKSTRUCT));
                 uint vk = k.vkCode;
-                if ((vk == VK_OEM_AUTO || vk == VK_OEM_ENLW || vk == VK_KANJI) && (k.flags & NativeMethods.LLKHF_UP) == 0 &&
+                if (vk < 256 && _ignored[vk])
+                {
+                    return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+                }
+                if (_window != IntPtr.Zero && (vk == VK_OEM_AUTO || vk == VK_OEM_ENLW || vk == VK_KANJI) && (k.flags & NativeMethods.LLKHF_UP) == 0 &&
                     k.dwExtraInfo != KeyboardHook.OwnInputMarker && !IsDown(NativeMethods.VK_CONTROL) && !IsDown(VK_SHIFT) &&
                     !IsDown(VK_MENU) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN) && IsTargetFocused())
                 {
@@ -136,7 +152,7 @@ namespace Copipe.Services
                     NativeMethods.PostMessage(_target, ModeMessage, IntPtr.Zero, new IntPtr(_passThrough ? 1 : 0));
                     return new IntPtr(1);
                 }
-                if (((vk >= 'A' && vk <= 'Z') || vk == VK_SPACE) && !_passThrough)
+                if (((vk >= 'A' && vk <= 'Z') || vk == VK_SPACE || (vk == VK_BACK && _window == IntPtr.Zero)) && !_passThrough)
                 {
                     if ((k.flags & NativeMethods.LLKHF_UP) == 0)
                     {
@@ -169,6 +185,10 @@ namespace Copipe.Services
         /// <summary>window が前面で、focus を渡したときは入力カーソルがその部品にあるか。</summary>
         private bool IsTargetFocused()
         {
+            if (_window == IntPtr.Zero)
+            {
+                return true;
+            }
             if (NativeMethods.GetForegroundWindow() != _window)
             {
                 return false;
@@ -192,6 +212,10 @@ namespace Copipe.Services
             if (vk == (int)VK_SPACE)
             {
                 return ' ';
+            }
+            if (vk == (int)VK_BACK)
+            {
+                return '\b';
             }
             char letter = (char)('a' + (vk - 'A'));
             bool shift = lParam.ToInt32() != 0;

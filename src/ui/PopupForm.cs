@@ -161,9 +161,8 @@ namespace Copipe.UI
         private EnglishTyping _english;
 
         /// <summary>
-        /// 小窓の上に検索窓を出すか。出すときは、小窓を出したら前面にして検索窓に入力カーソルを置く
-        /// (このときだけは入力中のアプリからフォーカスを取る)。打てるのは英字と空白だけ。
-        /// 数字・矢印・Enter・Esc はホットキー (PopupKeys) で受け取るので、検索窓には届かない。
+        /// 小窓の上に検索窓を出すか。打てるのは英字と空白だけ。
+        /// 矢印・Enter・Esc はホットキー (PopupKeys) で受け取るので、検索窓には届かない。
         /// </summary>
         public bool SearchEnabled
         {
@@ -192,6 +191,30 @@ namespace Copipe.UI
                 UpdateSize();
             }
         }
+
+        /// <summary>
+        /// 検索窓を出すとき、小窓を前面にして検索窓に入力カーソルを置くか (入力中のアプリからフォーカスを取る)。
+        /// false なら前面にせず、英字・空白・Backspace をフックで受け取って検索窓に入れる
+        /// (押している間だけ出す設定。入力中のアプリに貼り付けるため、フォーカスはそのままにする)。
+        /// このとき日本語は打てないので、入力のしかたの印 (A・あ) は出さない。
+        /// </summary>
+        public bool SearchTakesFocus
+        {
+            get { return _searchTakesFocus; }
+            set
+            {
+                _searchTakesFocus = value;
+                if (_english != null)
+                {
+                    _english.Indicator.Visible = value;
+                }
+            }
+        }
+
+        private bool _searchTakesFocus = true;
+
+        /// <summary>検索窓のフックで受け取らないキー (ホットキー・モードキー。英字や空白のこともあるため)。</summary>
+        public Keys[] SearchIgnoredKeys { get; set; }
 
         private void CreateSearch()
         {
@@ -228,6 +251,7 @@ namespace Copipe.UI
             _english.Indicator.Font = SystemFonts.MessageBoxFont;
             _searchRow.Controls.Add(_search);
             _searchRow.Controls.Add(_english.Indicator);
+            _english.Indicator.Visible = _searchTakesFocus;
             _searchPanel.Controls.Add(_searchRow);
 
             KeepSearchFocus(_candidates);
@@ -303,12 +327,12 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。英字のキーはキーボードフックで受け取って、ここで入れる
+        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。'\b' なら 1 文字消す。英字のキーはキーボードフックで受け取って、ここで入れる
         /// (キーを検索窓に届けると、日本語入力や Meltype などの入力ソフトがオンのとき、かなになるため)。
         /// </summary>
         public void TypeSearch(char c)
         {
-            if (_search == null || !IsAllowedSearchChar(c))
+            if (_search == null || (c != '\b' && !IsAllowedSearchChar(c)))
             {
                 return;
             }
@@ -316,7 +340,16 @@ namespace Copipe.UI
             {
                 FocusSearch();
             }
-            _search.SelectedText = c.ToString();
+            if (c != '\b')
+            {
+                _search.SelectedText = c.ToString();
+                return;
+            }
+            if (_search.SelectionLength == 0 && _search.SelectionStart > 0)
+            {
+                _search.Select(_search.SelectionStart - 1, 1);
+            }
+            _search.SelectedText = string.Empty;
         }
 
         /// <summary>検索窓を空にする (候補も消える)。</summary>
@@ -500,16 +533,16 @@ namespace Copipe.UI
                 return;
             }
             _refocusTimer.Stop();
-            if (_search != null && Visible && !_search.Focused)
+            if (_search != null && Visible && !_search.Focused && _searchTakesFocus)
             {
                 _search.Focus();
             }
         }
 
-        /// <summary>検索窓を出していれば、小窓を前面にして検索窓に入力カーソルを置く (右クリックのメニューを閉じた後など)。</summary>
+        /// <summary>検索窓を出していて SearchTakesFocus なら、小窓を前面にして検索窓に入力カーソルを置く (右クリックのメニューを閉じた後など)。</summary>
         public void FocusSearch()
         {
-            if (SearchEnabled && Visible)
+            if (SearchEnabled && _searchTakesFocus && Visible)
             {
                 ActivateForSearch();
             }
@@ -784,12 +817,24 @@ namespace Copipe.UI
                 ClearSearch();
                 // ShowWithoutActivation が true なので、アクティブにせずに表示される
                 Show();
-                if (SearchEnabled)
+                if (SearchEnabled && _searchTakesFocus)
                 {
                     ActivateForSearch();
-                    // 出している間だけ、英字のキーを先に受け取る (英字に固定から始める)
-                    _english.Start(Handle, IntPtr.Zero);
+                    StartSearchHook();
                 }
+            }
+        }
+
+        /// <summary>
+        /// 出している間だけ、英字のキーを先に受け取る (英字に固定から始める)。前面にする設定では ShowAt が呼ぶ。
+        /// 前面にしない設定では、どのアプリが前面でも受け取る (window を渡さない)。表示の直後に打った英字が
+        /// 入力中のアプリに漏れないよう、受け取る側が小窓を出す前に呼ぶ。小窓を隠すと止まる。
+        /// </summary>
+        public void StartSearchHook()
+        {
+            if (_english != null)
+            {
+                _english.Start(_searchTakesFocus ? Handle : IntPtr.Zero, IntPtr.Zero, SearchIgnoredKeys);
             }
         }
 
@@ -895,8 +940,8 @@ namespace Copipe.UI
         {
             // クリックされてもアクティブにならない (入力中のアプリのフォーカスを保つ)。
             // MA_NOACTIVATE なのでクリック自体は一覧に届く (将来のダブルクリック・ドラッグ用)。
-            // 検索窓を出しているときは、クリックでアクティブにする (検索窓に打てるように)
-            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !SearchEnabled)
+            // 検索窓を出して前面にする設定のときは、クリックでアクティブにする (検索窓に打てるように)
+            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !(SearchEnabled && _searchTakesFocus))
             {
                 m.Result = new IntPtr(NativeMethods.MA_NOACTIVATE);
                 return;

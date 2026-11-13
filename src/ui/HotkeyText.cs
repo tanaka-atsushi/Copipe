@@ -69,22 +69,13 @@ namespace Copipe.UI
         }
 
         /// <summary>
-        /// 数字キー (上段・テンキー) か。小窓を出している間は一覧から選ぶために使うので、
-        /// ホットキーにはできない (修飾キーの有無によらない)。
-        /// </summary>
-        public static bool IsDigitKey(Keys keys)
-        {
-            return ItemNumber.IndexFromKey(keys) >= 0;
-        }
-
-        /// <summary>
         /// ホットキーとして使えるキーか。修飾キー (Ctrl・Shift・Alt) との組み合わせは使えない
         /// (修飾キーを押したままだと、小窓で使う Tab が Alt+Tab になるなど、Windows と取り合いになるため)。
-        /// 修飾キー単独・離したことを判定できないキー・数字キーも使えない。
+        /// 修飾キー単独・離したことを判定できないキーも使えない。
         /// </summary>
         public static bool IsValid(Keys keys)
         {
-            if (CannotDetectRelease(keys) || IsDigitKey(keys) || (keys & Keys.Modifiers) != Keys.None)
+            if (CannotDetectRelease(keys) || (keys & Keys.Modifiers) != Keys.None)
             {
                 return false;
             }
