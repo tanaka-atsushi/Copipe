@@ -16,22 +16,13 @@ namespace Copipe.Services
         Single
     }
 
-    /// <summary>ホットキーで小窓を出す方法。</summary>
-    public enum HotkeyStyle
-    {
-        /// <summary>押している間だけ出す (既定)。離すと消える。</summary>
-        Hold,
-        /// <summary>押したら出したままにする。項目を使う・Esc・もう一度ホットキーを押すと消える。</summary>
-        Toggle
-    }
-
     /// <summary>
     /// 設定の読み書き。中身は「項目名=値」の行が並ぶだけのテキストで、メモ帳でも直せる。
     /// 読めない値は既定に戻す (設定が壊れていても起動できるようにする)。
     /// </summary>
     public sealed class Settings
     {
-        /// <summary>設定ファイルが無いときのホットキー (押し続ける。CapsLock 本来の切り替えはしなくなる)。</summary>
+        /// <summary>設定ファイルが無いときのホットキー (CapsLock 本来の切り替えはしなくなる)。</summary>
         public const Keys DefaultHotkey = Keys.Capital;
 
         /// <summary>設定ファイルが無いときのモードキー (ホットキーを押したまま押して、数字キーが効く側を切り替える)。</summary>
@@ -39,7 +30,6 @@ namespace Copipe.Services
 
 
         private const string HotkeyName = "Hotkey";
-        private const string HotkeyStyleName = "HotkeyStyle";
 
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
@@ -49,7 +39,6 @@ namespace Copipe.Services
         public Settings()
         {
             Hotkey = DefaultHotkey;
-            HotkeyStyle = HotkeyStyle.Hold;
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
             Language = UiLanguage.Auto;
@@ -60,9 +49,6 @@ namespace Copipe.Services
         public int HistoryCount { get; set; }
 
         public Keys Hotkey { get; set; }
-
-        /// <summary>ホットキーで小窓を出す方法 (押している間だけ / 押したら出したまま)。</summary>
-        public HotkeyStyle HotkeyStyle { get; set; }
 
 
         /// <summary>履歴の項目を貼り付ける操作 (ダブルクリック / シングルクリック)。</summary>
@@ -123,18 +109,6 @@ namespace Copipe.Services
                         if (HotkeyText.TryParse(value, out keys))
                         {
                             settings.Hotkey = keys;
-                        }
-                    }
-                    else if (string.Equals(name, HotkeyStyleName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
-                        if (string.Equals(value, "Toggle", StringComparison.OrdinalIgnoreCase))
-                        {
-                            settings.HotkeyStyle = HotkeyStyle.Toggle;
-                        }
-                        else if (string.Equals(value, "Hold", StringComparison.OrdinalIgnoreCase))
-                        {
-                            settings.HotkeyStyle = HotkeyStyle.Hold;
                         }
                     }
                     else if (string.Equals(name, ModeKeyName, StringComparison.OrdinalIgnoreCase))
@@ -202,10 +176,6 @@ namespace Copipe.Services
                                  "# Hotkey: key that shows the popup. No modifiers (Ctrl etc.). e.g. F1, Pause"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", HotkeyName, HotkeyText.ToSetting(Hotkey)));
-            sb.AppendLine(Lang.T("# HotkeyStyle: 小窓の出し方。Hold (押している間だけ) か Toggle (押したら出したまま。項目を使う・Esc・もう一度押すと消える)",
-                                 "# HotkeyStyle: how the hotkey shows the popup. Hold (while held) or Toggle (stays open until you use an item, press Esc or press the hotkey again)"));
-            sb.AppendLine(string.Format(
-                CultureInfo.InvariantCulture, "{0}={1}", HotkeyStyleName, HotkeyStyle));
             sb.AppendLine(Lang.T("# InsertClick: 履歴の項目を貼り付ける操作。Double (ダブルクリック) か Single (シングルクリック)",
                                  "# InsertClick: click to paste an item. Double or Single"));
             sb.AppendLine(string.Format(

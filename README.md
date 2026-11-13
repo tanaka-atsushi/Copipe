@@ -2,14 +2,13 @@
 
 English | [日本語](README.ja.md)
 
-**Hold a hotkey, see your clipboard history next to the mouse cursor, click to type it.**
+**Press a hotkey, see your clipboard history next to the mouse cursor, click to type it.**
 
 Copipe is a small clipboard history tool for Windows. It sits in the system tray and remembers the text you copy.
-Hold the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or type part of a snippet name and press Enter,
-and Copipe types it at the text cursor of the app you are working in. Let go of the hotkey and the popup disappears.
-(Prefer to tap the hotkey instead of holding it? Set *Show popup* to *Until used* in Settings.)
+Press the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or type part of a snippet name and press Enter,
+and Copipe types it at the text cursor of the app you were working in.
 
-- **Never steals focus.** The popup does not activate, so your text cursor stays where it was.
+- **Types where you were.** After you pick an item, Copipe goes back to your app and types it at the text cursor.
 - **Keyboard or mouse.** Pick items with the arrow keys and Enter, or type a snippet's name to find it.
 - **Snippets.** Keep reusable text (or files, folders and links to open) in groups, ten per level.
 - **Light.** A single small `.exe` with no runtime to install. Built on .NET Framework 4.8, which comes with Windows.
@@ -32,12 +31,10 @@ Requires Windows 10 or 11.
 ## How to use
 
 1. Start Copipe. An icon appears in the system tray, and from now on the text you copy is kept in the history.
-2. **Hold the hotkey** (CapsLock by default). The popup shows your history, newest first.
-3. While holding it, **double-click an item**, or select it with **↑↓** and press **Enter**. The full text, including line breaks and tabs, is typed where your text cursor is.
-   You can keep holding the hotkey and insert more items.
-4. **Release the hotkey** to close the popup.
+2. **Press the hotkey** (CapsLock by default). The popup shows your history, newest first, and stays open.
+3. **Double-click an item**, or select it with **↑↓** and press **Enter**. The full text, including line breaks and tabs, is typed where your text cursor is.
 
-With *Show popup* set to **Until used**, the popup stays open after you let go of the hotkey. It closes when you:
+The popup closes when you:
 
 - use an item (type it or open it). Opening a snippet group does not close it.
 - press **Esc**. Inside a snippet group, Esc goes up one level first; at the top level it closes the popup.
@@ -45,17 +42,14 @@ With *Show popup* set to **Until used**, the popup stays open after you let go o
 
 While the popup (its search box) is in front, it takes all keys. Click another app and the popup stays open,
 but your keys go to that app (arrow keys, Enter and Esc too); click the popup to type in it again.
-With *While held*, no keys except modifiers reach other apps while you hold the hotkey.
 
-**Find snippets by name**: the popup has a search box at the top.
-While you hold the hotkey, letters, digits, symbols, Space and Backspace go into the search box (the app you are typing in keeps the focus,
-so Japanese input is not available in this mode). Symbols follow that app's keyboard layout.
-With *Until used*, the popup takes the focus and the search box is an ordinary text box: type anything, Japanese (IME) included.
+**Find snippets by name**: the popup has a search box at the top, ready to type in when the popup opens.
+It is an ordinary text box: type anything, Japanese (IME) included.
 The first history item is already selected, so Enter types it right away.
 Type to list the snippets and groups whose names start with what you typed, from every level. Use ↑↓ to pick one and Enter to use it
 (a group opens in the snippet list, with its first item selected).
 While converting Japanese, Enter confirms the conversion and Esc cancels it (the arrow keys belong to the popup, so pick candidates with Space).
-Esc clears the search box first, then closes the popup (*Until used*).
+Esc clears the search box first, then closes the popup.
 Right-click a suggestion to edit, rename or delete it, the same as in the snippet list.
 
 ### History
@@ -99,7 +93,7 @@ The popup shows *Clipboard history* on the left and *Snippets* on the right.
   Pick a type (type text / open a file, folder or URL / group) and fill in the field for it; typing in an empty slot adds a snippet.
   *Paste from Excel etc.* puts copied rows (name, contents) into the free slots of the current group. Nothing is saved until you click OK. **Esc** goes back up one level, and you can click a level name in the header to jump to it.
 - Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first).
-  With *Show popup* set to *Until used*, the popup comes back at the same level after the dialog closes. Drag slots to move them, or drop one on a group to put it inside.
+  The popup comes back at the same level after the dialog closes. Drag slots to move them, or drop one on a group to put it inside.
 - A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
 
 ### Tray menu
@@ -112,8 +106,7 @@ Settings opens automatically the first time you start Copipe.
 
 | Setting | |
 |---|---|
-| **Hotkey** | The key you hold to show the popup. F1, Pause, CapsLock and so on. It must be a single key: Ctrl, Shift, Alt and Win combinations are not allowed. |
-| **Show popup** | *While held* (default): the popup shows while you hold the hotkey. *Until used*: press the hotkey once and the popup stays until you use an item, press Esc or press the hotkey again. |
+| **Hotkey** | The key you press to show the popup. F1, Pause, CapsLock and so on. It must be a single key: Ctrl, Shift, Alt and Win combinations are not allowed. |
 | **Mode key** | Switches the active side (history / snippets) while the popup is open (Tab by default). |
 | **Paste with** | Double-click (default) or single-click. |
 | **Language** | Auto (follow Windows), English or Japanese. |

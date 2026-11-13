@@ -58,7 +58,6 @@ $DT = $asm.GetType('Copipe.UI.SettingsDialog', $true)
 $LangType = $asm.GetType('Copipe.Lang', $true)
 $UL = $asm.GetType('Copipe.UiLanguage', $true)
 $IC = $asm.GetType('Copipe.Services.InsertClick', $true)
-$HS = $asm.GetType('Copipe.Services.HotkeyStyle', $true)
 $PD = $asm.GetType('Copipe.UI.PhraseDialog', $true)
 $AD = $asm.GetType('Copipe.UI.AboutDialog', $true)
 $BD = $asm.GetType('Copipe.UI.BulkPhraseDialog', $true)
@@ -130,7 +129,6 @@ foreach ($langName in 'Japanese', 'English') {
     # 名前、キーを入れる欄、押すキー
     $states = @(
         @('initial', $null, $null),
-        @('toggle', $null, $null),
         @('capslock', '_hotkeyBox', $K::Capital),
         @('zenkaku', '_hotkeyBox', [System.Windows.Forms.Keys]0xF3),
         @('eisu', '_hotkeyBox', [System.Windows.Forms.Keys]0xF0),
@@ -140,7 +138,7 @@ foreach ($langName in 'Japanese', 'English') {
     )
     foreach ($st in $states) {
         $d = [Activator]::CreateInstance($DT, $F, $null,
-            [object[]]@($K::Pause, [Enum]::Parse($HS, $(if ($st[0] -eq 'toggle') { 'Toggle' } else { 'Hold' })), $K::Tab,
+            [object[]]@($K::Pause, $K::Tab,
                         [Enum]::Parse($IC, 'Double'), [Enum]::Parse($UL, $langName)), $null)
         $prepare = $null
         if ($st[1]) {

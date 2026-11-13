@@ -290,13 +290,6 @@ namespace Copipe.Interop
         [DllImport("user32.dll")]
         internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
 
-        [DllImport("user32.dll")]
-        internal static extern IntPtr GetKeyboardLayout(uint idThread);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        internal static extern int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
-                                               [Out] char[] pwszBuff, int cchBuff, uint wFlags, IntPtr dwhkl);
-
         /// <summary>
         /// 前面のアプリのスレッドと入力の状態をつなぐ。つないでいる間は SetForegroundWindow が
         /// 前面の切り替えの制限 (最後に入力を受けたプロセスしか前面を変えられない) を受けない。

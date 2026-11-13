@@ -386,7 +386,7 @@ namespace Copipe.UI
             e.Graphics.FillRectangle(SystemBrushes.Highlight, 0, _header.Height - height, _header.Width, height);
         }
 
-        /// <summary>ドラッグを取り消す (Esc・ホットキーを離したとき)。RowDragEnded (None) を出す。</summary>
+        /// <summary>ドラッグを取り消す (Esc・小窓を消したとき)。RowDragEnded (None) を出す。</summary>
         public void CancelDrag()
         {
             if (!_list.IsDragging)

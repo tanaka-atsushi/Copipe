@@ -9,7 +9,7 @@ namespace Copipe.Services
     /// 決まったキー (CapsLock) だけを、低レベルのキーボードフック (WH_KEYBOARD_LL) で受け取って握りつぶす。
     /// RegisterHotKey で受け取っても、CapsLock は切り替わってしまう。
     /// (半角/全角はフックでも押し上げを感知できなかった (実機で確認) ので、対象にしない。)
-    /// 押した・離したは、target のウインドウに PostMessage (PressedMessage・ReleasedMessage) で知らせる。
+    /// 押したことは、target のウインドウに PostMessage (PressedMessage) で知らせる。
     ///
     /// フックは専用のスレッドで動かす。フックは全アプリのキー入力をこちらの返事まで待たせるので、
     /// UI スレッドが重い処理 (大量のファイルの読み取りなど) で止まっても、キー入力を遅らせないため。
@@ -19,9 +19,6 @@ namespace Copipe.Services
     {
         /// <summary>キーを押したとき (押し続けても 1 回だけ)。</summary>
         public const int PressedMessage = NativeMethods.WM_APP + 1;
-
-        /// <summary>PressedMessage の後、キーを離したとき。</summary>
-        public const int ReleasedMessage = NativeMethods.WM_APP + 2;
 
         /// <summary>
         /// Copipe 自身が送ったキー入力の印 (dwExtraInfo)。この印の付いた入力は握りつぶさずに通す
@@ -57,7 +54,7 @@ namespace Copipe.Services
         }
 
         /// <summary>
-        /// フックを付ける。vks のどれかを押す・離すと target に知らせる。vks は 1 つのキーとして扱う。
+        /// フックを付ける。vks のどれかを押すと target に知らせる。vks は 1 つのキーとして扱う。
         /// 付けられなければ null。
         /// </summary>
         public static KeyboardHook Start(IntPtr target, int[] vks)
@@ -130,7 +127,6 @@ namespace Copipe.Services
                     {
                         // 押し下げを握りつぶしたときだけ、押し上げも握りつぶす (片方だけ届くと Windows のキーの状態がずれる)
                         _swallowing = false;
-                        NativeMethods.PostMessage(_target, ReleasedMessage, IntPtr.Zero, IntPtr.Zero);
                         return new IntPtr(1);
                     }
                 }

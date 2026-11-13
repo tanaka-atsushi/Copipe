@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using Copipe.Interop;
-using Copipe.Services;
 
 namespace Copipe.UI
 {
@@ -175,7 +174,6 @@ namespace Copipe.UI
                 else
                 {
                     Controls.Remove(_searchPanel);
-                    StopSearchHook();
                     _searchPanel.Dispose();
                     _searchPanel = null;
                     _searchRow = null;
@@ -185,22 +183,6 @@ namespace Copipe.UI
                 UpdateSize();
             }
         }
-
-        /// <summary>
-        /// 検索窓を出すとき、小窓を前面にして検索窓に入力カーソルを置くか (入力中のアプリからフォーカスを取る)。
-        /// false なら前面にせず、英字・数字・記号・空白・Backspace をフックで受け取って検索窓に入れる
-        /// (押している間だけ出す設定。入力中のアプリに貼り付けるため、フォーカスはそのままにする。日本語は打てない)。
-        /// </summary>
-        public bool SearchTakesFocus
-        {
-            get { return _searchTakesFocus; }
-            set { _searchTakesFocus = value; }
-        }
-
-        private bool _searchTakesFocus = true;
-
-        /// <summary>検索窓のフックで受け取らないキー (ホットキー・モードキー。英字や空白のこともあるため)。</summary>
-        public Keys[] SearchIgnoredKeys { get; set; }
 
         private void CreateSearch()
         {
@@ -302,32 +284,6 @@ namespace Copipe.UI
             _candidates.SelectedIndex = ((_candidates.SelectedIndex + step) % count + count) % count;
         }
 
-        /// <summary>
-        /// 検索窓に文字を打つ (選んでいる部分があれば置き換える)。'\b' なら 1 文字消す。
-        /// 押している間だけ出す設定では、入力カーソルが入力中のアプリにあるので、キーボードフックで受け取ってここで入れる。
-        /// </summary>
-        public void TypeSearch(char c)
-        {
-            if (_search == null || (c != '\b' && char.IsControl(c)))
-            {
-                return;
-            }
-            if (!_search.Focused)
-            {
-                FocusSearch();
-            }
-            if (c != '\b')
-            {
-                _search.SelectedText = c.ToString();
-                return;
-            }
-            if (_search.SelectionLength == 0 && _search.SelectionStart > 0)
-            {
-                _search.Select(_search.SelectionStart - 1, 1);
-            }
-            _search.SelectedText = string.Empty;
-        }
-
         /// <summary>検索窓を空にする (候補も消える)。</summary>
         public void ClearSearch()
         {
@@ -346,16 +302,6 @@ namespace Copipe.UI
                 _searchPanel.Height = height;
             }
             UpdateSize();
-        }
-
-        /// <summary>フックが受け取った文字を検索窓に入れる。右クリックのメニューやドラッグの間は入れない。</summary>
-        private void OnHookTyped(char c)
-        {
-            if (RowMenu.IsOpen || IsDragging || !Visible)
-            {
-                return;
-            }
-            TypeSearch(c);
         }
 
         /// <summary>
@@ -494,16 +440,16 @@ namespace Copipe.UI
                 return;
             }
             _refocusTimer.Stop();
-            if (_search != null && Visible && !_search.Focused && _searchTakesFocus)
+            if (_search != null && Visible && !_search.Focused)
             {
                 _search.Focus();
             }
         }
 
-        /// <summary>検索窓を出していて SearchTakesFocus なら、小窓を前面にして検索窓に入力カーソルを置く (右クリックのメニューを閉じた後など)。</summary>
+        /// <summary>検索窓を出していれば、小窓を前面にして検索窓に入力カーソルを置く (右クリックのメニューを閉じた後など)。</summary>
         public void FocusSearch()
         {
-            if (SearchEnabled && _searchTakesFocus && Visible)
+            if (SearchEnabled && Visible)
             {
                 ActivateForSearch();
             }
@@ -718,7 +664,7 @@ namespace Copipe.UI
             }
         }
 
-        /// <summary>ドラッグを取り消す (Esc・ホットキーを離したとき)。RowDragEnded (None) を出す。</summary>
+        /// <summary>ドラッグを取り消す (Esc・小窓を消したとき)。RowDragEnded (None) を出す。</summary>
         public void CancelDrag()
         {
             foreach (PopupPane pane in Panes)
@@ -772,36 +718,10 @@ namespace Copipe.UI
                 ClearSearch();
                 // ShowWithoutActivation が true なので、アクティブにせずに表示される
                 Show();
-                if (SearchEnabled && _searchTakesFocus)
+                if (SearchEnabled)
                 {
                     ActivateForSearch();
                 }
-            }
-        }
-
-        // 押している間だけ出す設定で、キーを受け取るフック (出していないときは null)
-        private SearchKeyHook _searchHook;
-
-        /// <summary>
-        /// 押している間だけ出す設定 (前面にしない) で、どのアプリが前面でもキーを先に受け取り、文字は検索窓に入れる。
-        /// 表示の直後に打ったキーが入力中のアプリに漏れないよう、受け取る側が小窓を出す前に呼ぶ。小窓を隠すと止まる。
-        /// 前面にする設定では、検索窓に普通に打つので呼ばない。
-        /// </summary>
-        public void StartSearchHook()
-        {
-            StopSearchHook();
-            if (SearchEnabled)
-            {
-                _searchHook = SearchKeyHook.Start(Handle, SearchIgnoredKeys);
-            }
-        }
-
-        private void StopSearchHook()
-        {
-            if (_searchHook != null)
-            {
-                _searchHook.Dispose();
-                _searchHook = null;
             }
         }
 
@@ -835,7 +755,6 @@ namespace Copipe.UI
             // 動かした位置はその回だけ。次に出すときはカーソルの近くに戻す
             _moving = false;
             _moved = false;
-            StopSearchHook();
             Hide();
         }
 
@@ -903,13 +822,8 @@ namespace Copipe.UI
         {
             // クリックされてもアクティブにならない (入力中のアプリのフォーカスを保つ)。
             // MA_NOACTIVATE なのでクリック自体は一覧に届く (将来のダブルクリック・ドラッグ用)。
-            // 検索窓を出して前面にする設定のときは、クリックでアクティブにする (検索窓に打てるように)
-            if (m.Msg == SearchKeyHook.TypedMessage)
-            {
-                OnHookTyped(SearchKeyHook.CharFor(m.WParam, m.LParam));
-                return;
-            }
-            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !(SearchEnabled && _searchTakesFocus))
+            // 検索窓を出しているときは、クリックでアクティブにする (検索窓に打てるように)
+            if (m.Msg == NativeMethods.WM_MOUSEACTIVATE && !SearchEnabled)
             {
                 m.Result = new IntPtr(NativeMethods.MA_NOACTIVATE);
                 return;
@@ -922,10 +836,6 @@ namespace Copipe.UI
             if (disposing && _refocusTimer != null)
             {
                 _refocusTimer.Dispose();
-            }
-            if (disposing)
-            {
-                StopSearchHook();
             }
             base.Dispose(disposing);
         }

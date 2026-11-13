@@ -13,7 +13,7 @@ namespace Copipe
 {
     /// <summary>
     /// 常駐部分。コピーされた文字を履歴に貯め、ホットキーで小窓に一覧で出す
-    /// (押している間だけ、または押したら出したまま。設定で選ぶ)。
+    /// (項目を使う・Esc・もう一度ホットキーを押すと消える)。
     /// 設定 (ホットキーと保持数) はトレイメニューから変更でき、設定ファイルに保存する。
     /// </summary>
     internal sealed class CopipeApp : ApplicationContext
@@ -42,17 +42,10 @@ namespace Copipe
             Phrases
         }
 
-        /// <summary>小窓を出した起動方法。</summary>
-        private enum PopupTrigger
-        {
-            None,
-            Hotkey
-        }
-
         private readonly Settings _settings;
         private readonly ClipboardHistory _history;
         private readonly PopupForm _popup;
-        private readonly HoldHotkey _hotkey;
+        private readonly Hotkey _hotkey;
         private readonly ClipboardMonitor _monitor;
         private readonly TextInserter _inserter;
         private readonly PopupKeys _popupKeys;
@@ -73,8 +66,8 @@ namespace Copipe
         private PhraseBook _phrases = new PhraseBook();
         private DateTime _phrasesWritten = DateTime.MinValue;
         private PopupMode _mode = PopupMode.History;
-        // 小窓を出している起動方法 (出していなければ None)。出した方法でだけ消す
-        private PopupTrigger _trigger = PopupTrigger.None;
+        // 小窓を出しているか (定型文のダイアログを出している間は false)
+        private bool _popupOpen;
         // ドラッグしている定型文の元の場所 (ドラッグしていなければ null)
         private PhraseNode _dragGroup;
         private int _dragIndex = -1;
@@ -129,9 +122,8 @@ namespace Copipe
             _popupKeys.EscapePressed += OnEscapePressed;
             _popupKeys.ArrowPressed += OnArrowPressed;
 
-            _hotkey = new HoldHotkey();
+            _hotkey = new Hotkey();
             _hotkey.Pressed += OnHotkeyPressed;
-            _hotkey.Released += OnHotkeyReleased;
 
             _monitor = new ClipboardMonitor();
             _monitor.Changed += OnClipboardChanged;
@@ -260,30 +252,24 @@ namespace Copipe
 
         private void OnHotkeyPressed(object sender, EventArgs e)
         {
-            // 押したら出したままにする設定では、出している間にもう一度押すと消す
-            if (IsToggle && _trigger == PopupTrigger.Hotkey)
+            // 出している間にもう一度押すと消す
+            if (_popupOpen)
             {
                 ClosePopup();
                 return;
             }
-            ShowPopupFor(PopupTrigger.Hotkey);
+            ShowPopup();
         }
 
-        /// <summary>押したら出したままにする設定か (項目を使う・Esc・もう一度ホットキーを押すと消す)。</summary>
-        private bool IsToggle
+        /// <summary>小窓を出す。項目を使う・Esc・もう一度ホットキーを押すと消える。</summary>
+        private void ShowPopup()
         {
-            get { return _settings.HotkeyStyle == HotkeyStyle.Toggle; }
-        }
-
-        /// <summary>小窓を出す。trigger は出した起動方法 (その方法で離したときだけ消す)。</summary>
-        private void ShowPopupFor(PopupTrigger trigger)
-        {
-            if (_dialogOpen || _trigger != PopupTrigger.None)
+            if (_dialogOpen)
             {
-                // 定型文のダイアログや設定画面を出している間、または既に出している間は何もしない
+                // 定型文のダイアログや設定画面を出している間は何もしない
                 return;
             }
-            _trigger = trigger;
+            _popupOpen = true;
             _targetWindow = NativeMethods.GetForegroundWindow();
             _popupCursor = Cursor.Position;
             EnablePopupKeys();
@@ -296,14 +282,11 @@ namespace Copipe
             // 定型文も最初から見える・探せるので、書き換えられていれば読み直しておく
             ReloadPhrasesIfChanged();
             ShowMode();
-            if (IsToggle)
+            // 履歴の 1 番 (無ければ一番上のピン止め) を選んでおく。Enter ですぐ使える
+            int first = _popup.ItemAt(_popup.PinnedCount) != null ? _popup.PinnedCount : 0;
+            if (_popup.ItemAt(first) != null)
             {
-                // 押したら出したままの設定では、履歴の 1 番 (無ければ一番上のピン止め) を選んでおく。Enter ですぐ使える
-                int first = _popup.ItemAt(_popup.PinnedCount) != null ? _popup.PinnedCount : 0;
-                if (_popup.ItemAt(first) != null)
-                {
-                    _popup.SelectItem(first);
-                }
+                _popup.SelectItem(first);
             }
             _popup.ShowAt(_popupCursor);
         }
@@ -317,25 +300,15 @@ namespace Copipe
         /// </summary>
         private void EnablePopupKeys()
         {
-            // 押している間だけ出す設定では、小窓が見えているのにキーが入力中のアプリに届いてしまう隙間が無いよう、
-            // 小窓を出す前に登録する (E2E で、表示の直後に押した数字が漏れたため)。
-            // 押したら出したままの設定では、小窓 (検索窓) が前面の間だけ受け取る (OnPopupActivated)。
+            // 小窓 (検索窓) が前面の間だけ受け取る (OnPopupActivated)。
             // 別のアプリをクリックしたら、そのアプリで矢印キーなどが使えるように
-            if (!IsToggle || Form.ActiveForm == _popup)
+            if (Form.ActiveForm == _popup)
             {
                 _popupKeys.Enable(PopupModeKey);
             }
 
-            // 小窓の上に検索窓を出し、名前で定型文を探せるようにする。押したら出したままの設定では小窓を前面にして打つ。
-            // 押している間だけ出す設定では前面にしない (入力中のアプリに貼り付けるため)。英字・空白・Backspace をフックで受け取る
+            // 小窓の上に検索窓を出し、名前で定型文を探せるようにする。小窓を前面にして打つ
             _popup.SearchEnabled = true;
-            _popup.SearchTakesFocus = IsToggle;
-            _popup.SearchIgnoredKeys = new Keys[] { _settings.Hotkey, _settings.ModeKey };
-            if (!IsToggle)
-            {
-                // 前面にしないときは、矢印キーなどと同じく小窓を出す前に受け取り始める (表示の直後に打った英字が漏れないように)
-                _popup.StartSearchHook();
-            }
         }
 
         /// <summary>モードキーとして登録するキー。ホットキーと同じキーだと押したことが区別できないので、登録しない (None)。</summary>
@@ -344,31 +317,28 @@ namespace Copipe
             get { return HotkeyText.ConflictsWithHotkey(_settings.Hotkey, _settings.ModeKey) ? Keys.None : _settings.ModeKey; }
         }
 
-        /// <summary>押したら出したままの設定で、小窓 (検索窓) が前面になったら、矢印キーなどを受け取り始める。</summary>
+        /// <summary>小窓 (検索窓) が前面になったら、矢印キーなどを受け取り始める。</summary>
         private void OnPopupActivated(object sender, EventArgs e)
         {
-            if (IsToggle && _trigger != PopupTrigger.None && !_dialogOpen)
+            if (_popupOpen && !_dialogOpen)
             {
                 _popupKeys.Enable(PopupModeKey);
             }
         }
 
-        /// <summary>押したら出したままの設定で、別のアプリが前面になったら、キーをそのアプリに返す。</summary>
+        /// <summary>別のアプリが前面になったら、キーをそのアプリに返す。</summary>
         private void OnPopupDeactivated(object sender, EventArgs e)
         {
-            if (IsToggle)
-            {
-                _popupKeys.Disable();
-            }
+            _popupKeys.Disable();
         }
 
         /// <summary>
-        /// 定型文のダイアログを閉じた後、押したら出したままの設定なら、小窓を同じモード・同じ階層のまま出し直す
+        /// 定型文のダイアログを閉じた後、小窓を同じモード・同じ階層のまま出し直す
         /// (続けて登録したり、登録した定型文を使ったりできるように)。
         /// </summary>
         private void ReopenPopup()
         {
-            _trigger = PopupTrigger.Hotkey;
+            _popupOpen = true;
             EnablePopupKeys();
             ShowMode();
             _popup.ShowAt(_popupCursor);
@@ -447,8 +417,6 @@ namespace Copipe
             if (!node.IsGroup)
             {
                 UsePhrase(node);
-                // 押している間だけ出す設定では小窓が残るので、続けて探せるよう検索窓を空にする
-                _popup.ClearSearch();
                 return;
             }
             _phrasePath.Clear();
@@ -464,9 +432,7 @@ namespace Copipe
         /// <summary>
         /// 一覧の index 番目を選んだとき (数字キー、またはクリック・ダブルクリック)。
         /// 項目 (履歴・定型文) なら前面のアプリのテキストカーソルの位置に入力し、グループなら中に入る。
-        /// 小窓はフォーカスを奪わないので、入力中のアプリのテキストカーソルはそのまま残っている。
-        /// 押している間だけ出す設定では、小窓はキーを離すまで出したままにする (続けて別の項目も入力できる)。
-        /// 押したら出したままにする設定では、項目を使ったら小窓を消す。
+        /// 項目を使ったら小窓を消す。
         /// 今表示している一覧で選ぶので、表示中に新しいコピーが増えても、見えている番号どおりに入る。
         /// </summary>
         private void ActivateRow(int index)
@@ -480,7 +446,7 @@ namespace Copipe
                     return;
                 }
                 _popup.FlashItem(index);
-                CloseIfToggle(UseEntry(text));
+                CloseAfterUse(UseEntry(text));
                 return;
             }
 
@@ -501,7 +467,7 @@ namespace Copipe
             UsePhrase(node);
         }
 
-        /// <summary>定型文を使う (入力する・開く)。押したら出したままの設定なら、小窓を消す。</summary>
+        /// <summary>定型文を使う (入力する・開く)。小窓は消す。</summary>
         private void UsePhrase(PhraseNode node)
         {
             // 入力した文字・開いたものは履歴にも入れる (次から履歴モードでも使える)
@@ -512,16 +478,16 @@ namespace Copipe
                 // 履歴の欄にも入れる
                 ShowHistory();
             }
-            CloseIfToggle(UseEntry(entry));
+            CloseAfterUse(UseEntry(entry));
         }
 
         /// <summary>
-        /// 押したら出したままにする設定なら、項目を使ったので小窓を消す。
+        /// 項目を使ったので小窓を消す。
         /// launched (ファイル・フォルダー・URL を開いた) なら、元のアプリを前面に戻さない (開いたものが後ろに隠れないように)。
         /// </summary>
-        private void CloseIfToggle(bool launched)
+        private void CloseAfterUse(bool launched)
         {
-            if (IsToggle && _trigger == PopupTrigger.Hotkey)
+            if (_popupOpen)
             {
                 ClosePopup(!launched);
             }
@@ -757,8 +723,7 @@ namespace Copipe
         }
 
         /// <summary>
-        /// Esc で、定型文の 1 つ上の階層に戻る。一番上 (と履歴モード) では、押したら出したままにする設定なら
-        /// 小窓を消し、押している間だけ出す設定なら何もしない。
+        /// Esc で、定型文の 1 つ上の階層に戻る。一番上 (と履歴モード) では小窓を消す。
         /// </summary>
         private void OnEscapePressed()
         {
@@ -791,7 +756,7 @@ namespace Copipe
                 ShowPhraseLevel();
                 return;
             }
-            if (IsToggle && _trigger == PopupTrigger.Hotkey)
+            if (_popupOpen)
             {
                 ClosePopup();
             }
@@ -1322,22 +1287,12 @@ namespace Copipe
             return level <= _phrasePath.Count ? _phrasePath[level - 1] : null;
         }
 
-        private void OnHotkeyReleased(object sender, EventArgs e)
-        {
-            // 小窓を出していないとき (ダイアログを出している間に押して離したときなど) は何もしない。
-            // 押したら出したままにする設定では、離しても消さない
-            if (_trigger == PopupTrigger.Hotkey && !IsToggle)
-            {
-                ClosePopup();
-            }
-        }
-
         /// <summary>
         /// 小窓を閉じる。小窓が前面なら元のアプリを前面に戻す (restoreTarget が false なら戻さない)。
         /// </summary>
         private void ClosePopup(bool restoreTarget = true)
         {
-            _trigger = PopupTrigger.None;
+            _popupOpen = false;
             // 数字キーやモードキーを横取りしたままにすると、どのアプリでも打てなくなる。真っ先に解除する
             _popupKeys.Disable();
             // 右クリックのメニューも小窓と一緒に閉じる (項目を選ぶ前に離したとき)
@@ -1699,8 +1654,8 @@ namespace Copipe
                 return;
             }
             _dialogOpen = true;
-            // 押したら出したままの設定で小窓を出していたら、閉じた後に出し直す
-            bool reopen = IsToggle && _trigger == PopupTrigger.Hotkey;
+            // 小窓を出していたら、閉じた後に出し直す
+            bool reopen = _popupOpen;
             try
             {
                 _popupKeys.Disable();
@@ -1708,7 +1663,7 @@ namespace Copipe
                 // 持ち主を先に出して前面にしておく。小窓を隠しても前面が他のアプリへ移らない
                 _dialogOwner.Show();
                 _dialogOwner.Activate();
-                _trigger = PopupTrigger.None;
+                _popupOpen = false;
                 _popup.HidePopup();
                 show();
             }
@@ -1771,7 +1726,7 @@ namespace Copipe
         /// </summary>
         private void RestoreAfterMenu()
         {
-            if (_popup.Visible && _popup.SearchTakesFocus)
+            if (_popup.Visible)
             {
                 _popup.FocusSearch();
                 return;
@@ -1841,7 +1796,7 @@ namespace Copipe
                 // 解除しないと、今のホットキーを押しても設定画面に取り込めない
                 _hotkey.Unregister();
                 _popupKeys.Disable();
-                _trigger = PopupTrigger.None;
+                _popupOpen = false;
                 _popup.HidePopup();
 
                 // 登録できないキーが選ばれたときは、閉じずに設定画面へ戻る
@@ -1849,13 +1804,12 @@ namespace Copipe
                 while (!finished)
                 {
                     Keys chosenHotkey;
-                    HotkeyStyle chosenStyle;
                     Keys chosenModeKey;
                     InsertClick chosenClick;
                     UiLanguage chosenLanguage;
                     int chosenHistoryCount;
                     using (SettingsDialog dialog = new SettingsDialog(
-                        _settings.Hotkey, _settings.HotkeyStyle, _settings.ModeKey, _settings.InsertClick,
+                        _settings.Hotkey, _settings.ModeKey, _settings.InsertClick,
                         _settings.Language))
                     {
                         // 設定画面の「まとめて編集...」。設定画面を持ち主にして、その上に出す
@@ -1867,7 +1821,6 @@ namespace Copipe
                             return;
                         }
                         chosenHotkey = dialog.SelectedHotkey;
-                        chosenStyle = dialog.SelectedHotkeyStyle;
                         chosenModeKey = dialog.SelectedModeKey;
                         chosenClick = dialog.SelectedInsertClick;
                         chosenLanguage = dialog.SelectedLanguage;
@@ -1880,7 +1833,7 @@ namespace Copipe
                         {
                             RestoreHotkey();
                         }
-                        ApplySettings(chosenHotkey, chosenStyle, chosenModeKey, chosenClick, chosenLanguage, chosenHistoryCount);
+                        ApplySettings(chosenHotkey, chosenModeKey, chosenClick, chosenLanguage, chosenHistoryCount);
                         finished = true;
                     }
                     else
@@ -1900,10 +1853,10 @@ namespace Copipe
             }
         }
 
-        private void ApplySettings(Keys hotkey, HotkeyStyle style, Keys modeKey, InsertClick insertClick,
+        private void ApplySettings(Keys hotkey, Keys modeKey, InsertClick insertClick,
                                    UiLanguage language, int historyCount)
         {
-            bool changed = (hotkey != _settings.Hotkey) || (style != _settings.HotkeyStyle) || (modeKey != _settings.ModeKey) ||
+            bool changed = (hotkey != _settings.Hotkey) || (modeKey != _settings.ModeKey) ||
                            (insertClick != _settings.InsertClick) || (language != _settings.Language) ||
                            (historyCount != _settings.HistoryCount);
             if (!changed)
@@ -1912,7 +1865,6 @@ namespace Copipe
             }
 
             _settings.Hotkey = hotkey;
-            _settings.HotkeyStyle = style;
             _settings.ModeKey = modeKey;
             _settings.InsertClick = insertClick;
             _settings.Language = language;
@@ -1990,7 +1942,7 @@ namespace Copipe
             try
             {
                 _popupKeys.Disable();
-                _trigger = PopupTrigger.None;
+                _popupOpen = false;
                 _popup.HidePopup();
                 OpenBulkEditor(null);
             }

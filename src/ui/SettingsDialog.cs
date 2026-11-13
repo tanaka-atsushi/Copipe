@@ -30,7 +30,6 @@ namespace Copipe.UI
         private readonly Button _hotkeyBox;
         private readonly Button _modeKeyBox;
         private readonly Label _note;
-        private readonly RadioButton _toggle;
         private readonly RadioButton _singleClick;
         private readonly ComboBox _language;
         private readonly NumericUpDown _historyCount;
@@ -39,7 +38,7 @@ namespace Copipe.UI
         private Keys _selectedModeKey;
         private bool _pending;
 
-        public SettingsDialog(Keys currentHotkey, HotkeyStyle currentStyle, Keys currentModeKey,
+        public SettingsDialog(Keys currentHotkey, Keys currentModeKey,
                               InsertClick currentInsertClick, UiLanguage currentLanguage)
         {
             _selected = currentHotkey;
@@ -57,7 +56,7 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(500));
+            ClientSize = new Size(Scaled(380), Scaled(462));
 
             Label hotkeyLabel = new Label();
             hotkeyLabel.Text = Lang.T("ホットキー (小窓を出すキー)", "Hotkey (shows the popup)");
@@ -95,49 +94,22 @@ namespace Copipe.UI
             Controls.Add(_note);
 
 
-            Label styleLabel = new Label();
-            styleLabel.Text = Lang.T("小窓の出し方", "Show popup");
-            styleLabel.AutoSize = true;
-            styleLabel.Location = new Point(Scaled(16), Scaled(250));
-            Controls.Add(styleLabel);
-
-            // 同じ入れ物のラジオボタンは 1 つしか選べないので、貼り付けの操作とは別の入れ物に入れる
-            Panel stylePanel = new Panel();
-            stylePanel.Bounds = new Rectangle(Scaled(120), Scaled(246), Scaled(244), Scaled(24));
-            Controls.Add(stylePanel);
-
-            RadioButton hold = new RadioButton();
-            hold.Text = Lang.T("押している間", "While held");
-            hold.AutoSize = true;
-            hold.Location = new Point(0, Scaled(2));
-            stylePanel.Controls.Add(hold);
-
-            // 項目を使う・Esc・もう一度ホットキーを押すと消える
-            _toggle = new RadioButton();
-            _toggle.Text = Lang.T("押したら出したまま", "Until used");
-            _toggle.AutoSize = true;
-            _toggle.Location = new Point(Scaled(116), Scaled(2));
-            stylePanel.Controls.Add(_toggle);
-
-            hold.Checked = (currentStyle != HotkeyStyle.Toggle);
-            _toggle.Checked = (currentStyle == HotkeyStyle.Toggle);
-
             Label clickLabel = new Label();
             clickLabel.Text = Lang.T("貼り付けの操作", "Paste with");
             clickLabel.AutoSize = true;
-            clickLabel.Location = new Point(Scaled(16), Scaled(288));
+            clickLabel.Location = new Point(Scaled(16), Scaled(250));
             Controls.Add(clickLabel);
 
             RadioButton doubleClick = new RadioButton();
             doubleClick.Text = Lang.T("ダブルクリック", "Double-click");
             doubleClick.AutoSize = true;
-            doubleClick.Location = new Point(Scaled(120), Scaled(286));
+            doubleClick.Location = new Point(Scaled(120), Scaled(248));
             Controls.Add(doubleClick);
 
             _singleClick = new RadioButton();
             _singleClick.Text = Lang.T("シングルクリック", "Single-click");
             _singleClick.AutoSize = true;
-            _singleClick.Location = new Point(Scaled(236), Scaled(286));
+            _singleClick.Location = new Point(Scaled(236), Scaled(248));
             Controls.Add(_singleClick);
 
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
@@ -146,7 +118,7 @@ namespace Copipe.UI
             Label historyLabel = new Label();
             historyLabel.Text = Lang.T("履歴の件数", "History size");
             historyLabel.AutoSize = true;
-            historyLabel.Location = new Point(Scaled(16), Scaled(326));
+            historyLabel.Location = new Point(Scaled(16), Scaled(288));
             Controls.Add(historyLabel);
 
             // 残すクリップボード履歴の件数 (ピン止めは数えない)。値は HistoryCount で入れる・読む
@@ -155,20 +127,20 @@ namespace Copipe.UI
             _historyCount.Minimum = ClipboardHistory.MinItems;
             _historyCount.Maximum = ClipboardHistory.MaxItems;
             _historyCount.Value = ClipboardHistory.DefaultItems;
-            _historyCount.Bounds = new Rectangle(Scaled(120), Scaled(322), Scaled(80), Scaled(24));
+            _historyCount.Bounds = new Rectangle(Scaled(120), Scaled(284), Scaled(80), Scaled(24));
             Controls.Add(_historyCount);
 
             Label historyUnit = new Label();
             historyUnit.Text = Lang.T("件 (ピン止めは数えない)", "items (pinned not counted)");
             historyUnit.AutoSize = true;
-            historyUnit.Location = new Point(Scaled(206), Scaled(326));
+            historyUnit.Location = new Point(Scaled(206), Scaled(288));
             Controls.Add(historyUnit);
 
             // 欄の名前はいつも Language、言語の名前はその言語で出す (読めない言語になっても戻せるように)
             Label languageLabel = new Label();
             languageLabel.Text = "Language";
             languageLabel.AutoSize = true;
-            languageLabel.Location = new Point(Scaled(16), Scaled(364));
+            languageLabel.Location = new Point(Scaled(16), Scaled(326));
             Controls.Add(languageLabel);
 
             _language = new ComboBox();
@@ -176,20 +148,20 @@ namespace Copipe.UI
             _language.DropDownStyle = ComboBoxStyle.DropDownList;
             _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
             _language.SelectedIndex = (int)currentLanguage;
-            _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(322), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
             Label phrasesLabel = new Label();
             phrasesLabel.Text = Lang.T("定型文", "Snippets");
             phrasesLabel.AutoSize = true;
-            phrasesLabel.Location = new Point(Scaled(16), Scaled(404));
+            phrasesLabel.Location = new Point(Scaled(16), Scaled(366));
             Controls.Add(phrasesLabel);
 
             // 定型文の一括登録・一括編集の画面を開く (開くのは CopipeApp。BulkEditRequested で頼む)
             Button bulk = new Button();
             bulk.Name = "bulkEditButton";
             bulk.Text = Lang.T("まとめて編集...", "Edit in bulk...");
-            bulk.Bounds = new Rectangle(Scaled(120), Scaled(398), Scaled(160), Scaled(30));
+            bulk.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(160), Scaled(30));
             bulk.Click += delegate
             {
                 Action<IWin32Window> handler = BulkEditRequested;
@@ -204,7 +176,7 @@ namespace Copipe.UI
             Button about = new Button();
             about.Name = "aboutButton";
             about.Text = "About...";
-            about.Bounds = new Rectangle(Scaled(16), Scaled(450), Scaled(84), Scaled(30));
+            about.Bounds = new Rectangle(Scaled(16), Scaled(412), Scaled(84), Scaled(30));
             about.Click += delegate
             {
                 using (AboutDialog dialog = new AboutDialog())
@@ -217,13 +189,13 @@ namespace Copipe.UI
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(450), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(412), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(450), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(412), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -238,12 +210,6 @@ namespace Copipe.UI
         public Keys SelectedHotkey
         {
             get { return _selected; }
-        }
-
-        /// <summary>OK で閉じたときに選ばれた小窓の出し方。</summary>
-        public HotkeyStyle SelectedHotkeyStyle
-        {
-            get { return _toggle.Checked ? HotkeyStyle.Toggle : HotkeyStyle.Hold; }
         }
 
         /// <summary>OK で閉じたときに選ばれたモードキー。</summary>

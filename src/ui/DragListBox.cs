@@ -55,7 +55,7 @@ namespace Copipe.UI
         /// <summary>ドラッグが途中で終わったとき (マウスの捕捉を失った・取り消された)。</summary>
         public event Action DragAborted;
 
-        /// <summary>ドラッグをやめる (Esc やホットキーを離したとき)。DragAborted は出さない。</summary>
+        /// <summary>ドラッグをやめる (Esc や小窓を消したとき)。DragAborted は出さない。</summary>
         public void CancelDrag()
         {
             if (!_dragging)

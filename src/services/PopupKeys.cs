@@ -14,7 +14,7 @@ namespace Copipe.Services
     /// </summary>
     internal sealed class PopupKeys : NativeWindow, IDisposable
     {
-        // ホットキーの ID。HoldHotkey (1) と重ならないようにする
+        // ホットキーの ID。Hotkey (1) と重ならないようにする
         private const int ModeKeyId = 200;
         private const int EscapeId = 201;
         // 矢印キーと Enter、編集の画面を開く F2
