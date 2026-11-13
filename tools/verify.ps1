@@ -961,6 +961,30 @@ try {
         Check 'モードキーとホットキーの重なり: Space と Space は重なる' $HT::ConflictsWithHotkey($K::Space, $K::Space)
         Check 'モードキーとホットキーの重なり: F1 と Tab は重ならない' (-not $HT::ConflictsWithHotkey($K::F1, $K::Tab))
 
+        # 小窓の出し方 (押している間 / 押したら出したまま) と、中身 (切り替え / 左右に並べる)
+        $HS = [Copipe.Services.HotkeyStyle]
+        $PL = [Copipe.Services.PopupLayout]
+        $none = $S::Load((Join-Path $settingsDir 'none.ini'))
+        Check '出し方: ファイルが無ければ押している間だけ (Hold)' ($none.HotkeyStyle -eq $HS::Hold) "got=$($none.HotkeyStyle)"
+        Check '中身: ファイルが無ければ切り替え (Switch)' ($none.PopupLayout -eq $PL::Switch) "got=$($none.PopupLayout)"
+        $saved4 = New-Object Copipe.Services.Settings
+        $saved4.HotkeyStyle = $HS::Toggle
+        $saved4.PopupLayout = $PL::SideBySide
+        $saved4.Save($path)
+        $back = $S::Load($path)
+        Check '出し方・中身: 保存して読み戻せる (Toggle・SideBySide)' ($back.HotkeyStyle -eq $HS::Toggle -and $back.PopupLayout -eq $PL::SideBySide) "style=$($back.HotkeyStyle) layout=$($back.PopupLayout)"
+        $raw = Get-Content -LiteralPath $path -Raw
+        Check '出し方・中身: 保存した内容に HotkeyStyle と PopupLayout の行がある' ($raw -match 'HotkeyStyle\s*=\s*Toggle' -and $raw -match 'PopupLayout\s*=\s*SideBySide')
+        Set-Content -LiteralPath $path -Value "HotkeyStyle=toggle`r`nPopupLayout=sidebyside" -Encoding UTF8
+        $back = $S::Load($path)
+        Check '出し方・中身: 大文字小文字は区別しない' ($back.HotkeyStyle -eq $HS::Toggle -and $back.PopupLayout -eq $PL::SideBySide)
+        # 数字 ('1' など) を列挙値として読んでしまわないこと
+        foreach ($bad in '1', '0', 'Press', '') {
+            Set-Content -LiteralPath $path -Value "HotkeyStyle=$bad`r`nPopupLayout=$bad" -Encoding UTF8
+            $back = $S::Load($path)
+            Check "出し方・中身: 読めない値 '$bad' は既定 (Hold・Switch) に戻す" ($back.HotkeyStyle -eq $HS::Hold -and $back.PopupLayout -eq $PL::Switch) "style=$($back.HotkeyStyle) layout=$($back.PopupLayout)"
+        }
+
         # ---- 前の版の設定 (ダブルタップ・ホットキーなし) を読んでも困らない ----
         Set-Content -LiteralPath $path -Value "Hotkey=Pause`r`nDoubleTap=Ctrl`r`nModeKey=F2" -Encoding UTF8
         $old = $S::Load($path)
@@ -981,8 +1005,9 @@ try {
         $F = [Reflection.BindingFlags]'Public,NonPublic,Instance'
         # SettingsDialog は internal なので、型は exe から名前で取り出して作る
         $DT = [Copipe.UI.HotkeyText].Assembly.GetType('Copipe.UI.SettingsDialog', $true)
-        function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode) {
-            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $Mode, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
+        function New-Dialog([System.Windows.Forms.Keys]$Hotkey, [System.Windows.Forms.Keys]$Mode,
+                            [Copipe.Services.HotkeyStyle]$Style = 'Hold', [Copipe.Services.PopupLayout]$Layout = 'Switch') {
+            $d = [Activator]::CreateInstance($DT, $F, $null, [object[]]@($Hotkey, $Style, $Mode, $Layout, [Copipe.Services.InsertClick]::Double, [Copipe.UiLanguage]::Auto), $null)
             $d.StartPosition = 'Manual'
             $d.Location = New-Object System.Drawing.Point 200, 150
             $d.Show()
@@ -1109,6 +1134,19 @@ try {
         $d = New-Dialog $K::Pause $K::Tab
         try {
             Check '設定画面: ホットキーの「なし」ボタンもダブルタップの欄も無い' ($null -eq $DT.GetField('_hotkeyClear', $F) -and $null -eq $DT.GetField('_doubleTapBox', $F))
+        } finally { $d.Close(); $d.Dispose() }
+
+        # 小窓の出し方と中身は、開いたときの値を選んでおき、そのまま返す
+        $d = New-Dialog $K::Pause $K::Tab
+        try {
+            Check '設定画面: 既定は「押している間だけ」と「切り替え」' ($d.SelectedHotkeyStyle -eq 'Hold' -and $d.SelectedPopupLayout -eq 'Switch') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
+        } finally { $d.Close(); $d.Dispose() }
+        $d = New-Dialog $K::Pause $K::Tab 'Toggle' 'SideBySide'
+        try {
+            Check '設定画面: 「押したら出したまま」と「並べる」で開くと、それが選ばれている' ($d.SelectedHotkeyStyle -eq 'Toggle' -and $d.SelectedPopupLayout -eq 'SideBySide') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
+            (Get-DialogField $d '_toggle').Checked = $false
+            (Get-DialogField $d '_sideBySide').Checked = $false
+            Check '設定画面: 選び直すと「押している間だけ」と「切り替え」を返す' ($d.SelectedHotkeyStyle -eq 'Hold' -and $d.SelectedPopupLayout -eq 'Switch') "style=$($d.SelectedHotkeyStyle) layout=$($d.SelectedPopupLayout)"
         } finally { $d.Close(); $d.Dispose() }
 
         # 確定と取り消し
@@ -1400,6 +1438,242 @@ try {
     & (Join-Path $root 'tools\Stop-Copipe.ps1') -ExePath $exe
 
     # ==========================================================================
+    Section '検証 4d: 定型文・グループの登録画面 (PhraseDialog)' {
+    # ==========================================================================
+        # 本文とファイル・フォルダーのうち、入力カーソルを入れた方・最後に書いた方 (● と赤い枠) を使う。もう一方は ○ と灰色。
+        # 開いた直後はどちらも ○ で、灰色にしない。カーソルの出入りは Enter・Leave の処理を直接呼ぶ (画面は出さない)
+        # 表示名・グループ名の欄は英字に固定 (半角/全角 か右の印で日本語)。キーは送らず、フックからの知らせを直接渡す
+        $F = [Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
+        $asm = [Copipe.UI.HotkeyText].Assembly
+        $PD = $asm.GetType('Copipe.UI.PhraseDialog', $true)
+        $HK = $asm.GetType('Copipe.Services.SearchKeyHook', $true)
+        $ET = $asm.GetType('Copipe.UI.EnglishTyping', $true)
+        function Get-PhraseField($d, [string]$Name) { return ,($PD.GetField($Name, $F).GetValue($d)) }
+        function New-PhraseDialog([string]$Text, [string]$Path, [string]$Title = '') { return $PD.GetMethod('ForPhrase', $F).Invoke($null, [object[]]@('t', 'loc', $Title, $Text, $Path)) }
+        $gray = [System.Drawing.SystemColors]::Control
+        $white = [System.Drawing.SystemColors]::Window
+        function Test-Neutral($d) {
+            return ((Get-PhraseField $d '_textMark').Text -like '○*' -and (Get-PhraseField $d '_pathMark').Text -like '○*' -and
+                    (Get-PhraseField $d '_textBox').BackColor -eq $white -and (Get-PhraseField $d '_pathBox').BackColor -eq $white -and
+                    (Get-PhraseField $d '_textLabel').ForeColor -ne [System.Drawing.SystemColors]::GrayText -and
+                    (Get-PhraseField $d '_pathLabel').ForeColor -ne [System.Drawing.SystemColors]::GrayText -and
+                    (Get-PhraseField $d '_textFrame').BackColor.R -ne 0xE0 -and (Get-PhraseField $d '_pathFrame').BackColor.R -ne 0xE0)
+        }
+        function Invoke-Focus($d, [string]$What, [bool]$Path) { [void]$PD.GetMethod($What, $F).Invoke($d, [object[]]@($Path)) }
+
+        $d = New-PhraseDialog '' ''
+        try {
+            Check '登録画面: 開いた直後はどちらも ○ で灰色にしない。OK は押せない' ((Test-Neutral $d) -and -not $d.PathChosen -and -not (Get-PhraseField $d '_ok').Enabled)
+            Invoke-Focus $d 'OnFieldEnter' $true
+            Check '登録画面: パスの欄にカーソルを入れると、パスに ● が付き、本文が灰色になる' ($d.PathChosen -and (Get-PhraseField $d '_pathMark').Text -like '●*' -and (Get-PhraseField $d '_pathFrame').BackColor.R -eq 0xE0 -and (Get-PhraseField $d '_textMark').Text -like '○*' -and (Get-PhraseField $d '_textBox').BackColor -eq $gray -and -not (Get-PhraseField $d '_ok').Enabled)
+            Invoke-Focus $d 'OnFieldLeave' $true
+            Check '登録画面: 空のままカーソルが出ると、開いた直後の状態に戻る' ((Test-Neutral $d) -and -not $d.PathChosen)
+            Invoke-Focus $d 'OnFieldEnter' $false
+            Check '登録画面: 本文の欄にカーソルを入れると、本文に ● が付き、パスが灰色になる' (-not $d.PathChosen -and (Get-PhraseField $d '_textMark').Text -like '●*' -and (Get-PhraseField $d '_pathBox').BackColor -eq $gray)
+            Invoke-Focus $d 'OnFieldLeave' $false
+            (Get-PhraseField $d '_textBox').Text = 'hello'
+            Check '登録画面: 本文を書くと本文を使い、OK を押せる' (-not $d.PathChosen -and (Get-PhraseField $d '_ok').Enabled -and $d.PhraseText -ceq 'hello' -and $d.PhrasePath -ceq '')
+            (Get-PhraseField $d '_pathBox').Text = 'C:\a.txt'
+            Check '登録画面: パスを書くとパスを使う (本文は消さずに残す)' ($d.PathChosen -and $d.PhrasePath -ceq 'C:\a.txt' -and $d.PhraseText -ceq '' -and (Get-PhraseField $d '_textBox').Text -ceq 'hello')
+            $textBox = Get-PhraseField $d '_textBox'
+            Check '登録画面: 使わない本文の欄は灰色だが書ける。パスの枠は赤い' ($textBox.BackColor -eq $gray -and $textBox.Enabled -and (Get-PhraseField $d '_pathFrame').BackColor.R -eq 0xE0) "back=$($textBox.BackColor)"
+            $textBox.AppendText('!')
+            Check '登録画面: 本文を書き足すと本文を使う側に戻る' (-not $d.PathChosen -and $d.PhraseText -ceq 'hello!' -and $d.PhrasePath -ceq '')
+            Invoke-Focus $d 'OnFieldEnter' $true
+            Check '登録画面: 本文があっても、パスの欄にカーソルを入れるとパスに ● が移る' ($d.PathChosen -and (Get-PhraseField $d '_textBox').BackColor -eq $gray)
+            Invoke-Focus $d 'OnFieldLeave' $true
+            Check '登録画面: パスの欄を出ても、パスに中身があればパスのまま' ($d.PathChosen -and $d.PhrasePath -ceq 'C:\a.txt')
+            Invoke-Focus $d 'OnFieldEnter' $false
+            Invoke-Focus $d 'OnFieldLeave' $false
+            Check '登録画面: 中身のある本文の欄に出入りすると本文に戻る' (-not $d.PathChosen -and $d.PhraseText -ceq 'hello!')
+            [void]$PD.GetMethod('Choose', $F).Invoke($d, [object[]]@($true))
+            Check '登録画面: 中身のある灰色の側の見出しをクリックすると、そちらを使う' ($d.PathChosen -and $d.PhrasePath -ceq 'C:\a.txt')
+            (Get-PhraseField $d '_pathBox').Text = ''
+            Check '登録画面: 使う側を空にすると、中身のあるもう一方に戻る' (-not $d.PathChosen -and $d.PhraseText -ceq 'hello!' -and (Get-PhraseField $d '_ok').Enabled)
+            Invoke-Focus $d 'OnFieldEnter' $true
+            Invoke-Focus $d 'OnFieldLeave' $true
+            Check '登録画面: 空のパスの欄を出ると、中身のある本文に戻り OK を押せる' (-not $d.PathChosen -and (Get-PhraseField $d '_textMark').Text -like '●*' -and (Get-PhraseField $d '_ok').Enabled)
+            $textBox.Text = '   '
+            Check '登録画面: 両方空なら OK を押せず、開いた直後の状態に戻る' (-not $d.PathChosen -and -not (Get-PhraseField $d '_ok').Enabled -and (Test-Neutral $d))
+            [void]$PD.GetMethod('Choose', $F).Invoke($d, [object[]]@($true))
+            Check '登録画面: 空の側は選べない' (-not $d.PathChosen)
+        } finally { $d.Dispose() }
+        $d = New-PhraseDialog 'old text' 'https://example.com'
+        try {
+            Check '登録画面: 両方入った前のデータはパスを使う (小窓で開いていたため。パスに ●)' ($d.PathChosen -and (Get-PhraseField $d '_pathMark').Text -like '●*' -and (Get-PhraseField $d '_ok').Enabled -and $d.PhraseText -ceq '' -and $d.PhrasePath -ceq 'https://example.com')
+        } finally { $d.Dispose() }
+        $d = New-PhraseDialog '' 'C:\x'
+        try { Check '登録画面: パスだけならパスを使う (開いた直後は ● を付けない)' ($d.PathChosen -and (Get-PhraseField $d '_ok').Enabled -and $d.PhrasePath -ceq 'C:\x' -and (Test-Neutral $d)) } finally { $d.Dispose() }
+        $d = New-PhraseDialog 'abc' ''
+        try { Check '登録画面: 本文だけなら本文を使う (開いた直後は ● を付けない)' (-not $d.PathChosen -and (Get-PhraseField $d '_ok').Enabled -and $d.PhraseText -ceq 'abc' -and (Test-Neutral $d)) } finally { $d.Dispose() }
+
+        # 名前の欄の英字の入力 (日本語入力や Meltype などがオンでも英字が入る)
+        $typedMsg = [int]$HK.GetField('TypedMessage', $F).GetValue($null)
+        $modeMsg = [int]$HK.GetField('ModeMessage', $F).GetValue($null)
+        function Get-EnglishHook($d) { return $ET.GetField('_hook', $F).GetValue((Get-PhraseField $d '_english')) }
+        function Send-ToEnglish($d, [int]$Msg, [int]$W, [int]$L) {
+            $e = Get-PhraseField $d '_english'
+            $m = [System.Windows.Forms.Message]::Create($e.Handle, $Msg, [IntPtr]$W, [IntPtr]$L)
+            $a = New-Object 'object[]' 1; $a[0] = $m
+            [void]$ET.GetMethod('WndProc', $F).Invoke($e, $a)
+        }
+        foreach ($kind in 'phrase', 'group') {
+            if ($kind -eq 'phrase') {
+                $d = New-PhraseDialog 'text' '' 'ab'
+                $nameBox = Get-PhraseField $d '_titleBox'
+                $other = Get-PhraseField $d '_textBox'
+            } else {
+                $d = $PD.GetMethod('ForGroup', $F).Invoke($null, [object[]]@('t', 'loc', 'ab'))
+                $nameBox = Get-PhraseField $d '_nameBox'
+                $other = $null
+            }
+            try {
+                # 画面の外に出す (Shoot-Dialogs と同じ)
+                $d.StartPosition = 'Manual'
+                $d.Location = New-Object System.Drawing.Point -4000, 100
+                $d.Show()
+                [System.Windows.Forms.Application]::DoEvents()
+                $hook = Get-EnglishHook $d
+                Check "名前の欄 (${kind}): 開くとキーボードフックが付く" ($null -ne $hook)
+                [void]$nameBox.Focus(); $nameBox.SelectionStart = $nameBox.TextLength
+                Send-ToEnglish $d $typedMsg 0x43 0; Send-ToEnglish $d $typedMsg 0x20 0; Send-ToEnglish $d $typedMsg 0x44 1
+                Check "名前の欄 (${kind}): フックが受け取った英字・空白が入る (Shift なら大文字)" ($nameBox.Text -ceq 'abc D') "got=[$($nameBox.Text)]"
+                if ($other) {
+                    [void]$other.Focus()
+                    Send-ToEnglish $d $typedMsg 0x45 0
+                    Check "名前の欄 (${kind}): 本文の欄に入力カーソルがあるときは名前に入れない" ($nameBox.Text -ceq 'abc D' -and $other.Text -ceq 'text')
+                }
+                $english = Get-PhraseField $d '_english'
+                Check "名前の欄 (${kind}): 最初は英字 (印は A、日本語入力は止める)" (-not $english.Japanese -and $english.Indicator.Text -ceq 'A' -and $nameBox.ImeMode -eq 'Disable' -and -not $hook.PassThrough)
+                Send-ToEnglish $d $modeMsg 0 1
+                Check "名前の欄 (${kind}): 半角/全角 で日本語に (印は あ、日本語入力をオン)" ($english.Japanese -and $english.Indicator.Text -ceq 'あ' -and $nameBox.ImeMode -eq 'Hiragana')
+                $english.Japanese = $false
+                Check "名前の欄 (${kind}): 印のクリックで英字に戻すと、フックも英字を受け取る" (-not $hook.PassThrough -and $english.Indicator.Text -ceq 'A')
+                $english.Japanese = $true
+                Check "名前の欄 (${kind}): 日本語にすると、フックは英字を日本語入力に通す" ($hook.PassThrough)
+                $d.Close()
+                Check "名前の欄 (${kind}): 閉じるとフックが外れる" ($null -eq (Get-EnglishHook $d))
+            } finally { $d.Dispose() }
+        }
+    }
+
+    # ==========================================================================
+    Section '検証 4e: 小窓の部品 (PopupForm / PopupPane / PopupKeys)' {
+    # ==========================================================================
+        # 小窓は出さず、部品を作って、マウス・キーの知らせを直接渡す
+        $F = [Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
+        $asm = [Copipe.UI.HotkeyText].Assembly
+        $PF = $asm.GetType('Copipe.UI.PopupForm', $true)
+        $PP = $asm.GetType('Copipe.UI.PopupPane', $true)
+        $PR = $asm.GetType('Copipe.UI.PopupRow', $true)
+        $RK = $asm.GetType('Copipe.UI.PopupRowKind', $true)
+        $PK = $asm.GetType('Copipe.Services.PopupKeys', $true)
+
+        # 検索窓 (押したら出したままのとき)
+        $p = [Activator]::CreateInstance($PF, $true)
+        try {
+            $p.SearchEnabled = $true
+            $search = $PF.GetField('_search', $F).GetValue($p)
+            $script:searchChanged = 0
+            $PF.GetEvent('SearchChanged').AddEventHandler($p, [EventHandler] { $script:searchChanged++ })
+            foreach ($c in 'h', 'e', ' ', 'L') { $p.TypeSearch([char]$c) }
+            Check '検索窓: 英字と空白が入り、入れるたびに探し直す' ($search.Text -ceq 'he L' -and $script:searchChanged -eq 4) "text=[$($search.Text)] changed=$($script:searchChanged)"
+            $p.TypeSearch([char]'あ'); $p.TypeSearch([char]'1')
+            Check '検索窓: かな・数字はフックからは入れない' ($search.Text -ceq 'he L')
+            $search.SelectionStart = 0; $search.SelectionLength = 2
+            $p.TypeSearch([char]'x')
+            Check '検索窓: 選んでいる部分は置き換える' ($search.Text -ceq 'x L')
+            $english = $PF.GetField('_english', $F).GetValue($p)
+            $keyPress = $PF.GetMethod('OnSearchKeyPress', $F)
+            function Test-SearchKeyPress([char]$C) {
+                $e = [System.Windows.Forms.KeyPressEventArgs]::new($C)
+                $a = New-Object 'object[]' 2; $a[0] = $search; $a[1] = $e
+                [void]$keyPress.Invoke($p, $a)
+                return $e.Handled
+            }
+            Check '検索窓: 英字の間は、かなのキー入力を入れない' ((Test-SearchKeyPress ([char]'か')) -and -not (Test-SearchKeyPress ([char]'k')))
+            $english.Japanese = $true
+            Check '検索窓: 日本語 (あ) にすると、かなも入る' (-not (Test-SearchKeyPress ([char]'か')))
+            Check '検索窓: 変換中でなければ、Enter・Esc を変換の確定・取り消しに使わない' (-not $p.FinishImeComposition($true) -and -not $p.FinishImeComposition($false))
+            $search.Text = 'あいさつ'
+            Check '検索窓: 貼り付けた日本語も残る' ($search.Text -ceq 'あいさつ')
+        } finally { $p.Dispose() }
+
+        # 検索の候補の右クリック (一覧の行と同じメニューを出してもらう)
+        $p = [Activator]::CreateInstance($PF, $true)
+        try {
+            $p.SearchEnabled = $true
+            $labels = New-Object 'System.Collections.Generic.List[string]'
+            $labels.Add('alpha'); $labels.Add('alpine'); $labels.Add('also')
+            $a = New-Object 'object[]' 1; $a[0] = $labels.psobject.BaseObject
+            [void]$PF.GetMethod('SetCandidates').Invoke($p, $a)
+            $list = $PF.GetField('_candidates', $F).GetValue($p)
+            [void]$list.Handle
+            $script:candidateMenu = $null
+            $PF.GetEvent('CandidateContextRequested').AddEventHandler($p, [Action[int, System.Drawing.Point]] { param($i, $pt) $script:candidateMenu = $i })
+            $mouseUp = $PF.GetMethod('OnCandidateMouseUp', $F)
+            function Send-CandidateUp([System.Windows.Forms.MouseButtons]$Button, [int]$Y) {
+                $a = New-Object 'object[]' 2; $a[0] = $list; $a[1] = [System.Windows.Forms.MouseEventArgs]::new($Button, 1, 5, $Y, 0)
+                [void]$mouseUp.Invoke($p, $a)
+            }
+            $y = [int]($list.ItemHeight * 1.5)
+            Send-CandidateUp 'Right' $y
+            Check '候補の右クリック: その候補 (2 番目) を選んで、メニューを求める' ($script:candidateMenu -eq 1 -and $list.SelectedIndex -eq 1) "got=$($script:candidateMenu) selected=$($list.SelectedIndex)"
+            $script:candidateMenu = $null
+            Send-CandidateUp 'Left' $y
+            Check '候補の右クリック: 左クリックではメニューを求めない' ($null -eq $script:candidateMenu)
+            Send-CandidateUp 'Right' ($list.ItemHeight * 20)
+            Check '候補の右クリック: 候補の無い所ではメニューを求めない' ($null -eq $script:candidateMenu)
+        } finally { $p.Dispose() }
+
+        # 空きの枠は 1 回のクリックで登録画面 (貼り付けの操作の設定によらない)
+        $pane = [Activator]::CreateInstance($PP, $F, $null, [object[]]@([System.Drawing.SystemColors]::Window), $null)
+        try {
+            $pane.Size = New-Object System.Drawing.Size 300, 400
+            $rows = [Activator]::CreateInstance(([System.Collections.Generic.List``1].MakeGenericType($PR)))
+            $rows.Add([Activator]::CreateInstance($PR, [object[]]@([Enum]::Parse($RK, 'Item'), 'phrase')))
+            $rows.Add([Activator]::CreateInstance($PR, [object[]]@([Enum]::Parse($RK, 'Empty'), '')))
+            $rows.Add([Activator]::CreateInstance($PR, [object[]]@([Enum]::Parse($RK, 'Group'), 'grp')))
+            $a = New-Object 'object[]' 2; $a[0] = $rows; $a[1] = ''
+            [void]$PP.GetMethod('SetRows').Invoke($pane, $a)
+            $paneList = $PP.GetField('_list', $F).GetValue($pane)
+            [void]$paneList.Handle
+            $script:emptyClicked = @(); $script:rowActivated = @()
+            $PP.GetEvent('EmptyRowClicked').AddEventHandler($pane, [Action[int]] { param($i) $script:emptyClicked += $i })
+            $PP.GetEvent('RowActivated').AddEventHandler($pane, [Action[int]] { param($i) $script:rowActivated += $i })
+            $click = $PP.GetMethod('OnListMouseClick', $F)
+            function Send-RowClick([int]$Row) {
+                $r = $paneList.GetItemRectangle($Row)
+                $a = New-Object 'object[]' 2; $a[0] = $paneList; $a[1] = [System.Windows.Forms.MouseEventArgs]::new([System.Windows.Forms.MouseButtons]::Left, 1, 10, ($r.Top + [int]($r.Height / 2)), 0)
+                [void]$click.Invoke($pane, $a)
+            }
+            $pane.InsertOnSingleClick = $false
+            Send-RowClick 1
+            Check '空きの枠: ダブルクリックの設定でも、1 回のクリックで登録画面を求める' ($script:emptyClicked.Count -eq 1 -and $script:emptyClicked[0] -eq 1 -and $script:rowActivated.Count -eq 0) "empty=$($script:emptyClicked) activated=$($script:rowActivated)"
+            Send-RowClick 0
+            Check '空きの枠: ダブルクリックの設定では、定型文は 1 回のクリックで使わない' ($script:rowActivated.Count -eq 0 -and $script:emptyClicked.Count -eq 1)
+            $pane.InsertOnSingleClick = $true
+            Send-RowClick 1
+            Check '空きの枠: シングルクリックの設定でも登録画面を求める (使うのではない)' ($script:emptyClicked.Count -eq 2 -and $script:rowActivated.Count -eq 0)
+            Send-RowClick 0
+            Check '空きの枠: シングルクリックの設定では、定型文は 1 回のクリックで使う' ($script:rowActivated.Count -eq 1 -and $script:rowActivated[0] -eq 0)
+        } finally { $pane.Dispose() }
+
+        # F2 (選んでいるものの編集) は、小窓を出している間のキーとして届く
+        $keys = [Activator]::CreateInstance($PK, $true)
+        try {
+            $script:arrowPressed = @()
+            $PK.GetEvent('ArrowPressed').AddEventHandler($keys, [Action[System.Windows.Forms.Keys]] { param($k) $script:arrowPressed += $k })
+            $arrowKeys = $PK.GetField('ArrowKeys', $F).GetValue($null)
+            $f2 = [Array]::IndexOf($arrowKeys, [System.Windows.Forms.Keys]::F2)
+            $m = [System.Windows.Forms.Message]::Create($keys.Handle, 0x0312, [IntPtr](210 + $f2), [IntPtr]::Zero)
+            $a = New-Object 'object[]' 1; $a[0] = $m
+            [void]$PK.GetMethod('WndProc', $F).Invoke($keys, $a)
+            Check 'F2: 小窓を出している間のキーとして ArrowPressed(F2) で届く' ($f2 -ge 0 -and $script:arrowPressed.Count -eq 1 -and $script:arrowPressed[0] -eq 'F2') "index=$f2 pressed=$($script:arrowPressed)"
+        } finally { $keys.Dispose() }
+    }
+
+    # ==========================================================================
     Section '検証 5: クリップボードの読み取り (ClipboardReader)' {
     # ==========================================================================
         $CB = [System.Windows.Forms.Clipboard]
@@ -1600,11 +1874,13 @@ try {
         $script:hotkeyDown = $false
 
         # 設定ファイルにホットキーを書き、ハーネスが擬似入力するキーもそれに合わせる
-        # 貼り付けの操作は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
-        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double') {
+        # 貼り付けの操作・小窓の出し方・並べ方は毎回はっきり書く (利用者の設定が検証に紛れ込まないように)
+        function Use-Hotkey([System.Windows.Forms.Keys]$Keys, [string]$InsertClick = 'Double', [string]$Style = 'Hold', [string]$Layout = 'Switch') {
             $settings = [Copipe.Services.Settings]::Load([Copipe.Services.Settings]::DefaultPath)
             $settings.Hotkey = $Keys
             $settings.InsertClick = [Copipe.Services.InsertClick]$InsertClick
+            $settings.HotkeyStyle = [Copipe.Services.HotkeyStyle]$Style
+            $settings.PopupLayout = [Copipe.Services.PopupLayout]$Layout
             $settings.ModeKey = [System.Windows.Forms.Keys]::Tab
             $settings.Save([Copipe.Services.Settings]::DefaultPath)
             $script:hotkeyKeys = $Keys
@@ -2745,25 +3021,19 @@ try {
                         Send-Key 0x1B 1
                         Check '定型文: もう一度 Esc で一番上に戻る' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
 
-                        # クリックは「貼り付けの操作」の設定に従う (この Copipe はダブルクリック)
+                        # 定型文のクリックは「貼り付けの操作」の設定に従う (この Copipe はダブルクリック)。グループは設定によらず 1 回のクリックで入る
                         $pt = Get-ItemCenter $popup 1
                         [void]$W::SetCursorPos($pt.X, $pt.Y)
                         $W::LeftClick()
-                        [void](Wait-Pumping { $false } 700)
-                        Check '定型文: ダブルクリックの設定では、グループをシングルクリックしても入らない' (Test-Title (Get-PopupLabels) '定型文') "labels=[$(Get-PopupLabels)]"
-                        $W::DoubleClick()
                         [void](Wait-Pumping { Test-Title (Get-PopupLabels) '定型文 > 社外' } 1000)
-                        Check '定型文: グループをダブルクリックすると中に入る' (Test-Title (Get-PopupLabels) '定型文 > 社外') "labels=[$(Get-PopupLabels)]"
+                        Check '定型文: グループは、ダブルクリックの設定でも 1 回のクリックで中に入る' (Test-Title (Get-PopupLabels) '定型文 > 社外') "labels=[$(Get-PopupLabels)]"
+                        # グループを開いたクリックの直後のダブルクリックは、続けてクリックしたものとして無視するので、少し待つ
+                        [void](Wait-Pumping { $false } ([System.Windows.Forms.SystemInformation]::DoubleClickTime + 100))
                         $pt = Get-ItemCenter $popup 2
                         [void]$W::SetCursorPos($pt.X, $pt.Y)
                         $W::DoubleClick()
                         $clickMs = Wait-Pumping { $box.Text -ceq "前:定型文検証 挨拶`r`n2行目定型文検証 締め" } 3000
                         Check '定型文: 定型文をダブルクリックすると入力される' ($clickMs -ge 0) ("text=[" + $box.Text + "]")
-                        $pt = Get-ItemCenter $popup 0
-                        [void]$W::SetCursorPos($pt.X, $pt.Y)
-                        $W::DoubleClick()
-                        [void](Wait-Pumping { $false } 600)
-                        Check '定型文: 空きの枠をダブルクリックしても何もしない' ((Test-Title (Get-PopupLabels) '定型文 > 社外') -and $box.Text -ceq "前:定型文検証 挨拶`r`n2行目定型文検証 締め") ("labels=[$(Get-PopupLabels)] text=[" + $box.Text + "]")
                         [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
 
                         Send-Key 0x09 1   # 履歴へ
@@ -2781,6 +3051,34 @@ try {
                         Invoke-HotkeyRelease
                         [void](Wait-Until { -not $W::IsWindowVisible($popup) } 1000)
                         Check '定型文: 開き直すと一番上から' (Test-Title $labels '定型文') "labels=[$labels]"
+
+                        # 空きの枠は、貼り付けの操作の設定によらず、1 回のクリックで登録画面を出す。取り消せば何も変わらない
+                        function Find-VisibleTitle([string]$Title) {
+                            foreach ($h in $W::TopWindows($app.Id)) {
+                                if ($W::IsWindowVisible($h) -and $W::GetText($h) -ceq $Title) { return $h }
+                            }
+                            return [IntPtr]::Zero
+                        }
+                        $phrasesBefore = [System.IO.File]::ReadAllText($phrasesPath)
+                        $textBefore = $box.Text
+                        [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        Send-Key 0x09 1
+                        $pt = Get-ItemCenter $popup 2   # 一番上の 3 番は空き
+                        [void]$W::SetCursorPos($pt.X, $pt.Y)
+                        $W::LeftClick()
+                        [void](Wait-Pumping { (Find-VisibleTitle '定型文を登録') -ne [IntPtr]::Zero } 3000)
+                        $emptyDialog = Find-VisibleTitle '定型文を登録'
+                        Invoke-HotkeyRelease
+                        Check '定型文: 空きの枠を 1 回クリックすると「定型文を登録」が出る (ダブルクリックの設定でも)' ($emptyDialog -ne [IntPtr]::Zero)
+                        if ($emptyDialog -ne [IntPtr]::Zero) {
+                            $cancelButton = @($W::Children($emptyDialog) | Where-Object { $W::GetClass($_) -like '*BUTTON*' -and $W::GetText($_) -ceq 'キャンセル' })
+                            if ($cancelButton.Count -gt 0) { [void]$W::PostMessage($cancelButton[0], 0x00F5 <# BM_CLICK #>, [IntPtr]::Zero, [IntPtr]::Zero) }
+                            [void](Wait-Pumping { -not $W::IsWindowVisible($emptyDialog) } 3000)
+                        }
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        Check '定型文: 空きの枠の登録画面を取り消すと、定型文も入力先も変わらない' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $phrasesBefore -and $box.Text -ceq $textBefore -and -not $W::IsWindowVisible($popup)) ("text=[" + $box.Text + "]")
 
                         # ---- 定型文: 右クリックのメニューと、登録・編集・削除のダイアログ ----
                         function Find-TopWindow([string]$Title) {
@@ -2858,10 +3156,22 @@ try {
                             $okPart = Find-Part $dlg 'okButton'
                             Check '登録: 表示名・本文の欄と OK がある' ($titlePart -ne [IntPtr]::Zero -and $textPart -ne [IntPtr]::Zero -and $okPart -ne [IntPtr]::Zero)
                             Check '登録: 本文が空の間は OK を押せない' (-not $W::IsWindowEnabled($okPart))
-                            # 本文の欄にフォーカスがあり、数字も普通に打てる (Copipe が横取りしていない)
-                            foreach ($vk in 0x31, 0x32) { $W::KeyDown([byte]$vk); $W::KeyUp([byte]$vk) }
-                            [void](Wait-Pumping { $W::GetText($textPart) -ceq '12' } 1500)
-                            Check '登録: 開いたときは本文の欄にフォーカスがあり、数字キーも入力できる' ($W::GetText($textPart) -ceq '12') "text=[$($W::GetText($textPart))]"
+                            # 表示名の欄にフォーカスがあり、数字も普通に打てる (Copipe が横取りしていない)。
+                            # 英字はキーボードフックで受け取って入れる (日本語入力がオンでも英字になる)
+                            # 英字はフックから別の知らせで届き、先に送ったキーより先に入ることがあるので、1 つずつ入るのを待つ
+                            foreach ($pair in @(@(0x31, '1'), @(0x32, '12'), @(0x41, '12a'))) {
+                                $W::KeyDown([byte]$pair[0]); $W::KeyUp([byte]$pair[0])
+                                [void](Wait-Pumping { $W::GetText($titlePart) -eq $pair[1] } 1000)
+                            }
+                            Check '登録: 開いたときは表示名の欄にフォーカスがあり、数字キー・英字を入力できる' ($W::GetText($titlePart) -eq '12a') "title=[$($W::GetText($titlePart))]"
+                            Check '登録: 表示名だけでは OK を押せない' (-not $W::IsWindowEnabled($okPart))
+                            # 複数行の欄は、外から WM_SETTEXT で書いても変わったことを知らせない (EN_CHANGE が来ない) ので、Tab で移ってキーで打つ
+                            $W::KeyDown([byte]0x09); $W::KeyUp([byte]0x09)
+                            [void](Wait-Pumping { $false } 150)
+                            $W::KeyDown([byte]0x33); $W::KeyUp([byte]0x33)
+                            [void](Wait-Pumping { $W::GetText($textPart) -ceq '3' } 1500)
+                            Check '登録: Tab で本文の欄に移って書ける' ($W::GetText($textPart) -ceq '3') "text=[$($W::GetText($textPart))]"
+                            [void](Wait-Pumping { $W::IsWindowEnabled($okPart) } 1000)
                             Check '登録: 本文を入れると OK を押せる' ($W::IsWindowEnabled($okPart))
                             [void]$W::SetText($titlePart, 'E2E表示名')
                             [void]$W::SetText($textPart, "E2E本文`r`n2行目")
@@ -3067,8 +3377,16 @@ try {
                         $before = [System.IO.File]::ReadAllText($phrasesPath)
                         Invoke-Drag (Get-RowPoint 1) (Get-RowPoint 4 0.5)
                         Check 'ドラッグ: 空きの無いグループには入れない (何も変わらない)' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $before -and (Get-Slots (Read-Phrases)) -ceq '[箱],ドラッグB,-,-,[満杯],-,-,-,-,-')
-                        Invoke-Drag (Get-RowPoint 0) (Get-RowPoint 0 0.5)
-                        Check 'ドラッグ: グループを自分自身に落としても何も変わらない' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $before)
+                        # 自分自身: いったん離れてから戻って落とす (動かさずに離すとクリックになり、グループが開く)
+                        Invoke-Drag (Get-RowPoint 0) (Get-RowPoint 2) -NoRelease
+                        $selfPoint = Get-RowPoint 0 0.5
+                        $W::MoveMouse($selfPoint.X, $selfPoint.Y + 1)
+                        [void](Wait-Pumping { $false } 100)
+                        $W::MoveMouse($selfPoint.X, $selfPoint.Y)
+                        [void](Wait-Pumping { $false } 100)
+                        $W::LeftUp()
+                        [void](Wait-Pumping { $false } 300)
+                        Check 'ドラッグ: グループを自分自身に落としても何も変わらない (階層もそのまま)' ([System.IO.File]::ReadAllText($phrasesPath) -ceq $before -and (Test-Title (Get-PopupLabels) '定型文')) "labels=[$(Get-PopupLabels)]"
                         Check 'ドラッグ: ドラッグしても入力はしない' ($box.Text -ceq '前:') ("text=[" + $box.Text + "]")
 
                         # Esc で取り消す
@@ -3203,6 +3521,126 @@ try {
                         [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
                         Close-Popup
                         Check 'パンくず: クリックの後も、元のアプリが前面のまま' ($W::GetForegroundWindow() -eq $target.Handle)
+
+                        # ---- 押したら出したまま (Toggle): 離しても出たまま・名前で探す・F2・Esc・もう一度押すと消える ----
+                        # 小窓の中の見えている部品: 一覧 (左から順。owner-draw の LISTBOX)、検索の候補 (owner-draw でない LISTBOX)、検索窓 (EDIT)
+                        function Get-PopupParts {
+                            $lists = @(); $candidates = [IntPtr]::Zero; $search = [IntPtr]::Zero
+                            foreach ($child in $W::Children($popup)) {
+                                if (-not $W::IsWindowVisible($child)) { continue }
+                                $class = $W::GetClass($child)
+                                if ($class -like '*LISTBOX*') {
+                                    if (($W::GetWindowLong($child, -16 <# GWL_STYLE #>) -band 0x0010 <# LBS_OWNERDRAWFIXED #>) -ne 0) { $lists += $child } else { $candidates = $child }
+                                } elseif ($class -like '*EDIT*') {
+                                    $search = $child
+                                }
+                            }
+                            $lists = @($lists | Sort-Object { $W::GetRect($_).Left })
+                            return @{ Lists = $lists; Candidates = $candidates; Search = $search }
+                        }
+                        function Restart-CopipeWith([string]$Style, [string]$Layout) {
+                            Stop-Copipe $copipe
+                            Use-Hotkey $mainHotkey -Style $Style -Layout $Layout
+                            $script:styleCopipe = Start-Copipe
+                            [void]$W::SetCursorPos($boxRect.Left + 40, $boxRect.Top + 20)
+                            $W::LeftClick()
+                            [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                            [void]$W::SetCursorPos($boxRect.Right + 300, $boxRect.Top + 40)
+                        }
+                        $toggleJson = '{"Slots":[' +
+                            '{"Kind":"Phrase","Title":"apple","Text":"トグル検証 りんご"},' +
+                            '{"Kind":"Group","Name":"banana","Slots":[{"Kind":"Phrase","Title":"berry","Text":"トグル検証 ベリー"}]},' +
+                            'null]}'
+                        [System.IO.File]::WriteAllText($phrasesPath, $toggleJson, (New-Object System.Text.UTF8Encoding $false))
+                        Restart-CopipeWith 'Toggle' 'Switch'
+                        $copipe = $script:styleCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        Reset-Target
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Pumping { $false } 400)
+                        $parts = Get-PopupParts
+                        Check '押したら出したまま: 離しても小窓は出たまま' ($W::IsWindowVisible($popup))
+                        Check '押したら出したまま: 小窓の上に検索窓が出る' ($parts.Search -ne [IntPtr]::Zero)
+                        Send-Key 0x41 1; Send-Key 0x50 1   # a p
+                        [void](Wait-Pumping { $W::GetText($parts.Search) -ieq 'ap' } 1000)
+                        $parts = Get-PopupParts
+                        $cands = @(if ($parts.Candidates -ne [IntPtr]::Zero) { $W::ListItems($parts.Candidates) })
+                        Check '検索: 英字を打つと検索窓に入り、名前の頭が合う定型文が候補に出る' ($W::GetText($parts.Search) -ieq 'ap' -and $cands.Count -eq 1 -and $cands[0] -like '*apple*') ("search=[" + $W::GetText($parts.Search) + "] candidates=" + (Format-Items $cands))
+                        Send-Key 0x0D 1
+                        $toggleMs = Wait-Pumping { $box.Text -ceq '前:トグル検証 りんご' -and -not $W::IsWindowVisible($popup) } 3000
+                        Check '検索: Enter で候補の定型文を入力し、小窓を消す' ($toggleMs -ge 0) ("text=[" + $box.Text + "] visible=" + $W::IsWindowVisible($popup))
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        Check '検索: 入力した後は、元のアプリが前面に戻る' ($W::GetForegroundWindow() -eq $target.Handle)
+
+                        # F2 で選んでいる候補の編集の画面を出す。閉じると小窓を出し直す
+                        Reset-Target
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Pumping { $false } 300)
+                        Send-Key 0x41 1   # a
+                        Send-Key 0x71 1   # F2
+                        [void](Wait-Pumping { (Find-VisibleTitle '定型文を編集') -ne [IntPtr]::Zero } 3000)
+                        $editDialog = Find-VisibleTitle '定型文を編集'
+                        Check 'F2: 選んでいる候補 (apple) の「定型文を編集」が出る' ($editDialog -ne [IntPtr]::Zero -and $W::GetText((Find-Part $editDialog 'titleBox')) -ceq 'apple') ("title=[" + $(if ($editDialog -ne [IntPtr]::Zero) { $W::GetText((Find-Part $editDialog 'titleBox')) }) + "]")
+                        if ($editDialog -ne [IntPtr]::Zero) {
+                            [void]$W::PostMessage((Find-Part $editDialog 'cancelButton'), 0x00F5 <# BM_CLICK #>, [IntPtr]::Zero, [IntPtr]::Zero)
+                            [void](Wait-Pumping { -not $W::IsWindowVisible($editDialog) } 3000)
+                            $reopenMs = Wait-Pumping { $W::IsWindowVisible($popup) } 2000
+                            Check 'F2: 編集の画面を閉じると、小窓を出し直す (押したら出したままのとき)' ($reopenMs -ge 0)
+                        }
+                        # Esc: 検索窓に文字があれば先に空にし、空なら小窓を消す
+                        $parts = Get-PopupParts
+                        Send-Key 0x42 1   # b
+                        [void](Wait-Pumping { $W::GetText($parts.Search) -ne '' } 1000)
+                        Send-Key 0x1B 1
+                        [void](Wait-Pumping { $W::GetText($parts.Search) -eq '' } 1000)
+                        Check '押したら出したまま: Esc は先に検索窓を空にする (小窓は出たまま)' ($W::GetText($parts.Search) -eq '' -and $W::IsWindowVisible($popup)) ("search=[" + $W::GetText($parts.Search) + "]")
+                        Send-Key 0x1B 1
+                        $escMs = Wait-Pumping { -not $W::IsWindowVisible($popup) } 1000
+                        Check '押したら出したまま: 検索窓が空なら Esc で消える' ($escMs -ge 0)
+                        # もう一度ホットキーを押すと消える
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        Invoke-HotkeyRelease
+                        [void](Wait-Pumping { $false } 300)
+                        Invoke-HotkeyPress
+                        [void](Wait-Pumping { $false } 100)
+                        Invoke-HotkeyRelease
+                        $againMs = Wait-Pumping { -not $W::IsWindowVisible($popup) } 1000
+                        Check '押したら出したまま: もう一度ホットキーを押すと消える' ($againMs -ge 0)
+                        [void](Wait-Pumping { $W::GetForegroundWindow() -eq $target.Handle } 2000)
+                        Check '押したら出したまま: 消すと元のアプリが前面に戻る' ($W::GetForegroundWindow() -eq $target.Handle)
+
+                        # ---- 並べて表示 (SideBySide): 左に履歴、右に定型文。押している間だけのときは検索窓は出ない ----
+                        Restart-CopipeWith 'Hold' 'SideBySide'
+                        $copipe = $script:styleCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
+                        Reset-Target
+                        Invoke-HotkeyPress
+                        [void](Wait-Until { $W::IsWindowVisible($popup) } 1000)
+                        [void](Wait-Pumping { $false } 200)
+                        $parts = Get-PopupParts
+                        $right = @(if ($parts.Lists.Count -ge 2) { $W::ListItems($parts.Lists[1]) | ForEach-Object { if ($_.StartsWith('✍ ', [StringComparison]::Ordinal)) { $_.Substring(2) } else { $_ } } })
+                        $leftRect = if ($parts.Lists.Count -ge 2) { $W::GetRect($parts.Lists[0]) }
+                        $rightRect = if ($parts.Lists.Count -ge 2) { $W::GetRect($parts.Lists[1]) }
+                        Check '並べて表示: 一覧が左右に 2 つ並ぶ (重ならない)' ($parts.Lists.Count -eq 2 -and $leftRect.Right -le $rightRect.Left) "lists=$($parts.Lists.Count)"
+                        Check '並べて表示: 右の一覧は定型文 (一番上の階層)' ($right.Count -eq 10 -and $right[0] -ceq 'apple' -and $right[1] -ceq '├ banana' -and $right[2] -ceq '') ("right=" + (Format-Items $right))
+                        Check '並べて表示: 押している間だけのときは検索窓を出さない' ($parts.Search -eq [IntPtr]::Zero)
+                        Invoke-HotkeyRelease
+                        $sideHiddenMs = Wait-Until { -not $W::IsWindowVisible($popup) } 1000
+                        Check '並べて表示: 離すと消える' ($sideHiddenMs -ge 0)
+
+                        # 後の検証のため、押している間だけ・切り替えに戻す
+                        Restart-CopipeWith 'Hold' 'Switch'
+                        $copipe = $script:styleCopipe
+                        $app = $copipe.Process
+                        $popup = $copipe.Popup
 
                         }
                         $box.AcceptsTab = $false

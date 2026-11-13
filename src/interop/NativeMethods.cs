@@ -36,6 +36,27 @@ namespace Copipe.Interop
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern IntPtr GetClipboardData(uint uFormat);
 
+        // ---- IME (変換中の文字を確定・取り消す) ----
+
+        internal const int GCS_COMPSTR = 0x0008;
+        internal const int NI_COMPOSITIONSTR = 0x0015;
+        internal const int CPS_COMPLETE = 0x0001;
+        internal const int CPS_CANCEL = 0x0004;
+
+        [DllImport("imm32.dll")]
+        internal static extern IntPtr ImmGetContext(IntPtr hWnd);
+
+        [DllImport("imm32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
+
+        [DllImport("imm32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int ImmGetCompositionStringW(IntPtr hIMC, int dwIndex, IntPtr lpBuf, int dwBufLen);
+
+        [DllImport("imm32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ImmNotifyIME(IntPtr hIMC, int dwAction, int dwIndex, int dwValue);
+
         /// <summary>名前の付いたクリップボードの形式 ("HTML Format" など) の ID。無ければ作る。</summary>
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern uint RegisterClipboardFormat(string lpszFormat);
@@ -265,6 +286,39 @@ namespace Copipe.Interop
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct GUITHREADINFO
+        {
+            public int cbSize;
+            public uint flags;
+            public IntPtr hwndActive;
+            public IntPtr hwndFocus;
+            public IntPtr hwndCapture;
+            public IntPtr hwndMenuOwner;
+            public IntPtr hwndMoveSize;
+            public IntPtr hwndCaret;
+            public int caretLeft;
+            public int caretTop;
+            public int caretRight;
+            public int caretBottom;
+        }
+
+        /// <summary>スレッド (0 なら前面のスレッド) の、入力カーソルのある部品などを調べる。別のスレッドからでも読める。</summary>
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO gui);
+
+        /// <summary>
+        /// 前面のアプリのスレッドと入力の状態をつなぐ。つないでいる間は SetForegroundWindow が
+        /// 前面の切り替えの制限 (最後に入力を受けたプロセスしか前面を変えられない) を受けない。
+        /// </summary>
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
 
         internal const int WM_CLOSE = 0x0010;
 

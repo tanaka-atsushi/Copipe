@@ -7,6 +7,7 @@ English | [日本語](README.ja.md)
 Copipe is a small clipboard history tool for Windows. It sits in the system tray and remembers the text you copy.
 Hold the hotkey (CapsLock by default) and a popup appears by the cursor. Double-click an item, or press its number key,
 and Copipe types it at the text cursor of the app you are working in. Let go of the hotkey and the popup disappears.
+(Prefer to tap the hotkey instead of holding it? Set *Show popup* to *Until used* in Settings.)
 
 - **Never steals focus.** The popup does not activate, so your text cursor stays where it was.
 - **Keyboard or mouse.** The first ten items are numbered 1–9, 0. Pinned items get the letters a–z.
@@ -36,6 +37,26 @@ Requires Windows 10 or 11.
    You can keep holding the hotkey and insert more items.
 4. **Release the hotkey** to close the popup.
 
+With *Show popup* set to **Until used**, the popup stays open after you let go of the hotkey. It closes when you:
+
+- use an item (type it or open it). Opening a snippet group does not close it.
+- press **Esc**. Inside a snippet group, Esc goes up one level first; at the top level it closes the popup.
+- press the hotkey again.
+
+While the popup is open, number keys, a–z, the arrow keys, Enter, Esc and the mode key do not reach other apps,
+so close the popup when you are done.
+
+**Find snippets by name** (*Until used* only): the popup opens with a search box at the top, ready to type.
+The first history item is already selected, so Enter types it right away.
+Type letters to list the snippets and groups whose names start with them, from every level. Use ↑↓ to pick one and Enter to use it
+(a group opens in the snippet list, with its first item selected).
+Letters go into the search box as English letters even when Japanese (IME) input or an input tool such as Meltype is on.
+To search by a Japanese name, press **Hankaku/Zenkaku** (or click the **A** at the right of the box) to switch to normal input (**あ**); press it again to go back.
+While converting Japanese, Enter confirms the conversion and Esc cancels it.
+Number keys still pick clipboard history items by number.
+Esc clears the search box first, then closes the popup. In this mode, pick pinned items by clicking or with ↑↓ instead of a–z.
+Right-click a suggestion to edit, rename or delete it, the same as in the snippet list.
+
 ### History
 
 - Copipe keeps the **last 10 text items**. Copying the same text again moves it to the top.
@@ -54,12 +75,27 @@ Requires Windows 10 or 11.
 Press the **mode key** (Tab by default), or turn the mouse wheel over the popup, to switch between *Clipboard history* and *Snippets*.
 
 - Each level has ten slots (1–9, 0). A slot holds a **snippet** or a **group**, and groups can be nested as deep as you like.
-- Select a snippet to type it. Select a group to open it. **Esc** goes back up one level, and you can click a level name in the header to jump to it.
-- Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first). Drag slots to move them, or drop one on a group to put it inside.
-- A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
+- With *Popup layout* set to **Side by side** in Settings, history and snippets appear together: history on the left, snippets on the right.
+  Number keys, a–z, the arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
+  Press the mode key (or turn the wheel) to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
+  (on a snippet group, → still opens it and ← inside a group still goes up one level). With the mouse you can use either side directly.
+  The selected row on the inactive side turns light gray and becomes blue again when you switch back.
+  Dragging works within one side; you cannot yet drag a history item onto the snippets side.
+- Select a snippet to type it. Select a group to open it (a single click always opens a group, whatever *Paste with* is set to).
+  ↑↓ also stop on empty slots; press Enter on one, or click it once, to add a snippet there.
+- Press **F2** to edit the selected snippet, rename the selected group, or add a snippet to the selected empty slot
+  (also works on the selected search suggestion).
+- In the display name and group name boxes, letter keys type English letters even when Japanese (IME) input or Meltype is on,
+  since names are searched in English. Press **Hankaku/Zenkaku** (or click the **A** at the right) to type Japanese.
 - When you copy text from Outlook or Word, paragraph indents (such as the indent Outlook makes when you type a space at the start of a line)
   are kept as full-width spaces at the start of the line, in the history and when you paste into the snippet text box.
   Lines that wrap still start at the left edge.
+- A snippet uses either its text or a file, folder or URI. When the dialog opens, neither is marked.
+  The box you put the cursor in gets a red **●** and a red frame; the other is grayed out (**○**) and is not saved.
+  You can still click in the gray one to switch to it.
+- Right-click a slot to add, edit, rename, delete or pin to history (deleting asks for confirmation first).
+  With *Show popup* set to *Until used*, the popup comes back at the same level after the dialog closes. Drag slots to move them, or drop one on a group to put it inside.
+- A snippet can also open a file or folder (the *File...* and *Folder...* buttons in the snippet dialog).
 
 ### Tray menu
 
@@ -72,7 +108,9 @@ Settings opens automatically the first time you start Copipe.
 | Setting | |
 |---|---|
 | **Hotkey** | The key you hold to show the popup. F1, Pause, CapsLock and so on. It must be a single key: Ctrl, Shift, Alt and Win combinations are not allowed. |
+| **Show popup** | *While held* (default): the popup shows while you hold the hotkey. *Until used*: press the hotkey once and the popup stays until you use an item, press Esc or press the hotkey again. |
 | **Mode key** | Switches between history and snippets while the popup is open (Tab by default). |
+| **Popup layout** | *Switch* (default): show history or snippets and switch with the mode key. *Side by side*: show both, history on the left and snippets on the right. |
 | **Paste with** | Double-click (default) or single-click. |
 | **Language** | Auto (follow Windows), English or Japanese. |
 
