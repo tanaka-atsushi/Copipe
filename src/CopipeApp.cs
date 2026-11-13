@@ -351,8 +351,9 @@ namespace Copipe
         private readonly List<PhraseNode[]> _searchParents = new List<PhraseNode[]>();
 
         /// <summary>
-        /// 検索窓の文字が変わったとき。すべての階層の定型文とグループから、名前 (一覧に出す名前) の頭が合うものを
-        /// 大文字小文字を区別せずに探し、候補に出す。並びは階層をたどった順 (枠の番号順。グループはその中身より先)。
+        /// 検索窓の文字が変わったとき。すべての階層の定型文とグループから、名前 (一覧に出す名前) に検索の文字を含むものを
+        /// 大文字小文字を区別せずに探し、候補に出す。名前の頭が合うものを先に、途中に含むものを後に並べる。
+        /// それぞれの中は階層をたどった順 (枠の番号順。グループはその中身より先)。
         /// </summary>
         private void OnSearchChanged(object sender, EventArgs e)
         {
@@ -362,12 +363,14 @@ namespace Copipe
             List<string> labels = new List<string>();
             if (query.Length > 0)
             {
-                FindPhrases(_phrases.Root, new List<PhraseNode>(), query, labels);
+                FindPhrases(_phrases.Root, new List<PhraseNode>(), query, labels, true);
+                FindPhrases(_phrases.Root, new List<PhraseNode>(), query, labels, false);
             }
             _popup.SetCandidates(labels);
         }
 
-        private void FindPhrases(PhraseNode group, List<PhraseNode> parents, string query, List<string> labels)
+        /// <summary>atStart なら名前の頭が query に合うものを、false なら頭でなく途中に含むものを、候補に足す。</summary>
+        private void FindPhrases(PhraseNode group, List<PhraseNode> parents, string query, List<string> labels, bool atStart)
         {
             foreach (PhraseNode node in group.Slots)
             {
@@ -375,7 +378,8 @@ namespace Copipe
                 {
                     continue;
                 }
-                if (node.Label.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                int found = node.Label.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                if (atStart ? found == 0 : found > 0)
                 {
                     _searchResults.Add(node);
                     _searchParents.Add(parents.ToArray());
@@ -397,7 +401,7 @@ namespace Copipe
                 if (node.IsGroup)
                 {
                     parents.Add(node);
-                    FindPhrases(node, parents, query, labels);
+                    FindPhrases(node, parents, query, labels, atStart);
                     parents.RemoveAt(parents.Count - 1);
                 }
             }

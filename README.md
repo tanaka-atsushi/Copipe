@@ -46,7 +46,7 @@ but your keys go to that app (arrow keys, Enter and Esc too); click the popup to
 **Find snippets by name**: the popup has a search box at the top, ready to type in when the popup opens.
 It is an ordinary text box: type anything, Japanese (IME) included.
 The first history item is already selected, so Enter types it right away.
-Type to list the snippets and groups whose names start with what you typed, from every level. Use ↑↓ to pick one and Enter to use it
+Type to list the snippets and groups whose names contain what you typed, from every level (names that start with it come first). Use ↑↓ to pick one and Enter to use it
 (a group opens in the snippet list, with its first item selected).
 While converting Japanese, Enter confirms the conversion and Esc cancels it (the arrow keys belong to the popup, so pick candidates with Space).
 Esc clears the search box first, then closes the popup.
