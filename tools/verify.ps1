@@ -1438,6 +1438,78 @@ try {
     & (Join-Path $root 'tools\Stop-Copipe.ps1') -ExePath $exe
 
     # ==========================================================================
+    Section '検証 4c: 定型文のまとめて編集 (PhraseEditing / BulkPhraseDialog)' {
+    # ==========================================================================
+        # 画面は出さず、部品の値を変えて、木への反映を確かめる。貼り付けはクリップボードを使わず、読み取りと入れ方を直接試す
+        $F = [Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
+        $PN = [Copipe.Model.PhraseNode]
+        $PE = [Copipe.Model.PhraseEditing]
+        $BD = [Copipe.UI.HotkeyText].Assembly.GetType('Copipe.UI.BulkPhraseDialog', $true)
+        function Get-BulkField($d, [string]$Name) { return ,($BD.GetField($Name, $F).GetValue($d)) }
+        function Invoke-Bulk($d, [string]$Name, [object[]]$Arguments) { return $BD.GetMethod($Name, $F).Invoke($d, $Arguments) }
+
+        # 開くもの (URL・パス) か、文字か
+        Check 'まとめて編集: URL・mailto・ドライブ・共有フォルダーは開くもの' ($PE::LooksLikePath('https://example.com/a') -and $PE::LooksLikePath('mailto:a@b.jp') -and $PE::LooksLikePath('C:\Windows') -and $PE::LooksLikePath('\\server\share'))
+        Check 'まとめて編集: 「TODO:直す」や普通の文は文字' (-not $PE::LooksLikePath('TODO:直す') -and -not $PE::LooksLikePath('いつもお世話になっております'))
+
+        $root = $PN::CreateGroup('root')
+        $g = $PN::CreateGroup('grp')
+        $root.Slots[0] = $PN::CreatePhrase('a', 'A text', '')
+        $root.Slots[1] = $g
+        $g.Slots[0] = $PN::CreatePhrase('c', 'C text', '')
+        $origA = $root.Slots[0]
+
+        $d = [Activator]::CreateInstance($BD, $F, $null, [object[]]@($root), $null)
+        try {
+            $clone = Get-BulkField $d '_root'
+            Check 'まとめて編集: 開くと木を複製して編集する (OK まで元は変えない)' ($clone -ne $root -and $clone.Slots[0] -ne $root.Slots[0] -and $clone.Slots[0].Text -ceq 'A text')
+
+            # 空きの枠 (3 番) に書くと登録される
+            [void](Invoke-Bulk $d 'ShowGroup' @($clone, 2))
+            (Get-BulkField $d '_nameBox').Text = 'new'
+            (Get-BulkField $d '_textBox').Text = 'new text'
+            Check 'まとめて編集: 空きの枠に書くと定型文ができる' ($null -ne $clone.Slots[2] -and $clone.Slots[2].Text -ceq 'new text' -and $clone.Slots[2].Name -ceq 'new')
+            # 種類を「開く」に変えてパスを入れる
+            (Get-BulkField $d '_pathKindButton').Checked = $true
+            (Get-BulkField $d '_pathBox').Text = 'https://x.example'
+            Check 'まとめて編集: 種類を「開く」にできる' ((Get-BulkField $d '_pathKind').Contains($clone.Slots[2]))
+            Check 'まとめて編集: 中身のあるグループだと分かる (種類を変えられない)' ($PE::HasContents($clone.Slots[1]))
+
+            # Excel から貼り付けた形 (名前<TAB>中身、引用符の中の改行) を、グループの空きの枠に入れる
+            [void](Invoke-Bulk $d 'ShowGroup' @($clone.Slots[1], 0))
+            $rows = $PE::ParseTabSeparated("x`thello`r`ny`thttps://y.example`r`nz`t""line1`nline2""`r`n")
+            $pasteArgs = [object[]]@($clone.Slots[1], $rows, 0)
+            $placed = $PE.GetMethod('PasteInto').Invoke($null, $pasteArgs)
+            $cg = $clone.Slots[1]
+            Check 'まとめて編集の貼り付け: 空いている 2 番の枠から入る' ($placed[0] -eq 1 -and $cg.Slots[1].Name -ceq 'x' -and $cg.Slots[1].Text -ceq 'hello') "placed=$($placed -join ',')"
+            Check 'まとめて編集の貼り付け: URL はパスになる' ($cg.Slots[2].Path -ceq 'https://y.example' -and $cg.Slots[2].Text -ceq '')
+            Check 'まとめて編集の貼り付け: 引用符の中の改行は本文の改行になる' ($cg.Slots[3].Text -ceq "line1`r`nline2")
+            Check 'まとめて編集の貼り付け: 入らなかった行は無い' ($pasteArgs[2] -eq 0) "skipped=$($pasteArgs[2])"
+            $t = $PE::ParseTabSeparated("x""y`t""q """"z""""""`r`n")
+            Check 'まとめて編集の貼り付け: 途中の " はそのまま、引用符の中の "" は "' ($t[0][0] -ceq 'x"y' -and $t[0][1] -ceq 'q "z"')
+            # 画面の貼り付け (PasteRows) と同じく、パスの入った定型文は「開く」種類にしておく
+            [void](Get-BulkField $d '_pathKind').Add($cg.Slots[2])
+
+            # 表示名だけの定型文は保存しない
+            [void](Invoke-Bulk $d 'ShowGroup' @($clone, 4))
+            (Get-BulkField $d '_nameBox').Text = 'only'
+            [void](Invoke-Bulk $d 'TrySave' @())
+            Check 'まとめて編集: 表示名だけの定型文があると、理由を出して閉じない' ($d.DialogResult -ne 'OK' -and (Get-BulkField $d '_status').Text.Length -gt 0) "result=$($d.DialogResult)"
+            (Get-BulkField $d '_nameBox').Text = ''
+            [void](Invoke-Bulk $d 'TrySave' @())
+            Check 'まとめて編集: 空にすれば保存できる' ($d.DialogResult -eq 'OK') "result=$($d.DialogResult)"
+            Check 'まとめて編集: 空にした定型文は空きの枠になる' ($null -eq $clone.Slots[4])
+            Check 'まとめて編集: 「開く」の定型文は本文を空にする' ($clone.Slots[2].Text -ceq '' -and $clone.Slots[2].Path -ceq 'https://x.example')
+
+            # 元の木へ戻す
+            [void](Invoke-Bulk $d 'ApplyTo' @($root))
+            Check 'まとめて編集: OK で元の木に反映する (3 番に新しい定型文)' ($root.Slots[2].Path -ceq 'https://x.example')
+            Check 'まとめて編集: グループの中の編集も反映する' ($root.Slots[1] -eq (Invoke-Bulk $d 'Map' @($g)) -and $root.Slots[1].Slots[1].Name -ceq 'x')
+            Check 'まとめて編集: 変えていない定型文も中身はそのまま' ($root.Slots[0] -ne $origA -and $root.Slots[0].Text -ceq 'A text')
+        } finally { $d.Dispose() }
+    }
+
+    # ==========================================================================
     Section '検証 4d: 定型文・グループの登録画面 (PhraseDialog)' {
     # ==========================================================================
         # 本文とファイル・フォルダーのうち、入力カーソルを入れた方・最後に書いた方 (● と赤い枠) を使う。もう一方は ○ と灰色。
@@ -3138,7 +3210,7 @@ try {
                         # 空きの枠: 登録とグループの作成。ホットキーを離すとメニューも閉じる
                         $menu = Open-RowMenu 0 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check '右クリック: 空きの枠では「定型文を登録...」「グループを作成...」が出る' ($names -ceq '定型文を登録... | グループを作成...') "names=[$names]"
+                        Check '右クリック: 空きの枠では「定型文を登録...」「グループを作成...」、区切り線、「まとめて編集...」が出る' ($names -ceq '定型文を登録... | グループを作成... | - | まとめて編集...') "names=[$names]"
                         Invoke-HotkeyRelease
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) -and -not $W::IsWindowVisible($popup) } 1500)
                         Check '右クリック: 選ばずにホットキーを離すと、メニューも小窓も閉じる' ($null -eq (Find-RowMenu) -and -not $W::IsWindowVisible($popup))
@@ -3200,7 +3272,7 @@ try {
                         # 定型文の枠: 編集と削除
                         $menu = Open-RowMenu 0 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check '右クリック: 定型文では「履歴にピン止め」、区切り線、「編集...」「削除」の順に出る' ($names -ceq '履歴にピン止め | - | 編集... | 削除') "names=[$names]"
+                        Check '右クリック: 定型文では「履歴にピン止め」、区切り線、「編集...」「削除」、区切り線、「まとめて編集...」の順に出る' ($names -ceq '履歴にピン止め | - | 編集... | 削除 | - | まとめて編集...') "names=[$names]"
                         Invoke-HotkeyRelease
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
                         $dlg = Open-PhraseDialog 0 '編集...' '定型文を編集'
@@ -3272,7 +3344,7 @@ try {
                         # グループの名前を変える (中身はそのまま)
                         $menu = Open-RowMenu 1 -Phrases
                         $names = if ($menu) { Get-MenuNames $menu } else { '' }
-                        Check '右クリック: グループでは「名前を変更...」「削除」が出る' ($names -ceq '名前を変更... | 削除') "names=[$names]"
+                        Check '右クリック: グループでは「名前を変更...」「削除」、区切り線、「まとめて編集...」が出る' ($names -ceq '名前を変更... | 削除 | - | まとめて編集...') "names=[$names]"
                         Invoke-HotkeyRelease
                         [void](Wait-Pumping { $null -eq (Find-RowMenu) } 1500)
                         $dlg = Open-PhraseDialog 1 '名前を変更...' 'グループの名前を変更'

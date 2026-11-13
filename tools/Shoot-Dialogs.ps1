@@ -62,6 +62,8 @@ $HS = $asm.GetType('Copipe.Services.HotkeyStyle', $true)
 $PL = $asm.GetType('Copipe.Services.PopupLayout', $true)
 $PD = $asm.GetType('Copipe.UI.PhraseDialog', $true)
 $AD = $asm.GetType('Copipe.UI.AboutDialog', $true)
+$BD = $asm.GetType('Copipe.UI.BulkPhraseDialog', $true)
+$PN = $asm.GetType('Copipe.Model.PhraseNode', $true)
 $SF = [Reflection.BindingFlags]'Public,NonPublic,Static'
 $script:problems = 0
 
@@ -182,6 +184,43 @@ foreach ($langName in 'Japanese', 'English') {
     Save-Shot ($forPhrase.Invoke($null, [object[]]@($(if ($ja) { '定型文を登録' } else { 'New snippet' }), $first, '', '', ''))) "$langName-phrase-new-japanese" $toJapanese
     Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループを作成' } else { 'New group' }), $first, ''))) "$langName-group-new" $null
     Save-Shot ($forGroup.Invoke($null, [object[]]@($(if ($ja) { 'グループの名前を変更' } else { 'Rename group' }), $deep, $groupName))) "$langName-group-rename" $null
+
+    # 定型文の一括編集。長いグループ名・複数行の本文・パスを入れた定型文で撮る。
+    # 文字の枠・開く枠・グループの枠・空きの枠を選んだ状態、深いグループを開いた状態、
+    # 表示名だけで中身の無い定型文で OK を押し、赤字の説明が出た状態
+    $newBulk = {
+        $root = $PN.GetMethod('CreateGroup').Invoke($null, @('root'))
+        $outer = $PN.GetMethod('CreateGroup').Invoke($null, @($(if ($ja) { '社外のお客さま' } else { 'External customers' })))
+        $inner = $PN.GetMethod('CreateGroup').Invoke($null, @($groupName))
+        $root.Slots[0] = $PN.GetMethod('CreatePhrase').Invoke($null, @('addr', '東京都千代田区丸の内 1-1-1', ''))
+        $root.Slots[1] = $PN.GetMethod('CreatePhrase').Invoke($null, @('gh', '', 'https://github.com/tanaka-atsushi/Copipe'))
+        $root.Slots[2] = $outer
+        $outer.Slots[0] = $PN.GetMethod('CreatePhrase').Invoke($null, @('thanks', $text, ''))
+        $outer.Slots[3] = $inner
+        $inner.Slots[2] = $PN.GetMethod('CreatePhrase').Invoke($null, @($title, '', $path))
+        return [Activator]::CreateInstance($BD, $F, $null, [object[]]@($root), $null)
+    }
+    $showSlot = {
+        param($dlg, [int[]]$GroupPath, [int]$Slot)
+        $group = $BD.GetField('_root', $F).GetValue($dlg)
+        foreach ($i in $GroupPath) { $group = $group.Slots[$i] }
+        [void]$BD.GetMethod('ShowGroup', $F).Invoke($dlg, [object[]]@($group, $Slot))
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+    Save-Shot (& $newBulk) "$langName-bulk-text" { param($dlg) & $showSlot $dlg @() 0 }
+    Save-Shot (& $newBulk) "$langName-bulk-path" { param($dlg) & $showSlot $dlg @() 1 }
+    Save-Shot (& $newBulk) "$langName-bulk-group" { param($dlg) & $showSlot $dlg @() 2 }
+    Save-Shot (& $newBulk) "$langName-bulk-empty" { param($dlg) & $showSlot $dlg @() 5 }
+    Save-Shot (& $newBulk) "$langName-bulk-deep" { param($dlg) & $showSlot $dlg @(2, 3) 2 }
+    Save-Shot (& $newBulk) "$langName-bulk-error" {
+        param($dlg)
+        & $showSlot $dlg @() 4
+        $BD.GetField('_nameBox', $F).GetValue($dlg).Text = 'only a name'
+        [void]$BD.GetMethod('TrySave', $F).Invoke($dlg, @())
+        [System.Windows.Forms.Application]::DoEvents()
+        # 閉じるときに「保存せずに閉じますか」を出さない (撮った後は捨てる)
+        $BD.GetField('_dirty', $F).SetValue($dlg, $false)
+    }
 
     # Copipe について
     Save-Shot ([Activator]::CreateInstance($AD, $F, $null, [object[]]@(), $null)) "$langName-about" $null
