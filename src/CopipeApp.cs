@@ -94,7 +94,7 @@ namespace Copipe
             _firstRun = !File.Exists(Settings.DefaultPath);
             _settings = Settings.Load(Settings.DefaultPath);
             Lang.Apply(_settings.Language);
-            _history = ClipboardHistory.Load(ClipboardHistory.DefaultPath, ClipboardHistory.MaxItems);
+            _history = ClipboardHistory.Load(ClipboardHistory.DefaultPath, _settings.HistoryCount);
 
             _popup = new PopupForm();
             _popup.Prepare();
@@ -108,7 +108,6 @@ namespace Copipe
             _popup.DragOpenRequested += OnDragOpenRequested;
             _popup.LevelClicked += OnLevelClicked;
             _popup.PinIconClicked += OnPinIconClicked;
-            _popup.WheelNotched += OnWheelNotched;
             _popup.PaneEngaged += OnPaneEngaged;
             _popup.SearchChanged += OnSearchChanged;
             _popup.CandidateActivated += UseCandidate;
@@ -779,26 +778,6 @@ namespace Copipe
         }
 
         /// <summary>
-        /// 小窓の上でホイールを回したとき。上へ回すと履歴モード、下へ回すと定型文モード。
-        /// 端では止まる (履歴で上へ・定型文で下へ回しても変わらない)。
-        /// </summary>
-        private void OnWheelNotched(int step)
-        {
-            if (!_popup.Visible || RowMenu.IsOpen || _popup.IsDragging)
-            {
-                return;
-            }
-            if (step < 0)
-            {
-                SwitchMode(PopupMode.Phrases);
-            }
-            else if (step > 0)
-            {
-                SwitchMode(PopupMode.History);
-            }
-        }
-
-        /// <summary>
         /// モードキーで、数字キーが効く側 (クリップボード履歴 / 定型文) を切り替える。小窓は出したままにする。
         /// </summary>
         private void OnModeKeyPressed()
@@ -1365,7 +1344,8 @@ namespace Copipe
             pane.AllowExternalDrop = true;
             pane.ExternalDropAnywhere = true;
             pane.SelectEmptyRows = false;
-            pane.SetHistory(_history.Pinned, _history.Items, ClipboardHistory.MaxItems);
+            // 空の行は 10 行まで出す (件数を多くしても、空の行で小窓が長くならないように)
+            pane.SetHistory(_history.Pinned, _history.Items, Math.Min(_history.Capacity, ClipboardHistory.DefaultItems));
         }
 
         // ---- 履歴のピン止め --------------------------------------------------------------
@@ -1862,12 +1842,14 @@ namespace Copipe
                     Keys chosenModeKey;
                     InsertClick chosenClick;
                     UiLanguage chosenLanguage;
+                    int chosenHistoryCount;
                     using (SettingsDialog dialog = new SettingsDialog(
                         _settings.Hotkey, _settings.HotkeyStyle, _settings.ModeKey, _settings.InsertClick,
                         _settings.Language))
                     {
                         // 設定画面の「まとめて編集...」。設定画面を持ち主にして、その上に出す
                         dialog.BulkEditRequested += OpenBulkEditor;
+                        dialog.HistoryCount = _settings.HistoryCount;
                         if (dialog.ShowDialog() != DialogResult.OK)
                         {
                             RestoreHotkey();
@@ -1878,6 +1860,7 @@ namespace Copipe
                         chosenModeKey = dialog.SelectedModeKey;
                         chosenClick = dialog.SelectedInsertClick;
                         chosenLanguage = dialog.SelectedLanguage;
+                        chosenHistoryCount = dialog.HistoryCount;
                     }
 
                     if (chosenHotkey == _settings.Hotkey || _hotkey.TryRegister(chosenHotkey))
@@ -1886,7 +1869,7 @@ namespace Copipe
                         {
                             RestoreHotkey();
                         }
-                        ApplySettings(chosenHotkey, chosenStyle, chosenModeKey, chosenClick, chosenLanguage);
+                        ApplySettings(chosenHotkey, chosenStyle, chosenModeKey, chosenClick, chosenLanguage, chosenHistoryCount);
                         finished = true;
                     }
                     else
@@ -1907,10 +1890,11 @@ namespace Copipe
         }
 
         private void ApplySettings(Keys hotkey, HotkeyStyle style, Keys modeKey, InsertClick insertClick,
-                                   UiLanguage language)
+                                   UiLanguage language, int historyCount)
         {
             bool changed = (hotkey != _settings.Hotkey) || (style != _settings.HotkeyStyle) || (modeKey != _settings.ModeKey) ||
-                           (insertClick != _settings.InsertClick) || (language != _settings.Language);
+                           (insertClick != _settings.InsertClick) || (language != _settings.Language) ||
+                           (historyCount != _settings.HistoryCount);
             if (!changed)
             {
                 return;
@@ -1921,6 +1905,13 @@ namespace Copipe
             _settings.ModeKey = modeKey;
             _settings.InsertClick = insertClick;
             _settings.Language = language;
+            if (historyCount != _history.Capacity)
+            {
+                // 減らしたときは古いものから捨てる (ピン止めは残る)
+                _settings.HistoryCount = historyCount;
+                _history.Capacity = historyCount;
+                SaveHistory();
+            }
             Lang.Apply(language);
             _popup.InsertOnSingleClick = (insertClick == InsertClick.Single);
             SaveSettings();

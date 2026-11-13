@@ -68,7 +68,6 @@ namespace Copipe.UI
             pane.Engaged += OnPaneEngaged;
             pane.ContentChanged += delegate { UpdateSize(); };
             KeepSearchFocus(pane);
-            pane.WheelTurned += OnWheel;
             // 数字キーが効く欄 (_active) の操作だけを知らせる。もう一方の欄は、押した時点で Engaged から _active になる
             pane.RowActivated += delegate(int index) { if (pane == _active) { Raise(RowActivated, index); } };
             pane.RowContextRequested += delegate(int index, Point screen)
@@ -724,12 +723,6 @@ namespace Copipe.UI
         /// <summary>見出しの階層名がクリックされたとき。引数は階層 (0 が一番上)。今いる階層では出さない。</summary>
         public event Action<int> LevelClicked;
 
-        /// <summary>
-        /// 小窓の上でホイールを 1 ノッチ回したとき。引数は上へなら +1、下へなら -1。
-        /// 高精度ホイールの細かい量は、1 ノッチ分 (120) たまってから知らせる。
-        /// </summary>
-        public event Action<int> WheelNotched;
-
         /// <summary>ピン止めの行の 📌 がクリックされたとき。引数は行の位置。</summary>
         public event Action<int> PinIconClicked;
 
@@ -861,7 +854,6 @@ namespace Copipe.UI
 
         public void HidePopup()
         {
-            _wheelRemainder = 0;
             foreach (PopupPane pane in Panes)
             {
                 pane.Reset();
@@ -947,39 +939,6 @@ namespace Copipe.UI
                 return;
             }
             base.WndProc(ref m);
-        }
-
-        // ホイールのたまった量 (1 ノッチ = 120 に満たない分)
-        private int _wheelRemainder;
-
-        /// <summary>
-        /// 見出しなど一覧以外の上で回したホイール。子のラベルが処理しないホイールは、Windows が親 (この小窓) に回す。
-        /// </summary>
-        protected override void OnMouseWheel(MouseEventArgs e)
-        {
-            base.OnMouseWheel(e);
-            OnWheel(e.Delta);
-        }
-
-        private void OnWheel(int delta)
-        {
-            const int Notch = 120;
-            // 向きが変わったら、たまった量は捨てる
-            if ((delta > 0) != (_wheelRemainder > 0))
-            {
-                _wheelRemainder = 0;
-            }
-            _wheelRemainder += delta;
-            Action<int> handler = WheelNotched;
-            while (Math.Abs(_wheelRemainder) >= Notch)
-            {
-                int step = _wheelRemainder > 0 ? 1 : -1;
-                _wheelRemainder -= step * Notch;
-                if (handler != null)
-                {
-                    handler(step);
-                }
-            }
         }
 
         protected override void Dispose(bool disposing)

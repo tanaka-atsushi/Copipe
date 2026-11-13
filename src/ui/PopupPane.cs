@@ -98,7 +98,6 @@ namespace Copipe.UI
             _list.DragMoved += OnDragMoved;
             _list.DragDropped += OnDragDropped;
             _list.DragAborted += delegate { EndDrag(DropTarget.Nowhere); };
-            _list.WheelTurned += delegate(int delta) { Raise(WheelTurned, delta); };
             Controls.Add(_list);
 
             _springTimer = new Timer();
@@ -306,9 +305,6 @@ namespace Copipe.UI
 
         /// <summary>見出しの階層名がクリックされたとき。引数は階層 (0 が一番上)。今いる階層では出さない。</summary>
         public event Action<int> LevelClicked;
-
-        /// <summary>一覧の上でホイールを回したとき。引数は回した量 (上へ +、下へ -。1 ノッチが 120)。</summary>
-        public event Action<int> WheelTurned;
 
         /// <summary>ピン止めの行の 📌 がクリックされたとき。引数は行の位置。</summary>
         public event Action<int> PinIconClicked;

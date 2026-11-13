@@ -60,7 +60,8 @@ Right-click a suggestion to edit, rename or delete it, the same as in the snippe
 
 ### History
 
-- Copipe keeps the **last 10 text items**. Copying the same text again moves it to the top.
+- Copipe keeps the **last 10 text items** by default. Change it (1–100) with *History size* in Settings; lowering it drops the oldest items right away.
+  Copying the same text again moves it to the top.
 - Items over 100,000 characters are not kept.
 - Inserting an item does not reorder the list, so items stay put while you work.
 - Right-click a row to **Pin** it, **Unpin** it or **Delete** it.
@@ -76,7 +77,7 @@ Right-click a suggestion to edit, rename or delete it, the same as in the snippe
 The popup shows *Clipboard history* on the left and *Snippets* on the right.
 
 - The arrow keys, Enter and Esc work on one side at a time, the one with a blue line under its title.
-  Press the **mode key** (Tab by default), or turn the mouse wheel over the popup, to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
+  Press the **mode key** (Tab by default) to switch sides, or use **← →**: → on the history side moves to snippets, and ← at the top level of snippets moves back to history
   (on a snippet group, → still opens it and ← inside a group still goes up one level). With the mouse you can use either side directly.
   The selected row on the inactive side turns light gray and becomes blue again when you switch back.
   The popup always opens with the history side active.

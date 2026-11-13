@@ -44,6 +44,7 @@ namespace Copipe.Services
         private const string InsertClickName = "InsertClick";
         private const string ModeKeyName = "ModeKey";
         private const string LanguageName = "Language";
+        private const string HistoryCountName = "HistoryCount";
 
         public Settings()
         {
@@ -52,7 +53,11 @@ namespace Copipe.Services
             InsertClick = InsertClick.Double;
             ModeKey = DefaultModeKey;
             Language = UiLanguage.Auto;
+            HistoryCount = ClipboardHistory.DefaultItems;
         }
+
+        /// <summary>残すクリップボード履歴の件数 (ピン止めは数えない。ClipboardHistory.MinItems〜MaxItems)。</summary>
+        public int HistoryCount { get; set; }
 
         public Keys Hotkey { get; set; }
 
@@ -151,6 +156,15 @@ namespace Copipe.Services
                             }
                         }
                     }
+                    else if (string.Equals(name, HistoryCountName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        int count;
+                        if (int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out count) &&
+                            count >= ClipboardHistory.MinItems && count <= ClipboardHistory.MaxItems)
+                        {
+                            settings.HistoryCount = count;
+                        }
+                    }
                     else if (string.Equals(name, InsertClickName, StringComparison.OrdinalIgnoreCase))
                     {
                         // 名前だけを受け付ける (Enum.Parse だと "1" のような数字まで読めてしまう)
@@ -204,6 +218,11 @@ namespace Copipe.Services
                                  "# Language: display language. Auto (follow Windows), Japanese or English"));
             sb.AppendLine(string.Format(
                 CultureInfo.InvariantCulture, "{0}={1}", LanguageName, Language));
+            sb.AppendLine(Lang.T("# HistoryCount: 残すクリップボード履歴の件数 (ピン止めは数えない)。" + ClipboardHistory.MinItems + "〜" + ClipboardHistory.MaxItems,
+                                 "# HistoryCount: number of clipboard history items to keep (pinned items not counted). " +
+                                 ClipboardHistory.MinItems + "-" + ClipboardHistory.MaxItems));
+            sb.AppendLine(string.Format(
+                CultureInfo.InvariantCulture, "{0}={1}", HistoryCountName, HistoryCount));
 
             // 日本語のコメントが化けないよう BOM 付きの UTF-8 で書く
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));

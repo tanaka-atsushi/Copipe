@@ -21,12 +21,14 @@ namespace Copipe.Services
         /// </summary>
         public const int MaxTextLength = 100000;
 
-        /// <summary>
-        /// Copipe が残す履歴の件数 (ピン止めは数えない)。小窓で振れる番号 (1〜9、0) と同じ 10 件に固定する。
-        /// </summary>
-        public const int MaxItems = 10;
+        /// <summary>履歴の件数 (ピン止めは数えない) の既定。設定画面で MinItems〜MaxItems に変えられる。</summary>
+        public const int DefaultItems = 10;
 
-        /// <summary>ピン止めできる件数。小窓で振れる文字 (a〜z) と同じ 26 件。</summary>
+        /// <summary>設定できる履歴の件数の下限と上限。</summary>
+        public const int MinItems = 1;
+        public const int MaxItems = 100;
+
+        /// <summary>ピン止めできる件数。</summary>
         public const int MaxPinned = 26;
 
         /// <summary>ピン止めが上限に達しているか。</summary>

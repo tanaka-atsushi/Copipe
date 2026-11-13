@@ -6,7 +6,7 @@ using Copipe.Services;
 namespace Copipe.UI
 {
     /// <summary>
-    /// 設定画面。ホットキー・小窓の出し方・モードキー・貼り付けの操作を変える。
+    /// 設定画面。ホットキー・小窓の出し方・モードキー・貼り付けの操作・履歴の件数を変える。
     /// キーは押されたキーをその場で取り込む。表示している間、呼び出し側は今のホットキーを
     /// 解除しておくこと (解除しないと、今のキーを押してもここには届かない)。
     /// </summary>
@@ -33,6 +33,7 @@ namespace Copipe.UI
         private readonly RadioButton _toggle;
         private readonly RadioButton _singleClick;
         private readonly ComboBox _language;
+        private readonly NumericUpDown _historyCount;
         private readonly Button _ok;
         private Keys _selected;
         private Keys _selectedModeKey;
@@ -56,7 +57,7 @@ namespace Copipe.UI
             KeyPreview = true;
             Font = SystemFonts.MessageBoxFont;
             BackColor = SystemColors.Window;
-            ClientSize = new Size(Scaled(380), Scaled(462));
+            ClientSize = new Size(Scaled(380), Scaled(500));
 
             Label hotkeyLabel = new Label();
             hotkeyLabel.Text = Lang.T("ホットキー (小窓を出すキー)", "Hotkey (shows the popup)");
@@ -142,11 +143,32 @@ namespace Copipe.UI
             doubleClick.Checked = (currentInsertClick != InsertClick.Single);
             _singleClick.Checked = (currentInsertClick == InsertClick.Single);
 
+            Label historyLabel = new Label();
+            historyLabel.Text = Lang.T("履歴の件数", "History size");
+            historyLabel.AutoSize = true;
+            historyLabel.Location = new Point(Scaled(16), Scaled(326));
+            Controls.Add(historyLabel);
+
+            // 残すクリップボード履歴の件数 (ピン止めは数えない)。値は HistoryCount で入れる・読む
+            _historyCount = new NumericUpDown();
+            _historyCount.Name = "historyCountBox";
+            _historyCount.Minimum = ClipboardHistory.MinItems;
+            _historyCount.Maximum = ClipboardHistory.MaxItems;
+            _historyCount.Value = ClipboardHistory.DefaultItems;
+            _historyCount.Bounds = new Rectangle(Scaled(120), Scaled(322), Scaled(80), Scaled(24));
+            Controls.Add(_historyCount);
+
+            Label historyUnit = new Label();
+            historyUnit.Text = Lang.T("件 (ピン止めは数えない)", "items (pinned not counted)");
+            historyUnit.AutoSize = true;
+            historyUnit.Location = new Point(Scaled(206), Scaled(326));
+            Controls.Add(historyUnit);
+
             // 欄の名前はいつも Language、言語の名前はその言語で出す (読めない言語になっても戻せるように)
             Label languageLabel = new Label();
             languageLabel.Text = "Language";
             languageLabel.AutoSize = true;
-            languageLabel.Location = new Point(Scaled(16), Scaled(326));
+            languageLabel.Location = new Point(Scaled(16), Scaled(364));
             Controls.Add(languageLabel);
 
             _language = new ComboBox();
@@ -154,20 +176,20 @@ namespace Copipe.UI
             _language.DropDownStyle = ComboBoxStyle.DropDownList;
             _language.Items.AddRange(new object[] { Lang.T("自動 (Windows に合わせる)", "Auto (follow Windows)"), "日本語", "English" });
             _language.SelectedIndex = (int)currentLanguage;
-            _language.Bounds = new Rectangle(Scaled(120), Scaled(322), Scaled(244), Scaled(24));
+            _language.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(244), Scaled(24));
             Controls.Add(_language);
 
             Label phrasesLabel = new Label();
             phrasesLabel.Text = Lang.T("定型文", "Snippets");
             phrasesLabel.AutoSize = true;
-            phrasesLabel.Location = new Point(Scaled(16), Scaled(366));
+            phrasesLabel.Location = new Point(Scaled(16), Scaled(404));
             Controls.Add(phrasesLabel);
 
             // 定型文の一括登録・一括編集の画面を開く (開くのは CopipeApp。BulkEditRequested で頼む)
             Button bulk = new Button();
             bulk.Name = "bulkEditButton";
             bulk.Text = Lang.T("まとめて編集...", "Edit in bulk...");
-            bulk.Bounds = new Rectangle(Scaled(120), Scaled(360), Scaled(160), Scaled(30));
+            bulk.Bounds = new Rectangle(Scaled(120), Scaled(398), Scaled(160), Scaled(30));
             bulk.Click += delegate
             {
                 Action<IWin32Window> handler = BulkEditRequested;
@@ -182,7 +204,7 @@ namespace Copipe.UI
             Button about = new Button();
             about.Name = "aboutButton";
             about.Text = "About...";
-            about.Bounds = new Rectangle(Scaled(16), Scaled(412), Scaled(84), Scaled(30));
+            about.Bounds = new Rectangle(Scaled(16), Scaled(450), Scaled(84), Scaled(30));
             about.Click += delegate
             {
                 using (AboutDialog dialog = new AboutDialog())
@@ -195,13 +217,13 @@ namespace Copipe.UI
             _ok = new Button();
             _ok.Text = "OK";
             _ok.DialogResult = DialogResult.OK;
-            _ok.Bounds = new Rectangle(Scaled(188), Scaled(412), Scaled(84), Scaled(30));
+            _ok.Bounds = new Rectangle(Scaled(188), Scaled(450), Scaled(84), Scaled(30));
             Controls.Add(_ok);
 
             Button cancel = new Button();
             cancel.Text = Lang.T("キャンセル", "Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Bounds = new Rectangle(Scaled(280), Scaled(412), Scaled(84), Scaled(30));
+            cancel.Bounds = new Rectangle(Scaled(280), Scaled(450), Scaled(84), Scaled(30));
             Controls.Add(cancel);
 
             AcceptButton = _ok;
@@ -235,6 +257,13 @@ namespace Copipe.UI
         public InsertClick SelectedInsertClick
         {
             get { return _singleClick.Checked ? InsertClick.Single : InsertClick.Double; }
+        }
+
+        /// <summary>残すクリップボード履歴の件数。開く前に今の値を入れ、OK で閉じたら選ばれた値を読む。</summary>
+        public int HistoryCount
+        {
+            get { return (int)_historyCount.Value; }
+            set { _historyCount.Value = Math.Max(ClipboardHistory.MinItems, Math.Min(ClipboardHistory.MaxItems, value)); }
         }
 
         /// <summary>OK で閉じたときに選ばれた言語。</summary>
